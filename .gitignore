@@ -1,0 +1,7 @@
+# Secrets — keep local, never commit (per project convention)
+gas/Config.js
+**/Config.js
+
+# Node / clasp local
+node_modules/
+npm-debug.log*

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('Stylesheet'); ?>
+  </head>
+  <body>
+    <div id="app">
+      <h1 class="title">Fortissimus</h1>
+
+      <!-- Proof the web app loads assets straight from the GitHub repo. -->
+      <img class="board"
+           src="<?= assetUrl('RaceTrackBoard.png'); ?>"
+           alt="Fortissimus race track board">
+
+      <p class="hint">
+        Web app skeleton is live. Assets load from
+        <code>raw.githubusercontent.com/lanseroo/Fortissimus/main/</code>.
+      </p>
+    </div>
+  </body>
+</html>
