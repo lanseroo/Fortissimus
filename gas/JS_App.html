@@ -1,0 +1,298 @@
+<script type="module">
+  import * as THREE from 'three';
+  import { STLLoader }     from 'three/addons/loaders/STLLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // ------------------------------------------------------------------ config
+  const ASSET_BASE = window.ASSET_BASE;                    // raw GitHub, always fresh
+  const BOARD_W    = 100;                                  // world width of any board
+  const MINI_H     = 12;                                   // target mini height
+  const COLORS = {                                         // player colors
+    Blue:   0x2f6fdb, Green: 0x2ea84f, Purple: 0x7b3fb0, Yellow: 0xf5b800,
+  };
+
+  const container = document.getElementById('viewer');
+  const diceTotalEl = document.getElementById('diceTotal');
+
+  // ------------------------------------------------------------------ scene
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x14161a);
+
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+  camera.position.set(0, 95, 105);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.target.set(0, 0, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.5));
+  const key = new THREE.DirectionalLight(0xffffff, 1.0);
+  key.position.set(40, 80, 40);
+  scene.add(key);
+
+  // Neutral table under the board
+  const table = new THREE.Mesh(
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshStandardMaterial({ color: 0x0d0e10, roughness: 1 })
+  );
+  table.rotation.x = -Math.PI / 2;
+  table.position.y = -0.2;
+  scene.add(table);
+
+  function resize() {
+    const w = container.clientWidth, h = container.clientHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  // ------------------------------------------------------------------ board
+  const texCache = new Map();
+  function loadTexture(name) {
+    if (texCache.has(name)) return texCache.get(name);
+    const t = new THREE.TextureLoader().load(ASSET_BASE + name);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    texCache.set(name, t);
+    return t;
+  }
+
+  let boardMesh = null;
+  function setBoard(name) {
+    const tex = new THREE.TextureLoader().load(ASSET_BASE + name, (t) => {
+      const aspect = (t.image.width || 2) / (t.image.height || 1);
+      const w = BOARD_W, h = BOARD_W / aspect;
+      if (!boardMesh) {
+        boardMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(1, 1),
+          new THREE.MeshStandardMaterial({ roughness: 0.85 })
+        );
+        boardMesh.rotation.x = -Math.PI / 2;
+        scene.add(boardMesh);
+      }
+      boardMesh.geometry.dispose();
+      boardMesh.geometry = new THREE.PlaneGeometry(w, h);
+      t.colorSpace = THREE.SRGBColorSpace;
+      boardMesh.material.map = t;
+      boardMesh.material.needsUpdate = true;
+    });
+    return tex;
+  }
+
+  // ------------------------------------------------------------------ pieces
+  const pieces = [];
+  const loader = new STLLoader();
+  let activeColorName = 'Blue';
+
+  function registerPiece(group, type) {
+    group.userData.isPiece = true;
+    group.userData.type = type;
+    pieces.push(group);
+    scene.add(group);
+    return group;
+  }
+
+  // slight scatter so new pieces don't stack exactly
+  function spawnXZ() {
+    return [(Math.random() - 0.5) * 30, (Math.random() - 0.5) * 20];
+  }
+
+  function addMini(file, colorName = activeColorName) {
+    loader.load(ASSET_BASE + file, (geometry) => {
+      geometry.rotateX(-Math.PI / 2);        // stand upright (CAD is usually Z-up)
+      geometry.center();
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      const size = new THREE.Vector3();
+      geometry.boundingBox.getSize(size);
+      const scale = MINI_H / (size.y || 1);
+      const mat = new THREE.MeshStandardMaterial({
+        color: COLORS[colorName], metalness: 0.15, roughness: 0.6,
+      });
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.scale.setScalar(scale);
+      mesh.position.y = (-geometry.boundingBox.min.y) * scale;   // base on board
+      const g = new THREE.Group();
+      g.add(mesh);
+      const [x, z] = spawnXZ();
+      g.position.set(x, 0, z);
+      g.userData.color = colorName;
+      registerPiece(g, 'mini');
+    });
+  }
+
+  // Flat PNG token lying on the board
+  function addToken(file, worldSize = 7, type = 'token') {
+    const tex = loadTexture(file);
+    const g = new THREE.Group();
+    const build = () => {
+      const aspect = (tex.image && tex.image.width / tex.image.height) || 1;
+      const w = worldSize, h = worldSize / aspect;
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false })
+      );
+      plane.rotation.x = -Math.PI / 2;
+      g.add(plane);
+    };
+    if (tex.image) build();                 // already cached + loaded
+    else new THREE.TextureLoader().load(ASSET_BASE + file, () => build());
+    const [x, z] = spawnXZ();
+    g.position.set(x, 0.06, z);
+    return registerPiece(g, type);
+  }
+
+  // ------------------------------------------------------------------ dice
+  function makeDieMesh(value) {
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(7, 7),
+      new THREE.MeshBasicMaterial({ map: loadTexture('Dice_' + value + '.png'), transparent: true, side: THREE.DoubleSide, depthWrite: false })
+    );
+    plane.rotation.x = -Math.PI / 2;
+    return plane;
+  }
+
+  function updateDiceTotal() {
+    const dice = pieces.filter((p) => p.userData.type === 'die');
+    const total = dice.reduce((s, d) => s + (d.userData.value || 0), 0);
+    if (diceTotalEl) diceTotalEl.textContent = dice.length
+      ? ('Dice: ' + dice.map((d) => d.userData.value).join(' + ') + ' = ' + total)
+      : 'Dice: —';
+  }
+
+  function rollDice(n) {
+    // remove existing dice
+    for (const d of pieces.filter((p) => p.userData.type === 'die')) removePiece(d);
+    for (let i = 0; i < n; i++) {
+      const v = 1 + Math.floor(Math.random() * 6);
+      const g = new THREE.Group();
+      g.add(makeDieMesh(v));
+      g.position.set((i - (n - 1) / 2) * 9, 0.06, BOARD_W * 0.28);
+      g.userData.value = v;
+      registerPiece(g, 'die');
+    }
+    updateDiceTotal();
+  }
+
+  function reroll() {
+    for (const d of pieces.filter((p) => p.userData.type === 'die')) {
+      const v = 1 + Math.floor(Math.random() * 6);
+      d.userData.value = v;
+      d.children[0].material.map = loadTexture('Dice_' + v + '.png');
+      d.children[0].material.needsUpdate = true;
+    }
+    updateDiceTotal();
+  }
+
+  // ------------------------------------------------------------------ select + drag
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const dragOffset = new THREE.Vector3();
+  const hitPoint = new THREE.Vector3();
+  let selected = null, dragging = false;
+  let selectionBox = null;
+
+  function setNDC(e) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  }
+
+  function pieceFromHit(obj) {
+    while (obj && !obj.userData.isPiece) obj = obj.parent;
+    return obj;
+  }
+
+  function select(group) {
+    selected = group;
+    if (selectionBox) { scene.remove(selectionBox); selectionBox.geometry.dispose(); selectionBox = null; }
+    if (group) {
+      selectionBox = new THREE.BoxHelper(group, 0xffe14a);
+      scene.add(selectionBox);
+    }
+  }
+
+  function removePiece(group) {
+    const i = pieces.indexOf(group);
+    if (i >= 0) pieces.splice(i, 1);
+    group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    scene.remove(group);
+    if (selected === group) select(null);
+  }
+
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    setNDC(e);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObjects(pieces, true)[0];
+    if (hit) {
+      const p = pieceFromHit(hit.object);
+      select(p);
+      dragging = true;
+      controls.enabled = false;
+      raycaster.ray.intersectPlane(groundPlane, hitPoint);
+      dragOffset.set(p.position.x - hitPoint.x, 0, p.position.z - hitPoint.z);
+    } else {
+      select(null);
+    }
+  });
+
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!dragging || !selected) return;
+    setNDC(e);
+    raycaster.setFromCamera(ndc, camera);
+    if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
+      selected.position.x = hitPoint.x + dragOffset.x;
+      selected.position.z = hitPoint.z + dragOffset.z;
+    }
+  });
+
+  const endDrag = () => { dragging = false; controls.enabled = true; };
+  renderer.domElement.addEventListener('pointerup', endDrag);
+  renderer.domElement.addEventListener('pointerleave', endDrag);
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+      e.preventDefault();
+      removePiece(selected);
+    }
+  });
+
+  // ------------------------------------------------------------------ camera helpers
+  function resetView() {
+    camera.position.set(0, 95, 105);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }
+
+  function clearPieces() {
+    for (const p of [...pieces]) removePiece(p);
+    updateDiceTotal();
+  }
+
+  // ------------------------------------------------------------------ public API
+  window.PT = {
+    setBoard, addMini, addToken, rollDice, reroll, clearPieces, resetView,
+    setActiveColor: (name) => { activeColorName = name; },
+    getActiveColor: () => activeColorName,
+    COLORS,
+  };
+
+  // ------------------------------------------------------------------ render loop
+  (function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    if (selectionBox) selectionBox.update();
+    renderer.render(scene, camera);
+  })();
+
+  resize();
+  setBoard('RaceTrackBoard.png');
+  updateDiceTotal();
+</script>

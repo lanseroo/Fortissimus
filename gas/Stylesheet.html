@@ -1,54 +1,128 @@
 <style>
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #1b1b1b;
     color: #f2f2f2;
   }
-  #app {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 16px;
-    text-align: center;
-  }
   .title {
     font-family: Georgia, "Times New Roman", serif;
     font-style: italic;
     letter-spacing: 1px;
-    margin: 4px 0 12px;
+    margin: 10px 16px 8px;
+    font-size: 1.4rem;
   }
-  .controls {
+
+  /* ------------------------------------------------------------- toolbar */
+  #toolbar {
     display: flex;
-    gap: 20px;
-    align-items: center;
-    justify-content: center;
+    gap: 10px;
+    align-items: stretch;
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    padding: 0 16px 10px;
   }
-  .controls select {
-    padding: 4px 6px;
+  #toolbar fieldset {
+    border: 1px solid #3a3d42;
+    border-radius: 6px;
+    padding: 6px 10px 8px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #toolbar legend {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #9aa0a6;
+    padding: 0 4px;
+  }
+  #toolbar select,
+  #toolbar input,
+  #toolbar button {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 4px 8px;
     border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30;
+    color: #f2f2f2;
+    cursor: pointer;
   }
+  #toolbar button:hover { background: #3a3d42; }
+  #toolbar input[type="number"] { cursor: text; }
+  .dtot { font-size: 0.85rem; color: #ffd479; white-space: nowrap; }
+
+  /* swatches */
   .swatches { display: inline-flex; align-items: center; gap: 6px; }
   .sw {
-    width: 24px;
-    height: 24px;
+    width: 24px; height: 24px;
     border-radius: 50%;
     border: 2px solid #444;
     cursor: pointer;
     padding: 0;
   }
   .sw:hover { border-color: #fff; }
+  .sw.active { border-color: #fff; box-shadow: 0 0 0 2px #ffd479; }
+
+  /* ------------------------------------------------------------- stage */
+  #stage {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    padding: 0 16px 16px;
+    height: 78vh;
+  }
   #viewer {
-    width: 100%;
-    height: 520px;
+    flex: 1 1 auto;
     background: radial-gradient(circle at 50% 35%, #33383f, #16181b);
     border-radius: 8px;
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
     overflow: hidden;
   }
-  #viewer canvas { display: block; }
-  .hint { color: #b8b8b8; font-size: 0.9rem; }
-  code { color: #ffd479; }
+  #viewer canvas { display: block; cursor: grab; }
+  #viewer canvas:active { cursor: grabbing; }
+
+  /* ------------------------------------------------------------- VP panel */
+  #vpPanel {
+    flex: 0 0 220px;
+    background: #202226;
+    border: 1px solid #3a3d42;
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow: auto;
+  }
+  #vpPanel h3 { margin: 2px 0 10px; font-size: 1rem; }
+  .vp {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .vp .dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    display: inline-block;
+    flex: 0 0 auto;
+  }
+  .vp .val {
+    min-width: 2.2em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.1rem;
+  }
+  .vp button {
+    width: 28px; height: 28px;
+    border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30;
+    color: #f2f2f2;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .vp button:hover { background: #3a3d42; }
+  .hint { color: #8a8f96; font-size: 0.78rem; margin-top: 14px; line-height: 1.4; }
 </style>

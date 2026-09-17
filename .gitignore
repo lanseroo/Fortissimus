@@ -5,3 +5,6 @@ gas/Config.js
 # Node / clasp local
 node_modules/
 npm-debug.log*
+
+# Design IP — repo is public, keep rules/design notes local
+docs/

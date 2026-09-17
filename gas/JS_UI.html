@@ -1,0 +1,100 @@
+<script type="module">
+  // Toolbar / panel wiring. Runs after JS_App (both are modules → DOM order),
+  // so window.PT is defined by the time this executes.
+  const PT = window.PT;
+
+  // ---- board dropdown ----
+  const BOARDS = [
+    ['RaceTrackBoard.png', 'Main — Race Track'],
+    ['ColosseumBoard.png', 'Colosseum'],
+    ['ColumnBoard.png',    'Pillars (Columns)'],
+    ['UnderworldBoard.png','Underworld'],
+    ['AegyptusBoard.png',  'Faction — Aegyptus'],
+    ['AnatoliaBoard.png',  'Faction — Anatolia'],
+    ['ArchaeaBoard.png',   'Faction — Archaea'],
+    ['PhoeniciaBoard.png', 'Faction — Phoenicia'],
+    ['Event1Board.png',    'Event Board 1'],
+    ['Event2Board.png',    'Event Board 2'],
+    ['Event3Board.png',    'Event Board 3'],
+    ['ArcheryEvent.png',   'Event — Archery'],
+    ['DiscusEvent.png',    'Event — Discus'],
+    ['HighJumpEvent.png',  'Event — High Jump'],
+    ['LongJumpEvent.png',  'Event — Long Jump'],
+    ['SprintEvent.png',    'Event — Sprint'],
+    ['WrestlingEvent.png', 'Event — Wrestling'],
+    ['Column1_1.png', 'Pillar — Fortuna'],
+    ['Column1_2.png', 'Pillar — Vulcan'],
+    ['Column2_1.png', 'Pillar — Bacchus'],
+    ['Column2_2.png', 'Pillar — Fauna'],
+    ['Column3_1.png', 'Pillar — Mercury'],
+    ['Column3_2.png', 'Pillar — Pluto'],
+  ];
+  const boardSel = document.getElementById('boardSelect');
+  for (const [file, label] of BOARDS) {
+    const o = document.createElement('option');
+    o.value = file; o.textContent = label; boardSel.appendChild(o);
+  }
+  boardSel.addEventListener('change', () => PT.setBoard(boardSel.value));
+
+  // ---- mini models (STL list; extend as more arrive) ----
+  const MODELS = [
+    ['ArchaeaA.stl', 'Archaea A'],
+    ['ArchaeaB.stl', 'Archaea B'],
+    ['ArchaeaD.stl', 'Archaea D'],
+    ['ArchaeaE.stl', 'Archaea E'],
+    ['ArchaeaY.stl', 'Archaea Y'],
+  ];
+  const modelSel = document.getElementById('modelSelect');
+  for (const [file, label] of MODELS) {
+    const o = document.createElement('option');
+    o.value = file; o.textContent = label; modelSel.appendChild(o);
+  }
+  document.getElementById('addMini').addEventListener('click', () => PT.addMini(modelSel.value));
+
+  // ---- hero cards ----
+  const HEROES = [
+    ['1_2_Hero.png', 'Str1 Spd2'],
+    ['2_1_Hero.png', 'Str2 Spd1'],
+    ['2_2_Hero.png', 'Str2 Spd2'],
+    ['2_3_Hero.png', 'Str2 Spd3'],
+    ['3_2_Hero.png', 'Str3 Spd2'],
+    ['3_3_Hero.png', 'Str3 Spd3'],
+  ];
+  const heroSel = document.getElementById('heroSelect');
+  for (const [file, label] of HEROES) {
+    const o = document.createElement('option');
+    o.value = file; o.textContent = label; heroSel.appendChild(o);
+  }
+  document.getElementById('addHero').addEventListener('click', () => PT.addToken(heroSel.value, 16, 'card'));
+
+  // ---- active color swatches ----
+  document.querySelectorAll('#toolbar .sw').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#toolbar .sw').forEach((s) => s.classList.remove('active'));
+    b.classList.add('active');
+    PT.setActiveColor(b.dataset.color);
+  }));
+
+  // ---- color-dependent tokens ----
+  document.getElementById('addChariot').addEventListener('click', () => PT.addToken('ChariotIcon' + PT.getActiveColor() + '.png', 8));
+  document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken(PT.getActiveColor() + 'Pliebe.png', 16, 'card'));
+
+  // ---- fixed tokens ----
+  document.getElementById('addIncome').addEventListener('click', () => PT.addToken('IncomeToken.png', 6));
+  document.getElementById('addCheer').addEventListener('click',  () => PT.addToken('Cheer.png', 16, 'card'));
+  document.getElementById('addJeer').addEventListener('click',   () => PT.addToken('Jeer.png', 16, 'card'));
+
+  // ---- dice ----
+  document.getElementById('rollDice').addEventListener('click', () => PT.rollDice(parseInt(document.getElementById('diceCount').value, 10) || 1));
+  document.getElementById('reroll').addEventListener('click', () => PT.reroll());
+
+  // ---- view ----
+  document.getElementById('resetView').addEventListener('click', () => PT.resetView());
+  document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
+
+  // ---- VP counters (pure HTML state) ----
+  document.querySelectorAll('#vpPanel .vp').forEach((row) => {
+    const val = row.querySelector('.val');
+    row.querySelector('.inc').addEventListener('click', () => val.textContent = (+val.textContent) + 1);
+    row.querySelector('.dec').addEventListener('click', () => val.textContent = (+val.textContent) - 1);
+  });
+</script>
