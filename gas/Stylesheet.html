@@ -7,7 +7,7 @@
     color: #f2f2f2;
   }
   #app {
-    max-width: 1200px;
+    max-width: 1000px;
     margin: 0 auto;
     padding: 16px;
     text-align: center;
@@ -16,13 +16,39 @@
     font-family: Georgia, "Times New Roman", serif;
     font-style: italic;
     letter-spacing: 1px;
+    margin: 4px 0 12px;
   }
-  .board {
+  .controls {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .controls select {
+    padding: 4px 6px;
+    border-radius: 4px;
+  }
+  .swatches { display: inline-flex; align-items: center; gap: 6px; }
+  .sw {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #444;
+    cursor: pointer;
+    padding: 0;
+  }
+  .sw:hover { border-color: #fff; }
+  #viewer {
     width: 100%;
-    height: auto;
+    height: 520px;
+    background: radial-gradient(circle at 50% 35%, #33383f, #16181b);
     border-radius: 8px;
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
   }
+  #viewer canvas { display: block; }
   .hint { color: #b8b8b8; font-size: 0.9rem; }
   code { color: #ffd479; }
 </style>

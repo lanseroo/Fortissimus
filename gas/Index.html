@@ -3,20 +3,47 @@
   <head>
     <base target="_top">
     <?!= include('Stylesheet'); ?>
+
+    <!-- three.js (ES modules) via CDN import map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="app">
       <h1 class="title">Fortissimus</h1>
 
-      <!-- Proof the web app loads assets straight from the GitHub repo. -->
-      <img class="board"
-           src="<?= assetUrl('RaceTrackBoard.png'); ?>"
-           alt="Fortissimus race track board">
+      <div class="controls">
+        <label>Model:
+          <select id="modelSelect">
+            <option value="ArchaeaA.stl">Archaea A</option>
+            <option value="ArchaeaB.stl">Archaea B</option>
+            <option value="ArchaeaD.stl">Archaea D</option>
+            <option value="ArchaeaE.stl">Archaea E</option>
+            <option value="ArchaeaY.stl">Archaea Y</option>
+          </select>
+        </label>
+        <span class="swatches">
+          Color:
+          <button class="sw" style="background:#2f6fdb" data-color="0x2f6fdb" title="Blue"></button>
+          <button class="sw" style="background:#2ea84f" data-color="0x2ea84f" title="Green"></button>
+          <button class="sw" style="background:#7b3fb0" data-color="0x7b3fb0" title="Purple"></button>
+          <button class="sw" style="background:#f5b800" data-color="0xf5b800" title="Yellow"></button>
+        </span>
+      </div>
 
-      <p class="hint">
-        Web app skeleton is live. Assets load from
-        <code>raw.githubusercontent.com/lanseroo/Fortissimus/main/</code>.
-      </p>
+      <div id="viewer"></div>
+      <p id="status" class="hint">Loading 3D viewer…</p>
+      <p class="hint">Blue body + black symbol decal, rendered from the raw STL — no color baked into the file.</p>
     </div>
+
+    <!-- Expose the repo asset base to the client -->
+    <script>window.ASSET_BASE = "<?= ASSET_BASE ?>";</script>
+    <?!= include('JS_Viewer'); ?>
   </body>
 </html>
