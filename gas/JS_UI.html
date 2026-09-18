@@ -87,6 +87,8 @@
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
   const showSlots = document.getElementById('showSlots');
   showSlots.addEventListener('change', () => PT.setSlotsVisible(showSlots.checked));
+  const showColumns = document.getElementById('showColumns');
+  showColumns.addEventListener('change', () => PT.setColumnsVisible(showColumns.checked));
 
   // ---- VP counters (pure HTML state) ----
   document.querySelectorAll('#vpPanel .vp').forEach((row) => {

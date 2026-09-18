@@ -32,31 +32,57 @@
   const ellipseSlots = (cu, cv, ru, rv, n, accepts, r = 6, deg0 = -90) => {
     const out = []; for (let i = 0; i < n; i++) { const a = deg0 * Math.PI / 180 + i / n * 2 * Math.PI; out.push({ u: cu + ru * Math.cos(a), v: cv + rv * Math.sin(a), accepts, r }); } return out;
   };
+  // Two concentric ellipses -> a pair of slots per station (inner + outer),
+  // the pair oriented along the radius (vertical at top/bottom, horizontal at
+  // the sides) — matches the Colosseum's paired fighter circles.
+  const ellipsePairSlots = (cu, cv, ruI, rvI, ruO, rvO, n, accepts, r = 5, deg0 = -75) => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = deg0 * Math.PI / 180 + i / n * 2 * Math.PI;
+      out.push({ u: cu + ruI * Math.cos(a), v: cv + rvI * Math.sin(a), accepts, r });
+      out.push({ u: cu + ruO * Math.cos(a), v: cv + rvO * Math.sin(a), accepts, r });
+    }
+    return out;
+  };
+  // Stadium (rounded-rectangle) loop: two straights at v = cv±ry joined by
+  // semicircular end caps of radius (rx in u, ry in v). Used for race lanes.
+  const stadiumSlots = (cu, cv, sx, rx, ry, nStr, nEnd, accepts, r = 4) => {
+    const out = [];
+    for (let i = 0; i < nStr; i++) { const t = i / (nStr - 1); out.push({ u: cu - sx + 2 * sx * t, v: cv - ry, accepts, r }); }                                                         // top straight L->R
+    for (let i = 1; i <= nEnd; i++) { const a = -Math.PI / 2 + (i / (nEnd + 1)) * Math.PI; out.push({ u: cu + sx + rx * Math.cos(a), v: cv + ry * Math.sin(a), accepts, r }); }             // right cap
+    for (let i = 0; i < nStr; i++) { const t = i / (nStr - 1); out.push({ u: cu + sx - 2 * sx * t, v: cv + ry, accepts, r }); }                                                         // bottom straight R->L
+    for (let i = 1; i <= nEnd; i++) { const a = Math.PI / 2 + (i / (nEnd + 1)) * Math.PI; out.push({ u: cu - sx + rx * Math.cos(a), v: cv + ry * Math.sin(a), accepts, r }); }              // left cap
+    return out;
+  };
 
   // Event reward strips: 6-column x 2-row hero-placement grid
   // (top row Blue/Purple, bottom row Green/Yellow).
   const EVENT_GRID = gridSlots(
     [0.240, 0.336, 0.431, 0.527, 0.623, 0.719], [0.176, 0.376], CARD, 5);
 
-  // Race track: player start circles, 0-6 lap row, relic track (left),
-  // chariot track (right), era track (bottom). Oval race lanes TBD.
+  // Race track: player barracks (start circles), 0-6 lap row, relic track
+  // (left, 4 rungs), chariot track (right, 5 rungs), event/era track (bottom,
+  // I-VI + red-flag milestones), and the two oval racing lanes.
   const RACE_SLOTS = [
-    ...rowSlots(0.055, 0.126, 2, 0.075, TOK, 4.5),        // Blue start pair
-    ...rowSlots(0.252, 0.324, 2, 0.075, TOK, 4.5),        // Green start pair
-    ...rowSlots(0.412, 0.484, 2, 0.075, TOK, 4.5),        // Purple start pair
-    ...rowSlots(0.664, 0.736, 2, 0.075, TOK, 4.5),        // Yellow start pair
-    ...rowSlots(0.277, 0.723, 7, 0.515, ['token'], 5),    // lap counter 0-6
-    ...colSlots(0.034, 0.313, 0.813, 5, ['token'], 5),    // relic track rungs
-    ...colSlots(0.967, 0.313, 0.813, 5, ['token'], 5),    // chariot track rungs
-    ...rowSlots(0.290, 0.568, 6, 0.940, ['token'], 4.5),  // era track I-VI
+    ...rowSlots(0.048, 0.128, 2, 0.063, TOK, 4.5),        // Blue barracks
+    ...rowSlots(0.246, 0.326, 2, 0.063, TOK, 4.5),        // Green barracks
+    ...rowSlots(0.431, 0.510, 2, 0.063, TOK, 4.5),        // Purple barracks
+    ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
+    ...rowSlots(0.268, 0.718, 7, 0.518, ['token'], 5),    // lap counter 0-6
+    ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
+    ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
+    ...rowSlots(0.293, 0.643, 9, 0.895, ['token'], 4),    // event/era track (9 tiles)
+    ...stadiumSlots(0.449, 0.518, 0.29, 0.130, 0.225, 6, 1, TOK, 4),  // outer lane
+    ...stadiumSlots(0.449, 0.518, 0.29, 0.075, 0.125, 6, 1, TOK, 4),  // inner lane
   ];
 
-  // Column board: 3 pillars, ~6 rungs each (art is on separate overlays, so
-  // these are pure estimates — expect to tune once markers are visible).
+  // Column board: 3 pillars, 6 reward rungs each. Rung v-range read off the
+  // drawn column art (Column*_1.png), which the "Show columns" overlay renders
+  // on top of the empty board pillars so alignment can be verified.
   const COLUMN_SLOTS = [
-    ...colSlots(0.150, 0.18, 0.90, 6, TOK, 5),
-    ...colSlots(0.505, 0.18, 0.90, 6, TOK, 5),
-    ...colSlots(0.850, 0.18, 0.90, 6, TOK, 5),
+    ...colSlots(0.149, 0.256, 0.726, 6, TOK, 5),
+    ...colSlots(0.501, 0.256, 0.726, 6, TOK, 5),
+    ...colSlots(0.855, 0.256, 0.726, 6, TOK, 5),
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
@@ -66,10 +92,11 @@
     { u: 0.770, v: 0.501, accepts: CARD, r: 8 },
   ];
 
-  // Colosseum: 12 fighter positions around the arena + center gladiator slot.
+  // Colosseum: 12 fighter stations around the arena, each with a paired
+  // (inner + outer) circle, + the center gladiator slot.
   const COLOSSEUM_SLOTS = [
-    ...ellipseSlots(0.50, 0.44, 0.40, 0.30, 12, CARD, 6),
-    { u: 0.50, v: 0.476, accepts: CARD, r: 8 },
+    ...ellipsePairSlots(0.50, 0.50, 0.35, 0.26, 0.45, 0.39, 12, CARD, 5),
+    { u: 0.50, v: 0.49, accepts: CARD, r: 8 },
   ];
 
   // Faction mats (shared template for all 4): income track, hero market
@@ -113,6 +140,14 @@
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, slotsDef: FACTION_SLOTS },   // Yellow, far right
     { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Green, bottom-left
     { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Purple, bottom-right
+  ];
+
+  // Drawn column art (rung faces) overlaid on the empty board pillars, so the
+  // COLUMN_SLOTS rungs can be checked against the real cells. Toggleable.
+  const COLUMN_OVERLAYS = [
+    { file: 'Column1_1.png', u: 0.149 },
+    { file: 'Column2_1.png', u: 0.501 },
+    { file: 'Column3_1.png', u: 0.855 },
   ];
 
   const container = document.getElementById('viewer');
@@ -240,6 +275,34 @@
     for (const b of LAYOUT) {
       const mesh = makeBoard(b);
       if (b.slot !== undefined) { eventSlots[b.slot] = mesh; mesh.userData.slotW = b.w; }
+    }
+    buildColumnOverlays();
+  }
+
+  // ---- drawn-column overlays (togglable rung-check art) ----
+  const columnGroup = new THREE.Group();
+  scene.add(columnGroup);
+  function buildColumnOverlays() {
+    const cb = LAYOUT.find((b) => b.file === 'ColumnBoard.png');
+    if (!cb) return;
+    const bw = cb.w, bh = cb.w / (1187 / 668);   // board world width/height
+    for (const c of COLUMN_OVERLAYS) {
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(cb.x + (c.u - 0.5) * bw, 0.08, cb.z);
+      columnGroup.add(mesh);
+      new THREE.TextureLoader().load(ASSET_BASE + c.file, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        const aspect = (t.image.width || 1) / (t.image.height || 1);
+        mesh.geometry.dispose();
+        mesh.geometry = new THREE.PlaneGeometry(bh * aspect, bh);  // match board height
+        mesh.material.map = t;
+        mesh.material.needsUpdate = true;
+      });
     }
   }
 
@@ -513,6 +576,7 @@
     addMini, addToken, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable,
     setSlotsVisible: (v) => { slotMarkersGroup.visible = v; },
+    setColumnsVisible: (v) => { columnGroup.visible = v; },
     setActiveColor: (name) => { activeColorName = name; },
     getActiveColor: () => activeColorName,
     COLORS,
