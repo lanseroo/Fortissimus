@@ -70,7 +70,9 @@
     ...rowSlots(0.246, 0.326, 2, 0.063, TOK, 4.5),        // Green barracks
     ...rowSlots(0.431, 0.510, 2, 0.063, TOK, 4.5),        // Purple barracks
     ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
-    ...rowSlots(0.271, 0.723, 7, 0.525, ['token'], 5),    // round counter 0-6 (measured off art)
+    // round counter 0-6 — exact cell centers measured off the art (uneven spacing)
+    ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
+      (u) => ({ u, v: 0.524, accepts: ['token'], r: 6 })),
     ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
     ...rowSlots(0.293, 0.643, 9, 0.895, ['token'], 4),    // event/era track (9 tiles)
@@ -99,8 +101,19 @@
   // Colosseum: 12 fighter stations around the arena, each with a paired
   // (inner + outer) circle, + the center gladiator slot.
   const COLOSSEUM_SLOTS = [
-    ...ellipsePairSlots(0.50, 0.50, 0.35, 0.26, 0.45, 0.39, 11, CARD, 5),
-    { u: 0.50, v: 0.49, accepts: CARD, r: 8 },
+    // 11 stations (II–XII), inner + outer circle each — measured off ColosseumBoard.png
+    { u: 0.636, v: 0.234, accepts: CARD, r: 7 }, { u: 0.664, v: 0.099, accepts: CARD, r: 7 }, // II
+    { u: 0.759, v: 0.331, accepts: CARD, r: 7 }, { u: 0.841, v: 0.254, accepts: CARD, r: 7 }, // III
+    { u: 0.789, v: 0.499, accepts: CARD, r: 7 }, { u: 0.873, v: 0.499, accepts: CARD, r: 7 }, // IV
+    { u: 0.759, v: 0.664, accepts: CARD, r: 7 }, { u: 0.834, v: 0.757, accepts: CARD, r: 7 }, // V
+    { u: 0.637, v: 0.791, accepts: CARD, r: 7 }, { u: 0.678, v: 0.922, accepts: CARD, r: 7 }, // VI
+    { u: 0.499, v: 0.790, accepts: CARD, r: 7 }, { u: 0.498, v: 0.922, accepts: CARD, r: 7 }, // VII
+    { u: 0.362, v: 0.790, accepts: CARD, r: 7 }, { u: 0.321, v: 0.922, accepts: CARD, r: 7 }, // VIII
+    { u: 0.228, v: 0.675, accepts: CARD, r: 7 }, { u: 0.164, v: 0.796, accepts: CARD, r: 7 }, // IX
+    { u: 0.212, v: 0.509, accepts: CARD, r: 7 }, { u: 0.128, v: 0.509, accepts: CARD, r: 7 }, // X
+    { u: 0.228, v: 0.342, accepts: CARD, r: 7 }, { u: 0.148, v: 0.251, accepts: CARD, r: 7 }, // XI
+    { u: 0.357, v: 0.242, accepts: CARD, r: 7 }, { u: 0.336, v: 0.104, accepts: CARD, r: 7 }, // XII
+    { u: 0.500, v: 0.478, accepts: CARD, r: 8 }, // center gladiator
   ];
 
   // Faction mats (shared template for all 4): income track, hero market
