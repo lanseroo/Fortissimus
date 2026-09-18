@@ -326,6 +326,9 @@
       mesh.add(edges);
       if (b.slotsDef) buildSlotsFor(b, b.w, b.h || b.w);
     } else {
+      // faction mats carry a currency/cup tray below the board (slots reach ~v1.68);
+      // record it so click-to-focus frames the tray too, not just the board rect.
+      if (b.color) mesh.userData.padV = { top: 0, bottom: 1.68 };
       applyBoardTexture(mesh, b.file, b.w, b);
     }
     return mesh;
@@ -800,8 +803,15 @@
     const p = mesh.geometry.parameters || {};
     const w = p.width || mesh.userData.slotW || 100;
     const h = p.height || w;
-    const cx = mesh.position.x, cz = mesh.position.z;
-    const radius = 0.5 * Math.hypot(w, h);
+    // Boards with content beyond the plane (faction-mat trays) declare a padV
+    // v-range; frame that whole span, not just the board rectangle.
+    const pv = mesh.userData.padV || { top: 0, bottom: 1 };
+    const topExt = (0.5 - pv.top) * h;      // world extent above board center
+    const botExt = (pv.bottom - 0.5) * h;   // world extent below board center
+    const effH = topExt + botExt;
+    const cx = mesh.position.x;
+    const cz = mesh.position.z + (botExt - topExt) / 2;   // recenter on the content
+    const radius = 0.5 * Math.hypot(w, effH);
     const fov = camera.fov * Math.PI / 180;
     const dist = (radius / Math.sin(fov / 2)) * 0.70;    // lower = closer/zoomed in
     camera.near = 0.5;
