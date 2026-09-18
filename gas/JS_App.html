@@ -98,10 +98,11 @@
   // on top of the empty board pillars so alignment can be verified.
   // Left/center/right pillars show Column2/Column3/Column1 (see COLUMN_OVERLAYS);
   // Fortuna (Column1, right) sits lower than Bacchus/Mercury, so ranges differ.
+  // 7 rungs each: 6 reward cells + the bottom start rung (same pitch).
   const COLUMN_SLOTS = [
-    ...colSlots(0.149, 0.175, 0.680, 6, ['marker'], 5),   // left  = Column2 (Bacchus)
-    ...colSlots(0.501, 0.180, 0.682, 6, ['marker'], 5),   // center= Column3 (Mercury)
-    ...colSlots(0.855, 0.241, 0.721, 6, ['marker'], 5),   // right = Column1 (Fortuna)
+    ...colSlots(0.149, 0.175, 0.781, 7, ['marker'], 5),   // left  = Column2 (Bacchus)
+    ...colSlots(0.501, 0.180, 0.782, 7, ['marker'], 5),   // center= Column3 (Mercury)
+    ...colSlots(0.855, 0.241, 0.817, 7, ['marker'], 5),   // right = Column1 (Fortuna)
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
@@ -134,7 +135,7 @@
   const FACTION_SLOTS = [
     ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4),                          // income track
     ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s) => ({ ...s, boardColor: true })), // hero market circles (this mat's color)
-    ...rowSlots(0.092, 0.732, 5, 0.865, ['card'], 7),                            // hero card slots
+    ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7),                            // hero card slots (sit low, hang off bottom, clear the α-ε letters)
   ];
 
   // Full-table layout matching the physical table. x = left(-)/right(+),
