@@ -5,11 +5,30 @@
 
   // ------------------------------------------------------------------ config
   const ASSET_BASE = window.ASSET_BASE;                    // raw GitHub, always fresh
-  const BOARD_W    = 100;                                  // world width of any board
   const MINI_H     = 12;                                   // target mini height
   const COLORS = {                                         // player colors
     Blue:   0x2f6fdb, Green: 0x2ea84f, Purple: 0x7b3fb0, Yellow: 0xf5b800,
   };
+
+  // Full-table layout. Coordinates derived from the user's table-layout image
+  // (image ~1014x739, scaled by S about its center). x = left(-)/right(+),
+  // z = far/top(-)/near/bottom(+). `w` = world width; height follows the image
+  // aspect at load. `slot` marks the 3 swappable active-event boards; `deck`
+  // marks the static Event-Deck card. Everything here is locked scenery.
+  const LAYOUT = [
+    { file: 'RaceTrackBoard.png', x:    0, z:   -8, w: 118 },   // center spine
+    { file: 'ColosseumBoard.png', x:    0, z:  -88, w: 118 },   // top-center
+    { file: 'UnderworldBoard.png',x:  113, z:  -32, w: 107 },   // upper-right
+    { file: 'ColumnBoard.png',    x: -129, z:  -36, w: 118 },   // upper-left
+    { file: 'ArchaeaBoard.png',   x: -235, z:    1, w:  66 },   // far left (Blue)
+    { file: 'AnatoliaBoard.png',  x:  230, z:    1, w:  66 },   // far right (Yellow)
+    { file: 'AegyptusBoard.png',  x: -163, z:  163, w: 132 },   // bottom-left (Green)
+    { file: 'PhoeniciaBoard.png', x:  156, z:  163, w: 116 },   // bottom-right (Purple)
+    { file: 'ArcheryEvent.png',   x:  173, z: -126, w: 118, deck: true },  // Event Deck
+    { file: 'DiscusEvent.png',    x: -129, z:   52, w: 118, slot: 0 },     // active event 1
+    { file: 'LongJumpEvent.png',  x:   -7, z:   95, w: 115, slot: 1 },     // active event 2
+    { file: 'SprintEvent.png',    x:  114, z:   51, w: 110, slot: 2 },     // active event 3
+  ];
 
   const container = document.getElementById('viewer');
   const diceTotalEl = document.getElementById('diceTotal');
@@ -18,8 +37,7 @@
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14161a);
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
-  camera.position.set(0, 95, 105);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 8000);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -27,17 +45,19 @@
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  controls.screenSpacePanning = true;    // pan across the whole table
+  controls.maxDistance = 2000;
   controls.target.set(0, 0, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.7));
   scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.5));
   const key = new THREE.DirectionalLight(0xffffff, 1.0);
-  key.position.set(40, 80, 40);
+  key.position.set(40, 120, 60);
   scene.add(key);
 
-  // Neutral table under the board
+  // Neutral table surface under the boards
   const table = new THREE.Mesh(
-    new THREE.PlaneGeometry(600, 600),
+    new THREE.PlaneGeometry(2000, 2000),
     new THREE.MeshStandardMaterial({ color: 0x0d0e10, roughness: 1 })
   );
   table.rotation.x = -Math.PI / 2;
@@ -52,7 +72,7 @@
   }
   window.addEventListener('resize', resize);
 
-  // ------------------------------------------------------------------ board
+  // ------------------------------------------------------------------ boards
   const texCache = new Map();
   function loadTexture(name) {
     if (texCache.has(name)) return texCache.get(name);
@@ -63,26 +83,45 @@
     return t;
   }
 
-  let boardMesh = null;
-  function setBoard(name) {
-    const tex = new THREE.TextureLoader().load(ASSET_BASE + name, (t) => {
+  const eventSlots = [];   // slot index -> board Mesh (swappable)
+
+  // A locked board plane at (x,z) sized `w` wide; height follows the image.
+  function makeBoard(file, x, z, w) {
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, w),                 // resized once texture loads
+      new THREE.MeshStandardMaterial({ roughness: 0.85 })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0, z);
+    mesh.userData.isBoard = true;                    // never added to pieces[]
+    scene.add(mesh);
+    applyBoardTexture(mesh, file, w);
+    return mesh;
+  }
+
+  function applyBoardTexture(mesh, file, w) {
+    new THREE.TextureLoader().load(ASSET_BASE + file, (t) => {
       const aspect = (t.image.width || 2) / (t.image.height || 1);
-      const w = BOARD_W, h = BOARD_W / aspect;
-      if (!boardMesh) {
-        boardMesh = new THREE.Mesh(
-          new THREE.PlaneGeometry(1, 1),
-          new THREE.MeshStandardMaterial({ roughness: 0.85 })
-        );
-        boardMesh.rotation.x = -Math.PI / 2;
-        scene.add(boardMesh);
-      }
-      boardMesh.geometry.dispose();
-      boardMesh.geometry = new THREE.PlaneGeometry(w, h);
+      mesh.geometry.dispose();
+      mesh.geometry = new THREE.PlaneGeometry(w, w / aspect);
       t.colorSpace = THREE.SRGBColorSpace;
-      boardMesh.material.map = t;
-      boardMesh.material.needsUpdate = true;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      mesh.material.map = t;
+      mesh.material.needsUpdate = true;
     });
-    return tex;
+  }
+
+  function buildTable() {
+    for (const b of LAYOUT) {
+      const mesh = makeBoard(b.file, b.x, b.z, b.w);
+      if (b.slot !== undefined) { eventSlots[b.slot] = mesh; mesh.userData.slotW = b.w; }
+    }
+  }
+
+  // Swap the mini-game shown in an active-event slot (0..2).
+  function setEventSlot(i, file) {
+    const mesh = eventSlots[i];
+    if (mesh) applyBoardTexture(mesh, file, mesh.userData.slotW);
   }
 
   // ------------------------------------------------------------------ pieces
@@ -98,9 +137,12 @@
     return group;
   }
 
-  // slight scatter so new pieces don't stack exactly
+  // Scatter new pieces around the current view center so they land on-screen.
   function spawnXZ() {
-    return [(Math.random() - 0.5) * 30, (Math.random() - 0.5) * 20];
+    return [
+      controls.target.x + (Math.random() - 0.5) * 30,
+      controls.target.z + (Math.random() - 0.5) * 20,
+    ];
   }
 
   function addMini(file, colorName = activeColorName) {
@@ -172,11 +214,12 @@
   function rollDice(n) {
     // remove existing dice
     for (const d of pieces.filter((p) => p.userData.type === 'die')) removePiece(d);
+    const cx = controls.target.x, cz = controls.target.z;
     for (let i = 0; i < n; i++) {
       const v = 1 + Math.floor(Math.random() * 6);
       const g = new THREE.Group();
       g.add(makeDieMesh(v));
-      g.position.set((i - (n - 1) / 2) * 9, 0.06, BOARD_W * 0.28);
+      g.position.set(cx + (i - (n - 1) / 2) * 9, 0.06, cz + 24);
       g.userData.value = v;
       registerPiece(g, 'die');
     }
@@ -233,6 +276,7 @@
   renderer.domElement.addEventListener('pointerdown', (e) => {
     setNDC(e);
     raycaster.setFromCamera(ndc, camera);
+    // Only pieces are selectable; boards are not in `pieces`, so they're inert.
     const hit = raycaster.intersectObjects(pieces, true)[0];
     if (hit) {
       const p = pieceFromHit(hit.object);
@@ -268,11 +312,25 @@
   });
 
   // ------------------------------------------------------------------ camera helpers
-  function resetView() {
-    camera.position.set(0, 95, 105);
-    controls.target.set(0, 0, 0);
+  // Frame the whole table from an angled overhead view.
+  function frameTable() {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const b of LAYOUT) {
+      minX = Math.min(minX, b.x - b.w / 2); maxX = Math.max(maxX, b.x + b.w / 2);
+      minZ = Math.min(minZ, b.z - b.w / 2); maxZ = Math.max(maxZ, b.z + b.w / 2);
+    }
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const radius = 0.5 * Math.hypot(maxX - minX, maxZ - minZ);
+    const fov = camera.fov * Math.PI / 180;
+    const dist = (radius / Math.sin(fov / 2)) * 0.62;    // margin
+    controls.target.set(cx, 0, cz);
+    camera.position.set(cx, dist * 0.92, cz + dist * 0.55);
+    camera.far = dist * 12;
+    camera.updateProjectionMatrix();
     controls.update();
   }
+
+  function resetView() { frameTable(); }
 
   function clearPieces() {
     for (const p of [...pieces]) removePiece(p);
@@ -281,7 +339,8 @@
 
   // ------------------------------------------------------------------ public API
   window.PT = {
-    setBoard, addMini, addToken, rollDice, reroll, clearPieces, resetView,
+    addMini, addToken, rollDice, reroll, clearPieces, resetView,
+    setEventSlot, frameTable,
     setActiveColor: (name) => { activeColorName = name; },
     getActiveColor: () => activeColorName,
     COLORS,
@@ -296,6 +355,7 @@
   })();
 
   resize();
-  setBoard('RaceTrackBoard.png');
+  buildTable();
+  frameTable();
   updateDiceTotal();
 </script>

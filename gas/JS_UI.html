@@ -3,38 +3,27 @@
   // so window.PT is defined by the time this executes.
   const PT = window.PT;
 
-  // ---- board dropdown ----
-  const BOARDS = [
-    ['RaceTrackBoard.png', 'Main — Race Track'],
-    ['ColosseumBoard.png', 'Colosseum'],
-    ['ColumnBoard.png',    'Pillars (Columns)'],
-    ['UnderworldBoard.png','Underworld'],
-    ['AegyptusBoard.png',  'Faction — Aegyptus'],
-    ['AnatoliaBoard.png',  'Faction — Anatolia'],
-    ['ArchaeaBoard.png',   'Faction — Archaea'],
-    ['PhoeniciaBoard.png', 'Faction — Phoenicia'],
-    ['Event1Board.png',    'Event Board 1'],
-    ['Event2Board.png',    'Event Board 2'],
-    ['Event3Board.png',    'Event Board 3'],
-    ['ArcheryEvent.png',   'Event — Archery'],
-    ['DiscusEvent.png',    'Event — Discus'],
-    ['HighJumpEvent.png',  'Event — High Jump'],
-    ['LongJumpEvent.png',  'Event — Long Jump'],
-    ['SprintEvent.png',    'Event — Sprint'],
-    ['WrestlingEvent.png', 'Event — Wrestling'],
-    ['Column1_1.png', 'Pillar — Fortuna'],
-    ['Column1_2.png', 'Pillar — Vulcan'],
-    ['Column2_1.png', 'Pillar — Bacchus'],
-    ['Column2_2.png', 'Pillar — Fauna'],
-    ['Column3_1.png', 'Pillar — Mercury'],
-    ['Column3_2.png', 'Pillar — Pluto'],
+  // ---- active-event slots (3 boards dealt from the shuffled event deck each round) ----
+  // Any of the 6 mini-games can land in any of the 3 slots; slots are swappable.
+  const EVENTS = [
+    ['ArcheryEvent.png',   'Archery'],
+    ['DiscusEvent.png',    'Discus'],
+    ['HighJumpEvent.png',  'High Jump'],
+    ['LongJumpEvent.png',  'Long Jump'],
+    ['SprintEvent.png',    'Sprint'],
+    ['WrestlingEvent.png', 'Wrestling'],
   ];
-  const boardSel = document.getElementById('boardSelect');
-  for (const [file, label] of BOARDS) {
-    const o = document.createElement('option');
-    o.value = file; o.textContent = label; boardSel.appendChild(o);
+  const SLOT_DEFAULTS = ['DiscusEvent.png', 'LongJumpEvent.png', 'SprintEvent.png'];
+  for (let i = 0; i < 3; i++) {
+    const sel = document.getElementById('eventSlot' + i);
+    for (const [file, label] of EVENTS) {
+      const o = document.createElement('option');
+      o.value = file; o.textContent = label;
+      if (file === SLOT_DEFAULTS[i]) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => PT.setEventSlot(i, sel.value));
   }
-  boardSel.addEventListener('change', () => PT.setBoard(boardSel.value));
 
   // ---- mini models (STL list; extend as more arrive) ----
   const MODELS = [
@@ -94,7 +83,7 @@
   document.getElementById('reroll').addEventListener('click', () => PT.reroll());
 
   // ---- view ----
-  document.getElementById('resetView').addEventListener('click', () => PT.resetView());
+  document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
 
   // ---- VP counters (pure HTML state) ----
