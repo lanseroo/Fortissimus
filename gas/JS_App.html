@@ -139,12 +139,13 @@
     ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4).map((s) => ({ ...s, role: 'income' })),  // income track
     ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s) => ({ ...s, boardColor: true, role: 'hero-market' })), // hero market circles (this mat's color)
     ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7).map((s) => ({ ...s, role: 'card' })),      // hero card slots (sit low, hang off bottom, clear the α-ε letters)
-    // holders below the mat — good-sized, each accepts one kind, stacking:
-    // coin / lightning / sun currency + the player's dice "cup" (pre-rolled dice).
-    { u: 0.20, v: 1.12, accepts: ['coin'],      r: 9, role: 'currency' },
-    { u: 0.40, v: 1.12, accepts: ['lightning'], r: 9, role: 'currency' },
-    { u: 0.60, v: 1.12, accepts: ['sun'],       r: 9, role: 'currency' },
-    { u: 0.80, v: 1.12, accepts: ['die'],       r: 9, role: 'cup' },
+    // holders below the mat — large, each accepts one kind, deep stacking (~limitless):
+    // coin / lightning / sun currency + the player's dice "cup" (pre-rolled dice, biggest
+    // so the faces stay readable). Sit low (v>1.3) so the hero cards don't cover them.
+    { u: 0.13, v: 1.36, accepts: ['coin'],      r: 14, role: 'currency' },
+    { u: 0.36, v: 1.36, accepts: ['lightning'], r: 14, role: 'currency' },
+    { u: 0.59, v: 1.36, accepts: ['sun'],       r: 14, role: 'currency' },
+    { u: 0.85, v: 1.36, accepts: ['die'],       r: 18, role: 'cup' },
   ];
 
   // Shared market (no art yet): a face-down draw pile on the left + 3 revealed
@@ -187,10 +188,11 @@
     // player/faction mats
     { file: 'AchaeaBoard.png',    x: -255, z:    0, w: FW, color: 'Blue',   slotsDef: FACTION_SLOTS },   // Blue, far left
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, color: 'Yellow', slotsDef: FACTION_SLOTS },   // Yellow, far right
-    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, color: 'Green',  slotsDef: FACTION_SLOTS },   // Green, bottom-left
-    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, color: 'Purple', slotsDef: FACTION_SLOTS },   // Purple, bottom-right
-    // shared market — plain plane (no art), below the table, zoomable like a board
-    { market: true, x: 0, z: 300, w: 150, h: 55, slotsDef: MARKET_SLOTS },
+    { file: 'AegyptusBoard.png',  x: -160, z:  225, w: FW, color: 'Green',  slotsDef: FACTION_SLOTS },   // Green, bottom-left
+    { file: 'PhoeniciaBoard.png', x:  160, z:  225, w: FW, color: 'Purple', slotsDef: FACTION_SLOTS },   // Purple, bottom-right
+    // shared market — plain plane (no art), bottom-center between the two lower mats,
+    // zoomable like a board (mats flank it left/right; their currency trays clear it in x)
+    { market: true, x: 0, z: 265, w: 150, h: 55, slotsDef: MARKET_SLOTS },
   ];
 
   // Drawn column art (rung faces) overlaid on the empty board pillars, so the
@@ -403,22 +405,29 @@
   // Track slots (marker/round position pieces) stack: up to one per nation
   // sharing a rung, fanned out so they're all visible. Everything else is
   // single-occupancy (one mini per circle, one card per slot, ...).
-  const STACK_MAX = 4;
-  const STACK_TYPES = ['marker', 'round', 'coin', 'lightning', 'sun', 'die'];
+  const STACK_MAX = 4;                 // markers/round: one per nation
+  const DEEP_TYPES = ['coin', 'lightning', 'sun', 'die'];   // currency/cup: pile up freely
+  const DEEP_MAX = 24;                 // practical "limitless" cap (~20)
+  const STACK_TYPES = ['marker', 'round', ...DEEP_TYPES];
   function isStack(s) { return s.accepts.some((t) => STACK_TYPES.includes(t)); }
+  function stackCap(s) { return s.accepts.some((t) => DEEP_TYPES.includes(t)) ? DEEP_MAX : STACK_MAX; }
 
   // Lay a slot's occupants out: centered when alone, else fanned on a small
   // ring with a slight per-index height step so overlaps stay readable.
   function layoutStack(s) {
     const n = s.occupants.length;
+    const per = 8;                    // occupants per concentric ring
     s.occupants.forEach((p, i) => {
       const baseY = (p.userData.baseY !== undefined) ? p.userData.baseY : p.position.y;
       if (isStack(s) && n > 1) {
-        const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-        const rr = s.r * 0.5;
+        const ring = Math.floor(i / per);
+        const inRing = i % per;
+        const ringN = Math.min(n - ring * per, per);
+        const a = -Math.PI / 2 + (inRing / ringN) * Math.PI * 2;
+        const rr = s.r * 0.5 * (1 + ring * 0.7);   // outer rings for deeper piles
         p.position.x = s.x + Math.cos(a) * rr;
         p.position.z = s.z + Math.sin(a) * rr;
-        p.position.y = baseY + i * 0.05;
+        p.position.y = baseY + i * 0.04;
       } else {
         p.position.x = s.x;
         p.position.z = s.z;
@@ -434,7 +443,7 @@
     for (const s of SLOTS) {
       if (!slotAccepts(s, piece)) continue;
       if (!s.occupants.includes(piece)) {
-        if (isStack(s)) { if (s.occupants.length >= STACK_MAX) continue; }
+        if (isStack(s)) { if (s.occupants.length >= stackCap(s)) continue; }
         else if (s.occupants.length) continue;
       }
       const d = Math.hypot(s.x - x, s.z - z);
@@ -625,6 +634,7 @@
       g.add(makeDieMesh(v));
       g.position.set(cx + (i - (n - 1) / 2) * 9, 0.06, cz + 24);
       g.userData.value = v;
+      g.userData.baseY = 0.06;
       registerPiece(g, 'die');
     }
     updateDiceTotal();
