@@ -35,10 +35,12 @@
   // Two concentric ellipses -> a pair of slots per station (inner + outer),
   // the pair oriented along the radius (vertical at top/bottom, horizontal at
   // the sides) — matches the Colosseum's paired fighter circles.
-  const ellipsePairSlots = (cu, cv, ruI, rvI, ruO, rvO, n, accepts, r = 5, deg0 = -75) => {
+  // `n` stations spread over (n+1) clock divisions starting after `deg0` (top),
+  // so the top slot is left empty — a wide clock face running 1..11 o'clock.
+  const ellipsePairSlots = (cu, cv, ruI, rvI, ruO, rvO, n, accepts, r = 5, deg0 = -90) => {
     const out = [];
-    for (let i = 0; i < n; i++) {
-      const a = deg0 * Math.PI / 180 + i / n * 2 * Math.PI;
+    for (let i = 1; i <= n; i++) {
+      const a = deg0 * Math.PI / 180 + i / (n + 1) * 2 * Math.PI;
       out.push({ u: cu + ruI * Math.cos(a), v: cv + rvI * Math.sin(a), accepts, r });
       out.push({ u: cu + ruO * Math.cos(a), v: cv + rvO * Math.sin(a), accepts, r });
     }
@@ -68,21 +70,23 @@
     ...rowSlots(0.246, 0.326, 2, 0.063, TOK, 4.5),        // Green barracks
     ...rowSlots(0.431, 0.510, 2, 0.063, TOK, 4.5),        // Purple barracks
     ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
-    ...rowSlots(0.268, 0.718, 7, 0.518, ['token'], 5),    // lap counter 0-6
+    ...rowSlots(0.268, 0.695, 7, 0.535, ['token'], 5),    // round counter 0-6
     ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
     ...rowSlots(0.293, 0.643, 9, 0.895, ['token'], 4),    // event/era track (9 tiles)
-    ...stadiumSlots(0.449, 0.518, 0.29, 0.130, 0.225, 6, 1, TOK, 4),  // outer lane
-    ...stadiumSlots(0.449, 0.518, 0.29, 0.075, 0.125, 6, 1, TOK, 4),  // inner lane
+    ...stadiumSlots(0.449, 0.518, 0.29, 0.130, 0.225, 4, 4, TOK, 4),  // outer lane (16)
+    ...stadiumSlots(0.449, 0.518, 0.29, 0.075, 0.125, 8, 4, TOK, 4),  // inner lane (24)
   ];
 
   // Column board: 3 pillars, 6 reward rungs each. Rung v-range read off the
   // drawn column art (Column*_1.png), which the "Show columns" overlay renders
   // on top of the empty board pillars so alignment can be verified.
+  // Left/center/right pillars show Column2/Column3/Column1 (see COLUMN_OVERLAYS);
+  // Fortuna (Column1, right) sits lower than Bacchus/Mercury, so ranges differ.
   const COLUMN_SLOTS = [
-    ...colSlots(0.149, 0.256, 0.726, 6, TOK, 5),
-    ...colSlots(0.501, 0.256, 0.726, 6, TOK, 5),
-    ...colSlots(0.855, 0.256, 0.726, 6, TOK, 5),
+    ...colSlots(0.149, 0.175, 0.680, 6, TOK, 5),   // left  = Column2 (Bacchus)
+    ...colSlots(0.501, 0.180, 0.682, 6, TOK, 5),   // center= Column3 (Mercury)
+    ...colSlots(0.855, 0.241, 0.721, 6, TOK, 5),   // right = Column1 (Fortuna)
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
@@ -95,7 +99,7 @@
   // Colosseum: 12 fighter stations around the arena, each with a paired
   // (inner + outer) circle, + the center gladiator slot.
   const COLOSSEUM_SLOTS = [
-    ...ellipsePairSlots(0.50, 0.50, 0.35, 0.26, 0.45, 0.39, 12, CARD, 5),
+    ...ellipsePairSlots(0.50, 0.50, 0.35, 0.26, 0.45, 0.39, 11, CARD, 5),
     { u: 0.50, v: 0.49, accepts: CARD, r: 8 },
   ];
 
@@ -144,10 +148,11 @@
 
   // Drawn column art (rung faces) overlaid on the empty board pillars, so the
   // COLUMN_SLOTS rungs can be checked against the real cells. Toggleable.
+  // Ordered left->center->right to match the strips: Column 2, 3, then 1.
   const COLUMN_OVERLAYS = [
-    { file: 'Column1_1.png', u: 0.149 },
-    { file: 'Column2_1.png', u: 0.501 },
-    { file: 'Column3_1.png', u: 0.855 },
+    { file: 'Column2_1.png', u: 0.149 },
+    { file: 'Column3_1.png', u: 0.501 },
+    { file: 'Column1_1.png', u: 0.855 },
   ];
 
   const container = document.getElementById('viewer');
@@ -216,10 +221,13 @@
   function makeSlotMarker(x, y, z, r) {
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(Math.max(r - 1.2, 0.5), r, 30),
-      new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
+      // depthTest off + high renderOrder keeps rings visible on top of board /
+      // column-overlay art, so slot positions can always be checked.
+      new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(x, y, z);
+    ring.renderOrder = 10;
     ring.userData.baseOpacity = 0.45;
     return ring;
   }
