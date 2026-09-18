@@ -27,14 +27,17 @@
     { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW },              // pillars, left
     { file: 'RaceTrackBoard.png', x:    0, z:  -20, w: BW },              // race track, center
     { file: 'UnderworldBoard.png',x:  125, z:  -35, w: BW },              // underworld, right
-    // event reward strips (sit directly above each active event)
-    { file: 'Event1Board.png',    x: -125, z:   45, w: BW },
-    { file: 'Event2Board.png',    x:    0, z:   45, w: BW },
-    { file: 'Event3Board.png',    x:  125, z:   45, w: BW },
-    // active event slots (swappable — any mini-game can be dealt to any slot)
-    { file: 'DiscusEvent.png',    x: -125, z:  105, w: BW, slot: 0 },
-    { file: 'LongJumpEvent.png',  x:    0, z:  105, w: BW, slot: 1 },
-    { file: 'SprintEvent.png',    x:  125, z:  105, w: BW, slot: 2 },
+    // event reward strips (sit directly above each active event).
+    // Ordered left->center->right to match the column board: Event 2, 3, 1.
+    { file: 'Event2Board.png',    x: -125, z:   45, w: BW },
+    { file: 'Event3Board.png',    x:    0, z:   45, w: BW },
+    { file: 'Event1Board.png',    x:  125, z:   45, w: BW },
+    // active event slots (swappable — any mini-game can be dealt to any slot).
+    // Pulled up to overlap each strip so the event covers the strip's black band;
+    // lifted slightly in y so it renders on top of the strip where they overlap.
+    { file: 'DiscusEvent.png',    x: -125, z:   68, w: BW, y: 0.05, slot: 0 },
+    { file: 'LongJumpEvent.png',  x:    0, z:   68, w: BW, y: 0.05, slot: 1 },
+    { file: 'SprintEvent.png',    x:  125, z:   68, w: BW, y: 0.05, slot: 2 },
     // player/faction mats
     { file: 'ArchaeaBoard.png',   x: -255, z:    0, w: FW },   // Blue, far left
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW },   // Yellow, far right
@@ -98,13 +101,14 @@
   const eventSlots = [];   // slot index -> board Mesh (swappable)
 
   // A locked board plane at (x,z) sized `w` wide; height follows the image.
-  function makeBoard(file, x, z, w) {
+  // `y` lifts a board above overlapping neighbors (events sit atop their strip).
+  function makeBoard(file, x, z, w, y = 0) {
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(w, w),                 // resized once texture loads
       new THREE.MeshStandardMaterial({ roughness: 0.85 })
     );
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 0, z);
+    mesh.position.set(x, y, z);
     mesh.userData.isBoard = true;                    // never added to pieces[]
     scene.add(mesh);
     applyBoardTexture(mesh, file, w);
@@ -125,7 +129,7 @@
 
   function buildTable() {
     for (const b of LAYOUT) {
-      const mesh = makeBoard(b.file, b.x, b.z, b.w);
+      const mesh = makeBoard(b.file, b.x, b.z, b.w, b.y || 0);
       if (b.slot !== undefined) { eventSlots[b.slot] = mesh; mesh.userData.slotW = b.w; }
     }
   }
