@@ -858,6 +858,76 @@
   ];
   const ALL_COLORS = NATIONS.map((n) => n.color);
 
+  // Seat order = CLOCKWISE from the first player around the physical table: Blue (far
+  // left) → Yellow (far right) → Purple (bottom-right) → Green (bottom-left). Drives
+  // both the round-1 seat coin bonus and round-1 turn order.
+  const SEAT_ORDER = ['Blue', 'Yellow', 'Purple', 'Green'];
+
+  // -------------------------------------------------------------- game flow (state)
+  // Guided-sandbox backbone: the app tracks round / phase / turn order and drives them
+  // via buttons; players still move pieces freely. Numbers here are tunable (rules WIP).
+  const PHASES = ['Upkeep & Market', 'Blind Placement', 'Resolution & Podiums', 'Colosseum'];
+  const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
+  const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum phase only runs these rounds
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice() };
+  let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
+
+  const vpOf = (color) => {
+    const el = document.querySelector('#vpPanel .vp[data-color="' + color + '"] .val');
+    return el ? (+el.textContent || 0) : 0;
+  };
+  function resetVP() {
+    document.querySelectorAll('#vpPanel .vp .val').forEach((el) => { el.textContent = '0'; });
+  }
+  const phasesFor = (round) =>
+    PHASES.filter((p) => p !== 'Colosseum' || COLOSSEUM_ROUNDS.includes(round));
+  const eraOf = (round) => (round <= 3 ? 'Act I' : round <= 5 ? 'Act II' : 'Act III');
+  // Round 1 = seat order; round 2+ = most-VP first, ties broken by seat order.
+  const computeOrder = (round) => (round === 1
+    ? SEAT_ORDER.slice()
+    : SEAT_ORDER.slice().sort((a, b) => vpOf(b) - vpOf(a) || SEAT_ORDER.indexOf(a) - SEAT_ORDER.indexOf(b)));
+
+  function getFlow() {
+    const phases = phasesFor(GAME.round);
+    return {
+      started: GAME.started, over: GAME.over,
+      round: GAME.round, totalRounds: TOTAL_ROUNDS, era: eraOf(GAME.round),
+      phase: phases[GAME.phaseIndex], phases, phaseIndex: GAME.phaseIndex,
+      order: GAME.order.slice(),
+    };
+  }
+  const notifyFlow = () => { if (flowCb) flowCb(getFlow()); };
+
+  function startGame() {
+    GAME.started = true; GAME.over = false; GAME.round = 1; GAME.phaseIndex = 0;
+    GAME.order = computeOrder(1);
+    resetVP();
+    notifyFlow();
+  }
+  function nextPhase() {
+    if (!GAME.started || GAME.over) return;
+    const phases = phasesFor(GAME.round);
+    if (GAME.phaseIndex < phases.length - 1) {
+      GAME.phaseIndex++;
+    } else if (GAME.round < TOTAL_ROUNDS) {
+      GAME.round++; GAME.phaseIndex = 0; GAME.order = computeOrder(GAME.round);
+    } else {
+      GAME.over = true;
+    }
+    notifyFlow();
+  }
+  function prevPhase() {
+    if (!GAME.started) return;
+    GAME.over = false;
+    if (GAME.phaseIndex > 0) {
+      GAME.phaseIndex--;
+    } else if (GAME.round > 1) {
+      GAME.round--; GAME.order = computeOrder(GAME.round);
+      GAME.phaseIndex = phasesFor(GAME.round).length - 1;
+    }
+    notifyFlow();
+  }
+
   // Lay a face-down pile of `n` card backs centered at world (x,z): step up in y
   // with a tiny xz jitter so it reads as a stacked deck.
   function dealPile(file, n, x, z, size) {
@@ -944,10 +1014,7 @@
 
     // per-faction: 5 color-matched minis on the hero-market circles + income token +
     // starting income. Everyone gets base income (3🪙 / 2⚡ / 3 cup dice); on top of
-    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0). Seats run
-    // CLOCKWISE from the first player around the physical table: Blue (far left) →
-    // Yellow (far right) → Purple (bottom-right) → Green (bottom-left).
-    const SEAT_ORDER = ['Blue', 'Yellow', 'Purple', 'Green'];
+    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0) via SEAT_ORDER.
     NATIONS.forEach((nat) => {
       for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot);
       const inc = slotsByRole('income', nat.color)[0];
@@ -985,12 +1052,15 @@
     }
     const deck = slotsByRole('market-deck')[0];
     if (deck) dealPile('BackofCards.png', 3, deck.x, deck.z, 22);
+
+    startGame();   // initialize the flow backbone (round 1, phase 0, seat order, VP=0)
   }
 
   // ------------------------------------------------------------------ public API
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable, initGame, dealHand,
+    startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;

@@ -127,4 +127,36 @@
   }
   .vp button:hover { background: #3a3d42; }
   .hint { color: #8a8f96; font-size: 0.78rem; margin-top: 14px; line-height: 1.4; }
+
+  /* game flow HUD */
+  #flow {
+    background: #17181b;
+    border: 1px solid #3a3d42;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 12px;
+  }
+  #flowLine { font-size: 0.9rem; font-weight: 600; line-height: 1.35; }
+  #flowOrder {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: #8a8f96;
+    display: flex; flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  #flowOrder .seat { white-space: nowrap; }
+  #flowOrder .seat.lead { font-weight: 700; text-decoration: underline; }
+  .flowbtns { display: flex; gap: 8px; margin-top: 10px; }
+  .flowbtns button {
+    flex: 1;
+    padding: 6px 0;
+    border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30;
+    color: #f2f2f2;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .flowbtns button:hover:not(:disabled) { background: #3a3d42; }
+  .flowbtns button:disabled { opacity: 0.4; cursor: default; }
 </style>

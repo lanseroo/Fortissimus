@@ -101,4 +101,33 @@
     row.querySelector('.inc').addEventListener('click', () => val.textContent = (+val.textContent) + 1);
     row.querySelector('.dec').addEventListener('click', () => val.textContent = (+val.textContent) - 1);
   });
+
+  // ---- game flow HUD (round / phase / turn order) ----
+  const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800' };
+  const flowLine = document.getElementById('flowLine');
+  const flowOrder = document.getElementById('flowOrder');
+  const prevBtn = document.getElementById('prevPhase');
+  const nextBtn = document.getElementById('nextPhase');
+
+  function renderFlow(f) {
+    if (!f.started) {
+      flowLine.textContent = 'Round — · Setup';
+      flowOrder.textContent = 'Click “New game” to begin.';
+    } else if (f.over) {
+      flowLine.textContent = 'Round ' + f.totalRounds + '/' + f.totalRounds + ' · Game over';
+      flowOrder.innerHTML = '';
+    } else {
+      flowLine.textContent = 'Round ' + f.round + '/' + f.totalRounds + ' · ' + f.era + ' · ' + f.phase;
+      flowOrder.innerHTML = f.order.map((c, i) =>
+        '<span class="seat' + (i === 0 ? ' lead' : '') + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
+        + (i + 1) + '. ' + c + '</span>').join('');
+    }
+    prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
+    nextBtn.disabled = !f.started || f.over;
+  }
+
+  PT.onFlow(renderFlow);
+  renderFlow(PT.getFlow());
+  nextBtn.addEventListener('click', () => PT.nextPhase());
+  prevBtn.addEventListener('click', () => PT.prevPhase());
 </script>
