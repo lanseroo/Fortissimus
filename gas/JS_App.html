@@ -870,14 +870,58 @@
     return { x: b.x + (b.x < 0 ? -(b.w / 2 + 12) : (b.w / 2 + 12)), z: b.z };
   }
 
-  // Deal `n` cards from a faction's personal deck into their hand, stacked just
-  // below the deck (toward the front of the table). Like the dice cup, the hand is
-  // private to that player — it'll be hidden from others when visibility lands.
+  // Point a card at a texture, resizing its plane to that image's aspect. Cards are
+  // flat planes, so "face down" is just the card back; flipping swaps the map.
+  function setCardFace(g, file) {
+    new THREE.TextureLoader().load(ASSET_BASE + file, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const plane = g.children[0];
+      if (!plane) return;
+      const aspect = (tex.image.width / tex.image.height) || 1;
+      const w = aspect >= 1 ? 22 : 22 * aspect;
+      const h = aspect >= 1 ? 22 / aspect : 22;
+      plane.geometry.dispose();
+      plane.geometry = new THREE.PlaneGeometry(w, h);
+      plane.material.map = tex;
+      plane.material.needsUpdate = true;
+    });
+  }
+
+  // Build a faction's face-down personal deck (shuffled) as real cards that each
+  // remember their true face, stacked at the deck anchor. Dealing pulls from these.
+  function buildDeck(colorName, faces, x, z) {
+    const order = faces.slice();
+    for (let i = order.length - 1; i > 0; i--) {   // Fisher–Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    order.forEach((face, i) => {
+      const c = addToken('BackofCards.png', 22, 'card');   // shown face-down
+      c.userData.owner = colorName;
+      c.userData.zone = 'deck';
+      c.userData.face = face;
+      c.position.set(x + (Math.random() - 0.5) * 1.4, 0.06 + i * 0.05, z + (Math.random() - 0.5) * 1.4);
+    });
+  }
+
+  // Deal `n` cards FROM a faction's deck into their hand: take the top cards off the
+  // deck pile, flip them face up (the active player sees their own hand), and lay
+  // them in a column just below the deck. Like the dice cup, the hand is private —
+  // it'll be hidden from other players when visibility lands.
   function dealHand(colorName, n = 3) {
     const b = LAYOUT.find((x) => x.color === colorName);
     if (!b) return;
     const a = deckAnchor(b);
-    dealPile('BackofCards.png', n, a.x, a.z + 34, 22);
+    const deck = pieces
+      .filter((p) => p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'deck')
+      .sort((p, q) => q.position.y - p.position.y);   // top of the pile first
+    const take = deck.slice(0, n);
+    take.forEach((c, i) => {
+      c.userData.zone = 'hand';
+      setCardFace(c, c.userData.face);               // reveal to the active player
+      c.position.set(a.x, 0.06, a.z + 34 + i * 26);  // column below the deck
+    });
   }
 
   // One-click game setup: seat every faction's starting pieces + deal the market.
@@ -895,24 +939,27 @@
 
     // per-faction: 5 color-matched minis on the hero-market circles + income token +
     // starting income. Everyone gets base income (3🪙 / 2⚡ / 3 cup dice); on top of
-    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0) — NATIONS
-    // order = seat order here (rearrange by dragging if the random start differs).
-    NATIONS.forEach((nat, i) => {
+    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0). Seats run
+    // CLOCKWISE from the first player around the physical table: Blue (far left) →
+    // Yellow (far right) → Purple (bottom-right) → Green (bottom-left).
+    const SEAT_ORDER = ['Blue', 'Yellow', 'Purple', 'Green'];
+    NATIONS.forEach((nat) => {
       for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot);
       const inc = slotsByRole('income', nat.color)[0];
       if (inc) placeOnSlot(addToken('IncomeToken.png', 6, 'income'), inc);
-      const seatBonus = [3, 2, 1, 0][i] || 0;
+      const seatBonus = [3, 2, 1, 0][SEAT_ORDER.indexOf(nat.color)] || 0;
       fill(nat.color, 'coin', 'CoinToken.png', 3 + seatBonus);
       fill(nat.color, 'lightning', 'LightningToken.png', 2);
       fill(nat.color, 'die', null, 3);
     });
 
-    // per-mat: face-down starting deck (3 plebe + cheer + jeer = 5 cards) off the
-    // mat's OUTER edge (left of left-side mats, right of right-side mats).
+    // per-mat: face-down starting deck (3 plebe + cheer + jeer) off the mat's OUTER
+    // edge, built as real cards so "Deal hand" can pull from it face-up.
     for (const b of LAYOUT) {
       if (!b.color) continue;
       const a = deckAnchor(b);
-      dealPile('BackofCards.png', 5, a.x, a.z, 22);
+      const plebe = b.color + 'Pliebe.png';
+      buildDeck(b.color, [plebe, plebe, plebe, 'Cheer.png', 'Jeer.png'], a.x, a.z);
     }
 
     // markers for all 4 nations at the start of every relevant track (auto-fan)
