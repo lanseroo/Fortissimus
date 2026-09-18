@@ -627,18 +627,24 @@
       : 'Dice: —';
   }
 
+  // Create a single registered die group (random face unless given). Returned so
+  // callers can position or snap it (rollDice scatters; setup drops it in a cup).
+  function makeDie(value = 1 + Math.floor(Math.random() * 6)) {
+    const g = new THREE.Group();
+    g.add(makeDieMesh(value));
+    g.position.y = 0.06;
+    g.userData.value = value;
+    g.userData.baseY = 0.06;
+    registerPiece(g, 'die');
+    return g;
+  }
+
   function rollDice(n) {
     // remove existing dice
     for (const d of pieces.filter((p) => p.userData.type === 'die')) removePiece(d);
     const cx = controls.target.x, cz = controls.target.z;
     for (let i = 0; i < n; i++) {
-      const v = 1 + Math.floor(Math.random() * 6);
-      const g = new THREE.Group();
-      g.add(makeDieMesh(v));
-      g.position.set(cx + (i - (n - 1) / 2) * 9, 0.06, cz + 24);
-      g.userData.value = v;
-      g.userData.baseY = 0.06;
-      registerPiece(g, 'die');
+      makeDie().position.set(cx + (i - (n - 1) / 2) * 9, 0.06, cz + 24);
     }
     updateDiceTotal();
   }
@@ -858,23 +864,55 @@
     }
   }
 
+  // World anchor for a faction's personal deck: beside the mat's OUTER edge
+  // (left of left-side mats, right of right-side mats).
+  function deckAnchor(b) {
+    return { x: b.x + (b.x < 0 ? -(b.w / 2 + 12) : (b.w / 2 + 12)), z: b.z };
+  }
+
+  // Deal `n` cards from a faction's personal deck into their hand, stacked just
+  // below the deck (toward the front of the table). Like the dice cup, the hand is
+  // private to that player — it'll be hidden from others when visibility lands.
+  function dealHand(colorName, n = 3) {
+    const b = LAYOUT.find((x) => x.color === colorName);
+    if (!b) return;
+    const a = deckAnchor(b);
+    dealPile('BackofCards.png', n, a.x, a.z + 34, 22);
+  }
+
   // One-click game setup: seat every faction's starting pieces + deal the market.
   function initGame(heroPool = []) {
     clearPieces();
 
-    // per-faction: 5 color-matched minis on the hero-market circles + income token
-    for (const nat of NATIONS) {
+    // fill a faction's own currency/cup holder with n pieces of a type
+    function fill(color, type, file, n) {
+      const slot = SLOTS.find((s) => s.owner === color && s.accepts.includes(type));
+      if (!slot) return;
+      for (let k = 0; k < n; k++) {
+        placeOnSlot(type === 'die' ? makeDie() : addToken(file, 6, type), slot);
+      }
+    }
+
+    // per-faction: 5 color-matched minis on the hero-market circles + income token +
+    // starting income. Everyone gets base income (3🪙 / 2⚡ / 3 cup dice); on top of
+    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0) — NATIONS
+    // order = seat order here (rearrange by dragging if the random start differs).
+    NATIONS.forEach((nat, i) => {
       for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot);
       const inc = slotsByRole('income', nat.color)[0];
       if (inc) placeOnSlot(addToken('IncomeToken.png', 6, 'income'), inc);
-    }
+      const seatBonus = [3, 2, 1, 0][i] || 0;
+      fill(nat.color, 'coin', 'CoinToken.png', 3 + seatBonus);
+      fill(nat.color, 'lightning', 'LightningToken.png', 2);
+      fill(nat.color, 'die', null, 3);
+    });
 
     // per-mat: face-down starting deck (3 plebe + cheer + jeer = 5 cards) off the
     // mat's OUTER edge (left of left-side mats, right of right-side mats).
     for (const b of LAYOUT) {
       if (!b.color) continue;
-      const outX = b.x + (b.x < 0 ? -(b.w / 2 + 12) : (b.w / 2 + 12));
-      dealPile('BackofCards.png', 5, outX, b.z, 22);
+      const a = deckAnchor(b);
+      dealPile('BackofCards.png', 5, a.x, a.z, 22);
     }
 
     // markers for all 4 nations at the start of every relevant track (auto-fan)
@@ -900,7 +938,7 @@
   // ------------------------------------------------------------------ public API
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable, initGame,
+    setEventSlot, frameTable, initGame, dealHand,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;
