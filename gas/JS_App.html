@@ -33,11 +33,11 @@
     { file: 'Event3Board.png',    x:    0, z:   45, w: BW },
     { file: 'Event1Board.png',    x:  125, z:   45, w: BW },
     // active event slots (swappable — any mini-game can be dealt to any slot).
-    // Pulled up to overlap each strip so the event covers the strip's black band;
-    // lifted slightly in y so it renders on top of the strip where they overlap.
-    { file: 'DiscusEvent.png',    x: -125, z:   68, w: BW, y: 0.05, slot: 0 },
-    { file: 'LongJumpEvent.png',  x:    0, z:   68, w: BW, y: 0.05, slot: 1 },
-    { file: 'SprintEvent.png',    x:  125, z:   68, w: BW, y: 0.05, slot: 2 },
+    // Overlap each strip just enough to cover its black band (not the circle row),
+    // sitting clearly above the strip in y so the flat planes don't z-fight.
+    { file: 'DiscusEvent.png',    x: -125, z:   76, w: BW, y: 0.4, slot: 0 },
+    { file: 'LongJumpEvent.png',  x:    0, z:   76, w: BW, y: 0.4, slot: 1 },
+    { file: 'SprintEvent.png',    x:  125, z:   76, w: BW, y: 0.4, slot: 2 },
     // player/faction mats
     { file: 'ArchaeaBoard.png',   x: -255, z:    0, w: FW },   // Blue, far left
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW },   // Yellow, far right
