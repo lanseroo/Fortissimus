@@ -96,7 +96,6 @@
             <div id="turnLine"></div>
             <div class="turnbtns">
               <button id="buyDie" title="Spend 1⚡ to add a cup die for the current player" hidden>Buy die (−1⚡)</button>
-              <button id="discardMod" title="Discard a Cheer/Jeer from hand for +2 coins" hidden>Cheer/Jeer → +2🪙</button>
               <button id="nextPlayer" title="Pass to the next player (loops)">Next player ▶</button>
             </div>
           </div>
@@ -118,15 +117,8 @@
             <button id="nextPhase" title="Advance to the next phase / round">Next ▶</button>
           </div>
         </div>
-        <h3>Victory Points</h3>
-        <div class="vp" data-color="Blue"><span class="dot" style="background:#2f6fdb"></span>
-          <button class="dec">–</button><span class="val">0</span><button class="inc">+</button></div>
-        <div class="vp" data-color="Green"><span class="dot" style="background:#2ea84f"></span>
-          <button class="dec">–</button><span class="val">0</span><button class="inc">+</button></div>
-        <div class="vp" data-color="Purple"><span class="dot" style="background:#7b3fb0"></span>
-          <button class="dec">–</button><span class="val">0</span><button class="inc">+</button></div>
-        <div class="vp" data-color="Yellow"><span class="dot" style="background:#f5b800"></span>
-          <button class="dec">–</button><span class="val">0</span><button class="inc">+</button></div>
+        <h3>Standings</h3>
+        <div id="standings"><p class="hint">Start a game — leaders (most laps, then furthest along) show here.</p></div>
         <p class="hint">Click a piece to select, drag to move, <b>Delete</b> to remove. Drag empty space to orbit; scroll to zoom.</p>
       </div>
     </div>

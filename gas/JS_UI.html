@@ -95,13 +95,6 @@
   const showColumns = document.getElementById('showColumns');
   showColumns.addEventListener('change', () => PT.setColumnsVisible(showColumns.checked));
 
-  // ---- VP counters (pure HTML state) ----
-  document.querySelectorAll('#vpPanel .vp').forEach((row) => {
-    const val = row.querySelector('.val');
-    row.querySelector('.inc').addEventListener('click', () => val.textContent = (+val.textContent) + 1);
-    row.querySelector('.dec').addEventListener('click', () => val.textContent = (+val.textContent) - 1);
-  });
-
   // ---- game flow HUD (round / phase / turn order) ----
   const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800' };
   const flowLine = document.getElementById('flowLine');
@@ -110,7 +103,6 @@
   const turnbar = document.getElementById('turnbar');
   const turnLine = document.getElementById('turnLine');
   const buyDieBtn = document.getElementById('buyDie');
-  const discardModBtn = document.getElementById('discardMod');
   const nextPlayerBtn = document.getElementById('nextPlayer');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
@@ -118,6 +110,7 @@
   const barracksLine = document.getElementById('barracksLine');
   const barRelic = document.getElementById('barRelic');
   const barChariot = document.getElementById('barChariot');
+  const standings = document.getElementById('standings');
 
   // sync the toolbar active-color swatch to a color
   function reflectSwatch(color) {
@@ -156,9 +149,8 @@
     if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
       const isUpkeep = f.phase === 'Upkeep & Market';
-      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice (⚡) & roll the cup' : 'play a card + a mini onto an event');
+      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice (⚡) & roll the cup' : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)');
       buyDieBtn.hidden = !isUpkeep;
-      discardModBtn.hidden = isUpkeep;
       reflectSwatch(f.current);
     } else {
       turnbar.hidden = true;
@@ -169,7 +161,7 @@
       const b = f.barracks;
       const r = (f.res && f.res[b.color]) || { coin: 0, zap: 0, sun: 0 };
       barracks.hidden = false;
-      barracksLine.textContent = b.color + ' → Barracks: +1 VP · take a resource'
+      barracksLine.textContent = b.color + ' → Barracks: +1 step · take a resource'
         + (b.picked ? ' ✓' : '');
       barracks.querySelectorAll('.bpick').forEach((btn) => { btn.disabled = b.picked; });
       barRelic.disabled = b.relic || r.zap < 2;
@@ -177,6 +169,27 @@
       barracksLine.style.color = FLOW_COLORS[b.color] || '#ffd479';
     } else {
       barracks.hidden = true;
+    }
+
+    // standings: laps first, then furthest into the current lap (the real score)
+    if (f.started && f.race) {
+      const len = f.laneLen || 24;
+      const rows = f.order.slice().sort((a, b) => {
+        const ra = f.race[a] || { laps: 0, pos: 0 }, rb = f.race[b] || { laps: 0, pos: 0 };
+        return rb.laps - ra.laps || rb.pos - ra.pos;
+      });
+      standings.innerHTML = rows.map((c, i) => {
+        const r = f.race[c] || { laps: 0, pos: 0 };
+        return '<div class="stand" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
+          + '<span class="rank">' + (i + 1) + '</span>'
+          + '<span class="who">' + c + '</span>'
+          + '<span class="prog">Lap ' + r.laps + ' · ' + r.pos + '/' + len + '</span>'
+          + '<button class="radv" data-color="' + c + '" data-dir="-1" title="Step back">–</button>'
+          + '<button class="radv" data-color="' + c + '" data-dir="1" title="Step forward (earn a VP)">+</button>'
+          + '</div>';
+      }).join('');
+    } else {
+      standings.innerHTML = '<p class="hint">Start a game — leaders (most laps, then furthest along) show here.</p>';
     }
 
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
@@ -189,7 +202,11 @@
   prevBtn.addEventListener('click', () => PT.prevPhase());
   nextPlayerBtn.addEventListener('click', () => PT.nextPlayer());
   buyDieBtn.addEventListener('click', () => PT.buyDie());
-  discardModBtn.addEventListener('click', () => PT.discardModifier());
+  // standings +/- (event-delegated: rows are re-rendered each flow update)
+  standings.addEventListener('click', (e) => {
+    const btn = e.target.closest('.radv');
+    if (btn) PT.advanceRace(btn.dataset.color, +btn.dataset.dir);
+  });
   barracks.querySelectorAll('.bpick').forEach((btn) =>
     btn.addEventListener('click', () => PT.barracksPick(btn.dataset.kind)));
   barRelic.addEventListener('click', () => PT.barracksMove('relic'));

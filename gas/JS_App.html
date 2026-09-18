@@ -87,14 +87,14 @@
     ...rowSlots(0.618, 0.698, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Yellow', role: 'barracks' })),
     // center 0-6 lap bar — exact cell centers measured off the art (uneven spacing)
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
-      (u, i) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5, ...(i === 0 ? { role: 'lap-start' } : {}) })),
+      (u, i) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5, track: 'lap', ord: i, ...(i === 0 ? { role: 'lap-start' } : {}) })),
     ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5).map((s, i) => ({ ...s, track: 'relic',   ord: 3 - i, ...(i === 3 ? { role: 'relic-start' }   : {}) })),   // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5).map((s, i) => ({ ...s, track: 'chariot', ord: 4 - i, ...(i === 4 ? { role: 'chariot-start' } : {}) })),   // chariot track (5 rungs)
     // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
       (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, ...(i === 0 ? { role: 'era-start' } : {}) })),
     ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4),  // outer lane (16) — chariots race
-    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4).map((s, i) => (i === 0 ? { ...s, role: 'foot-start' } : s)),   // inner lane (24) — on-foot markers
+    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4).map((s) => ({ ...s, lane: 'inner' })),   // inner lane (24) — on-foot markers race here
   ];
 
   // Column board: 3 pillars, 6 reward rungs each. Rung v-range read off the
@@ -304,7 +304,7 @@
       slotMarkersGroup.add(marker);
       SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
                    coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
-                   track: s.track || null, ord: (s.ord ?? null), bx: b.x,
+                   track: s.track || null, ord: (s.ord ?? null), bx: b.x, lane: s.lane || null,
                    marker, occupants: [] });
     }
   }
@@ -422,8 +422,8 @@
   const DEEP_TYPES = ['coin', 'lightning', 'sun', 'die'];   // currency/cup: pile up freely
   const DEEP_MAX = 24;                 // practical "limitless" cap (~20)
   const STACK_TYPES = ['marker', 'round', ...DEEP_TYPES];
-  function isStack(s) { return s.accepts.some((t) => STACK_TYPES.includes(t)); }
-  function stackCap(s) { return s.accepts.some((t) => DEEP_TYPES.includes(t)) ? DEEP_MAX : STACK_MAX; }
+  function isStack(s) { return !!s.stack || s.accepts.some((t) => STACK_TYPES.includes(t)); }
+  function stackCap(s) { return (s.stack || s.accepts.some((t) => DEEP_TYPES.includes(t))) ? DEEP_MAX : STACK_MAX; }
 
   // Lay a slot's occupants out: centered when alone, else fanned on a small
   // ring with a slight per-index height step so overlaps stay readable.
@@ -773,6 +773,14 @@
         if (s.role === 'barracks' && selected.userData.type === 'mini' && prevSlot !== s) {
           openBarracks(selected.userData.color);
         }
+        // dropping a Cheer/Jeer onto the discard slot pays +2 coins and reveals it.
+        if (s.role === 'discard' && selected.userData.type === 'card') {
+          if (selected.userData.cardKind === 'modifier' && selected.userData.zone !== 'discard') {
+            adjustRes(selected.userData.owner || s.color, 'coin', MODIFIER_COIN);
+          }
+          selected.userData.zone = 'discard';
+          setCardFace(selected, selected.userData.face);   // face-up on the pile
+        }
       }
     }
     highlightSlot(null);
@@ -919,7 +927,7 @@
   const PHASES = ['Upkeep & Market', 'Blind Placement', 'Resolution & Podiums', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum phase only runs these rounds
-  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null };
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {} };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -938,22 +946,52 @@
   const isPerPlayer = () => PER_PLAYER_PHASES.includes(curPhase());
   const curPlayer = () => (isPerPlayer() ? GAME.order[GAME.turnIndex] : null);
 
-  const vpOf = (color) => {
-    const el = document.querySelector('#vpPanel .vp[data-color="' + color + '"] .val');
-    return el ? (+el.textContent || 0) : 0;
-  };
-  function resetVP() {
-    document.querySelectorAll('#vpPanel .vp .val').forEach((el) => { el.textContent = '0'; });
+  // ---- race position (the real "score"): on-foot marker around the inner lane ----
+  // A VP earned = one step forward along the lane; crossing the start/finish line
+  // banks a lap on the 0-6 bar. Standings = laps, then distance into the lap.
+  const LAP_MAX = 6;                  // the center 0-6 lap bar holds 7 rungs (0..6)
+  let RACE_LANE = [];                 // inner-lane slots ordered in racing direction (start/finish first)
+  function initRace() { for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0 }; }
+  // Order the inner-lane slots into a racing sequence: clockwise from the bottom-
+  // center start/finish line, moving right first (per the board's arrow). Rotate so
+  // index 0 is the first slot just past the line, so pos wrapping = a completed lap.
+  function buildRaceLane() {
+    const lane = SLOTS.filter((s) => s.lane === 'inner');
+    if (!lane.length) { RACE_LANE = []; return; }
+    const cx = lane.reduce((a, s) => a + s.x, 0) / lane.length;
+    const cz = lane.reduce((a, s) => a + s.z, 0) / lane.length;
+    lane.sort((a, b) => Math.atan2(b.z - cz, b.x - cx) - Math.atan2(a.z - cz, a.x - cx));
+    let k = 0, bestDx = Infinity;     // bottom slot (z>cz) just right of center (min +dx)
+    lane.forEach((s, i) => { if (s.z > cz && s.x > cx && (s.x - cx) < bestDx) { bestDx = s.x - cx; k = i; } });
+    RACE_LANE = lane.slice(k).concat(lane.slice(0, k));
   }
-  function addVP(color, n) {
-    const el = document.querySelector('#vpPanel .vp[data-color="' + color + '"] .val');
-    if (el) el.textContent = String((+el.textContent || 0) + n);
+  const markerOnTrack = (color, track) =>
+    pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
+                       p.userData.slot && p.userData.slot.track === track);
+  const raceMarkerOf = (color) =>
+    pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
+                       p.userData.slot && p.userData.slot.lane === 'inner');
+  function placeOnTrackOrd(color, track, ord) {
+    const m = markerOnTrack(color, track);
+    const slot = SLOTS.find((o) => o.track === track && o.ord === ord);
+    if (m && slot) placeOnSlot(m, slot);
+  }
+  // Move a nation's on-foot marker n steps along the lane (n may be negative for a
+  // manual correction); bank/unbank laps on the 0-6 bar as it crosses the line.
+  function advanceRace(color, n = 1) {
+    const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
+    const m = raceMarkerOf(color); if (!m) return;
+    const L = RACE_LANE.length;
+    for (let s = n; s > 0; s--) { st.pos++; if (st.pos >= L) { st.pos = 0; if (st.laps < LAP_MAX) st.laps++; } }
+    for (let s = n; s < 0; s++) { st.pos--; if (st.pos < 0) { st.pos = L - 1; if (st.laps > 0) st.laps--; } }
+    placeOnTrackOrd(color, 'lap', st.laps);
+    placeOnSlot(m, RACE_LANE[st.pos]);
+    notifyFlow();
   }
 
-  // ---- barracks reward: +1 VP + choose a resource + optional track moves ----
+  // ---- barracks reward: +1 VP (a lane step) + a resource + optional track moves ----
   function moveUpTrack(color, track) {
-    const marker = pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
-                                      p.userData.slot && p.userData.slot.track === track);
+    const marker = markerOnTrack(color, track);
     if (!marker) return false;
     const next = SLOTS.find((o) => o.track === track && o.ord === marker.userData.slot.ord + 1);
     if (!next) return false;          // already at the top rung
@@ -961,7 +999,7 @@
     return true;
   }
   function openBarracks(color) {
-    addVP(color, 1);
+    advanceRace(color, 1);            // the "+1 VP" = one step forward on the race track
     GAME.barracks = { color, picked: false, relic: false, chariot: false };
     notifyFlow();
   }
@@ -985,10 +1023,12 @@
   const phasesFor = (round) =>
     PHASES.filter((p) => p !== 'Colosseum' || COLOSSEUM_ROUNDS.includes(round));
   const eraOf = (round) => (round <= 3 ? 'Act I' : round <= 5 ? 'Act II' : 'Act III');
-  // Round 1 = seat order; round 2+ = most-VP first, ties broken by seat order.
+  // Standings key: laps first, then distance into the current lap.
+  const raceRank = (color) => { const s = GAME.race[color] || { laps: 0, pos: 0 }; return s.laps * 10000 + s.pos; };
+  // Round 1 = seat order; round 2+ = race leader first, ties broken by seat order.
   const computeOrder = (round) => (round === 1
     ? SEAT_ORDER.slice()
-    : SEAT_ORDER.slice().sort((a, b) => vpOf(b) - vpOf(a) || SEAT_ORDER.indexOf(a) - SEAT_ORDER.indexOf(b)));
+    : SEAT_ORDER.slice().sort((a, b) => raceRank(b) - raceRank(a) || SEAT_ORDER.indexOf(a) - SEAT_ORDER.indexOf(b)));
 
   function getFlow() {
     const phases = phasesFor(GAME.round);
@@ -1003,6 +1043,8 @@
       perPlayer,
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
+      race: JSON.parse(JSON.stringify(GAME.race)),
+      laneLen: RACE_LANE.length,
     };
   }
   const notifyFlow = () => { if (flowCb) flowCb(getFlow()); };
@@ -1058,21 +1100,17 @@
   function buyDie() { const c = curPlayer(); if (c) adjustRes(c, 'zap', -DIE_ZAP_COST); }
   // World anchor for a faction's discard pile: beside its deck, opposite the hand fan.
   function discardAnchor(b) { const a = deckAnchor(b); return { x: a.x, z: a.z - 30 }; }
-  // Discard a Cheer/Jeer from the current player's hand for +2 coins. The card goes
-  // face-up onto that player's discard pile (beside their deck) rather than vanishing.
-  function discardModifier() {
-    const c = curPlayer(); if (!c) return;
-    const card = pieces.find((p) => p.userData.type === 'card' && p.userData.owner === c &&
-                                    p.userData.zone === 'hand' && p.userData.cardKind === 'modifier');
-    if (!card) return;
-    const b = LAYOUT.find((x) => x.color === c);
-    const a = b ? discardAnchor(b) : { x: card.position.x, z: card.position.z };
-    const n = pieces.filter((p) => p.userData.type === 'card' && p.userData.owner === c &&
-                                   p.userData.zone === 'discard').length;
-    card.userData.zone = 'discard';
-    setCardFace(card, card.userData.face);   // reveal it face-up on the pile
-    card.position.set(a.x + (Math.random() - 0.5) * 1.4, 0.06 + n * 0.05, a.z + (Math.random() - 0.5) * 1.4);
-    adjustRes(c, 'coin', MODIFIER_COIN);
+  // A stacking drop-target beside a nation's deck: drag a Cheer/Jeer here for +2 coins
+  // (the reward is granted in endDrag when a modifier card lands on role 'discard').
+  function addDiscardSlot(color, x, z) {
+    const y = 0.06;
+    const marker = makeSlotMarker(x, y, z, 9, color);
+    slotMarkersGroup.add(marker);
+    const slot = { x, y, z, r: 9, accepts: ['card'], color, owner: color, role: 'discard',
+                   coin: false, event: false, boardKey: null, track: null, ord: null, bx: x,
+                   lane: null, stack: true, marker, occupants: [] };
+    SLOTS.push(slot);
+    return slot;
   }
 
   function startGame() {
@@ -1080,7 +1118,7 @@
     GAME.order = computeOrder(1);
     GAME.turnIndex = 0;
     initRes();
-    resetVP();
+    initRace();
     enterPhase(true);
     notifyFlow();
   }
@@ -1214,13 +1252,20 @@
       const a = deckAnchor(b);
       const plebe = b.color + 'Pliebe.png';
       buildDeck(b.color, [plebe, plebe, plebe, 'Cheer.png', 'Jeer.png'], a.x, a.z);
+      const d = discardAnchor(b);                 // drag Cheer/Jeer here for +2 coins
+      addDiscardSlot(b.color, d.x, d.z);
     }
 
     // markers for all 4 nations at the start of every relevant track (auto-fan)
-    for (const role of ['column-start', 'relic-start', 'chariot-start', 'lap-start', 'foot-start']) {
+    for (const role of ['column-start', 'relic-start', 'chariot-start', 'lap-start']) {
       for (const slot of slotsByRole(role)) {
         for (const color of ALL_COLORS) placeOnSlot(addMarker(color), slot);
       }
+    }
+    // on-foot race markers: at the start/finish line of the inner lane
+    buildRaceLane();
+    if (RACE_LANE.length) {
+      for (const color of ALL_COLORS) placeOnSlot(addMarker(color), RACE_LANE[0]);
     }
     const era = slotsByRole('era-start')[0];      // round tracker on the era start
     if (era) placeOnSlot(addRound(), era);
@@ -1243,8 +1288,8 @@
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable, initGame, dealHand,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
-    nextPlayer, prevPlayer, focusPlayer, buyDie, discardModifier,
-    barracksPick, barracksMove, barracksDone,
+    nextPlayer, prevPlayer, focusPlayer, buyDie,
+    barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;
