@@ -819,7 +819,12 @@
     const hfov = 2 * Math.atan(Math.tan(fov / 2) * aspect);
     const distV = (effH * 0.85 / 2) / Math.tan(fov / 2);
     const distH = (w / 2) / Math.tan(hfov / 2);
-    const dist = Math.max(distV, distH) * 1.06;          // small margin
+    // Faction mats (they declare padV) want to fill the frame — the abilities are
+    // small; go tight, even clipping a hair. Event/market boards read fine with air
+    // around them, so back off for those.
+    const isMat = !!mesh.userData.padV;
+    const margin = isMat ? 0.92 : 1.32;
+    const dist = Math.max(distV, distH) * margin;
     camera.near = 0.5;
     camera.far = dist * 8;
     camera.updateProjectionMatrix();
