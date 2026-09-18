@@ -237,7 +237,9 @@
   // ---- snap slots ----
   const SLOTS = [];        // { x, y, z, r, accepts, marker, occupant }
   const slotMarkersGroup = new THREE.Group();
+  slotMarkersGroup.visible = false;   // hidden during play; shown while dragging (or forced on)
   scene.add(slotMarkersGroup);
+  let slotsForced = false; // "Show slots" checkbox: keep all rings visible for tuning
   const SNAP_MIN = 6;      // minimum snap tolerance (world units)
 
   function makeSlotMarker(x, y, z, r) {
@@ -366,6 +368,18 @@
 
   function freeSlot(piece) {
     if (piece && piece.userData.slot) { piece.userData.slot.occupant = null; piece.userData.slot = null; }
+  }
+
+  // While dragging: show only the rings this piece type can snap to.
+  function showDragSlots(type) {
+    if (slotsForced) return;                       // manual override already shows everything
+    for (const s of SLOTS) s.marker.visible = s.accepts.includes(type);
+    slotMarkersGroup.visible = true;
+  }
+  function hideDragSlots() {
+    if (slotsForced) return;
+    slotMarkersGroup.visible = false;
+    for (const s of SLOTS) s.marker.visible = true;   // restore for a later manual "Show slots"
   }
 
   // ------------------------------------------------------------------ pieces
@@ -534,6 +548,7 @@
       controls.enabled = false;
       raycaster.ray.intersectPlane(groundPlane, hitPoint);
       dragOffset.set(p.position.x - hitPoint.x, 0, p.position.z - hitPoint.z);
+      showDragSlots(p.userData.type);   // reveal the slots this piece can snap to
     } else {
       select(null);
     }
@@ -565,6 +580,7 @@
       }
     }
     highlightSlot(null);
+    if (dragging) hideDragSlots();   // re-hide rings once the piece is dropped
     dragging = false;
     controls.enabled = true;
   };
@@ -632,7 +648,7 @@
     const cx = mesh.position.x, cz = mesh.position.z;
     const radius = 0.5 * Math.hypot(w, h);
     const fov = camera.fov * Math.PI / 180;
-    const dist = (radius / Math.sin(fov / 2)) * 0.80;    // tighter than table = zoomed in
+    const dist = (radius / Math.sin(fov / 2)) * 0.70;    // lower = closer/zoomed in
     camera.near = 0.5;
     camera.far = dist * 8;
     camera.updateProjectionMatrix();
@@ -652,7 +668,11 @@
   window.PT = {
     addMini, addToken, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable,
-    setSlotsVisible: (v) => { slotMarkersGroup.visible = v; },
+    setSlotsVisible: (v) => {
+      slotsForced = v;
+      for (const s of SLOTS) s.marker.visible = true;
+      slotMarkersGroup.visible = v || dragging;
+    },
     setColumnsVisible: (v) => { columnGroup.visible = v; },
     setActiveColor: (name) => { activeColorName = name; },
     getActiveColor: () => activeColorName,
