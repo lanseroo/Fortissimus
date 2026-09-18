@@ -811,9 +811,15 @@
     const effH = topExt + botExt;
     const cx = mesh.position.x;
     const cz = mesh.position.z + (botExt - topExt) / 2;   // recenter on the content
-    const radius = 0.5 * Math.hypot(w, effH);
+    // Fit both dimensions instead of a loose bounding circle. The table is viewed
+    // at a tilt, so the board's depth (effH) is foreshortened on screen (~0.85) and
+    // needs less vertical room; width maps straight to the (wider) horizontal FOV.
     const fov = camera.fov * Math.PI / 180;
-    const dist = (radius / Math.sin(fov / 2)) * 0.70;    // lower = closer/zoomed in
+    const aspect = camera.aspect || 1.6;
+    const hfov = 2 * Math.atan(Math.tan(fov / 2) * aspect);
+    const distV = (effH * 0.85 / 2) / Math.tan(fov / 2);
+    const distH = (w / 2) / Math.tan(hfov / 2);
+    const dist = Math.max(distV, distH) * 1.06;          // small margin
     camera.near = 0.5;
     camera.far = dist * 8;
     camera.updateProjectionMatrix();
