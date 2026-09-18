@@ -152,7 +152,7 @@
     if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
       const isUpkeep = f.phase === 'Upkeep & Market';
-      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice & roll the cup' : 'play a card + a mini onto an event');
+      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice (⚡) & roll the cup' : 'play a card + a mini onto an event');
       buyDieBtn.hidden = !isUpkeep;
       discardModBtn.hidden = isUpkeep;
       reflectSwatch(f.current);

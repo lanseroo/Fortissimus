@@ -895,7 +895,7 @@
 
   // Tunable rules numbers (rules still WIP — keep as constants, not hard-coded logic).
   const START_INCOME  = { coin: 3, zap: 2, sun: 0 };  // per-round income (matches setup tokens)
-  const DIE_COST      = 1;                             // ❓ coins per purchased cup die (guess)
+  const DIE_ZAP_COST  = 1;                             // ⚡ per added cup die (Lightning buys dice)
   const MODIFIER_COIN = 2;                             // Cheer/Jeer discard reward
   const PER_PLAYER_PHASES = ['Upkeep & Market', 'Blind Placement'];
   const seatBonusOf = (c) => ([3, 2, 1, 0][SEAT_ORDER.indexOf(c)] || 0);
@@ -1002,8 +1002,9 @@
   const nextPlayer = () => stepPlayer(1);
   const prevPlayer = () => stepPlayer(-1);
 
-  // Purchase a cup die: charge the current player (guided — they bump dice count + roll).
-  function buyDie() { const c = curPlayer(); if (c) adjustRes(c, 'coin', -DIE_COST); }
+  // Buy a cup die with Lightning (⚡): charge the current player (guided — they bump
+  // the dice count + roll). Rules: 1⚡ = +1 die to your cup before rolling.
+  function buyDie() { const c = curPlayer(); if (c) adjustRes(c, 'zap', -DIE_ZAP_COST); }
   // Discard a Cheer/Jeer from the current player's hand for +2 coins.
   function discardModifier() {
     const c = curPlayer(); if (!c) return;
