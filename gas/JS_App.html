@@ -63,29 +63,34 @@
     return out;
   };
 
-  // Event reward strips: 6-column x 2-row hero-placement grid
-  // (top row Blue/Purple, bottom row Green/Yellow).
-  const EVENT_GRID = gridSlots(
-    [0.240, 0.336, 0.431, 0.527, 0.623, 0.719], [0.176, 0.376], CARD, 5);
+  // Event reward strips: 6-column x 2-row hero-placement grid — minis only,
+  // color-restricted (top row cols 0-2 Blue / 3-5 Purple; bottom cols 0-2
+  // Green / 3-5 Yellow).
+  const EVENT_COLS = [0.240, 0.336, 0.431, 0.527, 0.623, 0.719];
+  const EVENT_GRID = [
+    ...EVENT_COLS.map((u, i) => ({ u, v: 0.176, accepts: ['mini'], r: 5, color: i < 3 ? 'Blue'  : 'Purple' })),
+    ...EVENT_COLS.map((u, i) => ({ u, v: 0.376, accepts: ['mini'], r: 5, color: i < 3 ? 'Green' : 'Yellow' })),
+  ];
 
   // Race track: player barracks (start circles), 0-6 lap row, relic track
   // (left, 4 rungs), chariot track (right, 5 rungs), event/era track (bottom,
   // I-VI + red-flag milestones), and the two oval racing lanes.
   const RACE_SLOTS = [
-    ...rowSlots(0.048, 0.128, 2, 0.063, TOK, 4.5),        // Blue barracks
-    ...rowSlots(0.246, 0.326, 2, 0.063, TOK, 4.5),        // Green barracks
-    ...rowSlots(0.431, 0.510, 2, 0.063, TOK, 4.5),        // Purple barracks
-    ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
+    // barracks: each player's start circles take that color's minis only
+    ...rowSlots(0.048, 0.128, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Blue' })),
+    ...rowSlots(0.246, 0.326, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Green' })),
+    ...rowSlots(0.431, 0.510, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Purple' })),
+    ...rowSlots(0.618, 0.698, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Yellow' })),
     // center 0-6 lap bar — exact cell centers measured off the art (uneven spacing)
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
-      (u) => ({ u, v: 0.522, accepts: ['token'], r: 4.5 })),
-    ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
-    ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
-    // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — measured centers
+      (u) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5 })),
+    ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5),     // relic track (4 rungs)
+    ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5),     // chariot track (5 rungs)
+    // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
-      (u) => ({ u, v: 0.945, accepts: ['token'], r: 4.5 })),
-    ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, TOK, 4),  // outer lane (16)
-    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, TOK, 4),  // inner lane (24)
+      (u) => ({ u, v: 0.945, accepts: ['round'], r: 4.5 })),
+    ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4),  // outer lane (16) — chariots race
+    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4),   // inner lane (24) — circle tokens
   ];
 
   // Column board: 3 pillars, 6 reward rungs each. Rung v-range read off the
@@ -94,42 +99,42 @@
   // Left/center/right pillars show Column2/Column3/Column1 (see COLUMN_OVERLAYS);
   // Fortuna (Column1, right) sits lower than Bacchus/Mercury, so ranges differ.
   const COLUMN_SLOTS = [
-    ...colSlots(0.149, 0.175, 0.680, 6, TOK, 5),   // left  = Column2 (Bacchus)
-    ...colSlots(0.501, 0.180, 0.682, 6, TOK, 5),   // center= Column3 (Mercury)
-    ...colSlots(0.855, 0.241, 0.721, 6, TOK, 5),   // right = Column1 (Fortuna)
+    ...colSlots(0.149, 0.175, 0.680, 6, ['marker'], 5),   // left  = Column2 (Bacchus)
+    ...colSlots(0.501, 0.180, 0.682, 6, ['marker'], 5),   // center= Column3 (Mercury)
+    ...colSlots(0.855, 0.241, 0.721, 6, ['marker'], 5),   // right = Column1 (Fortuna)
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
   const UNDERWORLD_SLOTS = [
-    { u: 0.173, v: 0.366, accepts: CARD, r: 8 }, { u: 0.331, v: 0.366, accepts: CARD, r: 8 },
-    { u: 0.173, v: 0.702, accepts: CARD, r: 8 }, { u: 0.331, v: 0.702, accepts: CARD, r: 8 },
-    { u: 0.770, v: 0.501, accepts: CARD, r: 8 },
+    { u: 0.173, v: 0.366, accepts: ['card'], r: 8 }, { u: 0.331, v: 0.366, accepts: ['card'], r: 8 },
+    { u: 0.173, v: 0.702, accepts: ['card'], r: 8 }, { u: 0.331, v: 0.702, accepts: ['card'], r: 8 },
+    { u: 0.770, v: 0.501, accepts: ['card'], r: 8 },
   ];
 
   // Colosseum: 12 fighter stations around the arena, each with a paired
   // (inner + outer) circle, + the center gladiator slot.
   const COLOSSEUM_SLOTS = [
     // 11 stations (II–XII), inner + outer circle each — measured off ColosseumBoard.png
-    { u: 0.636, v: 0.234, accepts: CARD, r: 7 }, { u: 0.664, v: 0.099, accepts: CARD, r: 7 }, // II
-    { u: 0.759, v: 0.331, accepts: CARD, r: 7 }, { u: 0.841, v: 0.254, accepts: CARD, r: 7 }, // III
-    { u: 0.789, v: 0.499, accepts: CARD, r: 7 }, { u: 0.873, v: 0.499, accepts: CARD, r: 7 }, // IV
-    { u: 0.759, v: 0.664, accepts: CARD, r: 7 }, { u: 0.834, v: 0.757, accepts: CARD, r: 7 }, // V
-    { u: 0.637, v: 0.791, accepts: CARD, r: 7 }, { u: 0.678, v: 0.922, accepts: CARD, r: 7 }, // VI
-    { u: 0.499, v: 0.790, accepts: CARD, r: 7 }, { u: 0.498, v: 0.922, accepts: CARD, r: 7 }, // VII
-    { u: 0.362, v: 0.790, accepts: CARD, r: 7 }, { u: 0.321, v: 0.922, accepts: CARD, r: 7 }, // VIII
-    { u: 0.228, v: 0.675, accepts: CARD, r: 7 }, { u: 0.164, v: 0.796, accepts: CARD, r: 7 }, // IX
-    { u: 0.212, v: 0.509, accepts: CARD, r: 7 }, { u: 0.128, v: 0.509, accepts: CARD, r: 7 }, // X
-    { u: 0.228, v: 0.342, accepts: CARD, r: 7 }, { u: 0.148, v: 0.251, accepts: CARD, r: 7 }, // XI
-    { u: 0.357, v: 0.242, accepts: CARD, r: 7 }, { u: 0.336, v: 0.104, accepts: CARD, r: 7 }, // XII
-    { u: 0.500, v: 0.478, accepts: CARD, r: 8 }, // center gladiator
+    { u: 0.636, v: 0.234, accepts: ['mini'], r: 7 }, { u: 0.664, v: 0.099, accepts: ['mini'], r: 7 }, // II
+    { u: 0.759, v: 0.331, accepts: ['mini'], r: 7 }, { u: 0.841, v: 0.254, accepts: ['mini'], r: 7 }, // III
+    { u: 0.789, v: 0.499, accepts: ['mini'], r: 7 }, { u: 0.873, v: 0.499, accepts: ['mini'], r: 7 }, // IV
+    { u: 0.759, v: 0.664, accepts: ['mini'], r: 7 }, { u: 0.834, v: 0.757, accepts: ['mini'], r: 7 }, // V
+    { u: 0.637, v: 0.791, accepts: ['mini'], r: 7 }, { u: 0.678, v: 0.922, accepts: ['mini'], r: 7 }, // VI
+    { u: 0.499, v: 0.790, accepts: ['mini'], r: 7 }, { u: 0.498, v: 0.922, accepts: ['mini'], r: 7 }, // VII
+    { u: 0.362, v: 0.790, accepts: ['mini'], r: 7 }, { u: 0.321, v: 0.922, accepts: ['mini'], r: 7 }, // VIII
+    { u: 0.228, v: 0.675, accepts: ['mini'], r: 7 }, { u: 0.164, v: 0.796, accepts: ['mini'], r: 7 }, // IX
+    { u: 0.212, v: 0.509, accepts: ['mini'], r: 7 }, { u: 0.128, v: 0.509, accepts: ['mini'], r: 7 }, // X
+    { u: 0.228, v: 0.342, accepts: ['mini'], r: 7 }, { u: 0.148, v: 0.251, accepts: ['mini'], r: 7 }, // XI
+    { u: 0.357, v: 0.242, accepts: ['mini'], r: 7 }, { u: 0.336, v: 0.104, accepts: ['mini'], r: 7 }, // XII
+    { u: 0.500, v: 0.478, accepts: ['mini'], r: 8 }, // center gladiator
   ];
 
   // Faction mats (shared template for all 4): income track, hero market
   // circles, and hero card slots below.
   const FACTION_SLOTS = [
-    ...rowSlots(0.090, 0.481, 5, 0.200, ['token'], 4),   // income track
-    ...rowSlots(0.063, 0.685, 5, 0.620, CARD, 5),        // hero market
-    ...rowSlots(0.092, 0.732, 5, 0.865, ['card'], 7),    // hero card slots
+    ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4),                          // income track
+    ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s) => ({ ...s, boardColor: true })), // hero market circles (this mat's color)
+    ...rowSlots(0.092, 0.732, 5, 0.865, ['card'], 7),                            // hero card slots
   ];
 
   // Full-table layout matching the physical table. x = left(-)/right(+),
@@ -161,10 +166,10 @@
     { file: 'LongJumpEvent.png',  x:    0, z:   76, w: BW, y: 0.4, slot: 1 },
     { file: 'SprintEvent.png',    x:  125, z:   76, w: BW, y: 0.4, slot: 2 },
     // player/faction mats
-    { file: 'AchaeaBoard.png',    x: -255, z:    0, w: FW, slotsDef: FACTION_SLOTS },   // Blue, far left
-    { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, slotsDef: FACTION_SLOTS },   // Yellow, far right
-    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Green, bottom-left
-    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Purple, bottom-right
+    { file: 'AchaeaBoard.png',    x: -255, z:    0, w: FW, color: 'Blue',   slotsDef: FACTION_SLOTS },   // Blue, far left
+    { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, color: 'Yellow', slotsDef: FACTION_SLOTS },   // Yellow, far right
+    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, color: 'Green',  slotsDef: FACTION_SLOTS },   // Green, bottom-left
+    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, color: 'Purple', slotsDef: FACTION_SLOTS },   // Purple, bottom-right
   ];
 
   // Drawn column art (rung faces) overlaid on the empty board pillars, so the
@@ -242,12 +247,15 @@
   let slotsForced = false; // "Show slots" checkbox: keep all rings visible for tuning
   const SNAP_MIN = 6;      // minimum snap tolerance (world units)
 
-  function makeSlotMarker(x, y, z, r) {
+  function makeSlotMarker(x, y, z, r, color) {
+    // Tint the tuning ring by the slot's player color (cyan when unrestricted),
+    // so "Show slots" doubles as a color-map check.
+    const tint = (color && COLORS[color] !== undefined) ? COLORS[color] : 0x66e0ff;
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(Math.max(r - 1.2, 0.5), r, 30),
       // depthTest off + high renderOrder keeps rings visible on top of board /
       // column-overlay art, so slot positions can always be checked.
-      new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
+      new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(x, y, z);
@@ -257,15 +265,17 @@
   }
 
   // Convert a board's normalized slotsDef into world-space SLOTS (+ ring markers).
+  // A slot's color is fixed (`s.color`) or inherited from the mat (`s.boardColor`).
   function buildSlotsFor(b, w, h) {
     const by = (b.y || 0) + 0.06;
     for (const s of b.slotsDef) {
       const x = b.x + (s.u - 0.5) * w;
       const z = b.z + (s.v - 0.5) * h;
       const r = s.r || 5;
-      const marker = makeSlotMarker(x, by, z, r);
+      const color = s.boardColor ? (b.color || null) : (s.color || null);
+      const marker = makeSlotMarker(x, by, z, r, color);
       slotMarkersGroup.add(marker);
-      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, marker, occupant: null });
+      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, marker, occupant: null });
     }
   }
 
@@ -346,12 +356,21 @@
     if (mesh) applyBoardTexture(mesh, file, mesh.userData.slotW);
   }
 
-  // Nearest free, type-compatible slot within its snap tolerance (or null).
-  function nearestSlot(type, x, z, ignore) {
+  // Whether `piece` may occupy slot `s`: type must be accepted, and a color-coded
+  // slot only takes a mini of its own color (unrestricted slots have no color).
+  function slotAccepts(s, piece) {
+    const type = piece.userData.type;
+    if (!s.accepts.includes(type)) return false;
+    if (type === 'mini' && s.color && s.color !== piece.userData.color) return false;
+    return true;
+  }
+
+  // Nearest free, compatible slot within its snap tolerance (or null).
+  function nearestSlot(piece, x, z) {
     let best = null, bestD = Infinity;
     for (const s of SLOTS) {
-      if (!s.accepts.includes(type)) continue;
-      if (s.occupant && s.occupant !== ignore) continue;
+      if (!slotAccepts(s, piece)) continue;
+      if (s.occupant && s.occupant !== piece) continue;
       const d = Math.hypot(s.x - x, s.z - z);
       if (d <= Math.max(s.r + 2, SNAP_MIN) && d < bestD) { bestD = d; best = s; }
     }
@@ -370,10 +389,10 @@
     if (piece && piece.userData.slot) { piece.userData.slot.occupant = null; piece.userData.slot = null; }
   }
 
-  // While dragging: show only the rings this piece type can snap to.
-  function showDragSlots(type) {
+  // While dragging: show only the rings this piece can snap to (color-aware).
+  function showDragSlots(piece) {
     if (slotsForced) return;                       // manual override already shows everything
-    for (const s of SLOTS) s.marker.visible = s.accepts.includes(type);
+    for (const s of SLOTS) s.marker.visible = slotAccepts(s, piece);
     slotMarkersGroup.visible = true;
   }
   function hideDragSlots() {
@@ -449,6 +468,41 @@
       g.add(plane);
     });
     return registerPiece(g, type);
+  }
+
+  // Flat circle "marker" token in a player color — the position piece for the
+  // column/lap/relic/chariot/inner-lane tracks. Thin dark rim for contrast.
+  function addMarker(colorName = activeColorName) {
+    const g = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(4, 32),
+      new THREE.MeshBasicMaterial({ color: COLORS[colorName], side: THREE.DoubleSide })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(4, 4.7, 32),
+      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide })
+    );
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.01;
+    g.add(disc); g.add(rim);
+    const [x, z] = spawnXZ();
+    g.position.set(x, 0.07, z);
+    g.userData.color = colorName;
+    return registerPiece(g, 'marker');
+  }
+
+  // Small black round token for the bottom era/round track.
+  function addRound() {
+    const g = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(3.5, 32),
+      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    g.add(disc);
+    const [x, z] = spawnXZ();
+    g.position.set(x, 0.07, z);
+    return registerPiece(g, 'round');
   }
 
   // ------------------------------------------------------------------ dice
@@ -548,7 +602,7 @@
       controls.enabled = false;
       raycaster.ray.intersectPlane(groundPlane, hitPoint);
       dragOffset.set(p.position.x - hitPoint.x, 0, p.position.z - hitPoint.z);
-      showDragSlots(p.userData.type);   // reveal the slots this piece can snap to
+      showDragSlots(p);   // reveal the slots this piece can snap to
     } else {
       select(null);
     }
@@ -562,7 +616,7 @@
       selected.position.x = hitPoint.x + dragOffset.x;
       selected.position.z = hitPoint.z + dragOffset.z;
       // live preview: highlight the slot this piece would snap to on release
-      highlightSlot(nearestSlot(selected.userData.type, selected.position.x, selected.position.z, selected));
+      highlightSlot(nearestSlot(selected, selected.position.x, selected.position.z));
     }
   });
 
@@ -571,7 +625,7 @@
   const endDrag = () => {
     if (dragging && selected) {
       freeSlot(selected);
-      const s = nearestSlot(selected.userData.type, selected.position.x, selected.position.z, selected);
+      const s = nearestSlot(selected, selected.position.x, selected.position.z);
       if (s) {
         selected.position.x = s.x;
         selected.position.z = s.z;
@@ -666,7 +720,7 @@
 
   // ------------------------------------------------------------------ public API
   window.PT = {
-    addMini, addToken, rollDice, reroll, clearPieces, resetView,
+    addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable,
     setSlotsVisible: (v) => {
       slotsForced = v;

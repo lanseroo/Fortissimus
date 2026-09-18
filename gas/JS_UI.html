@@ -53,8 +53,8 @@
     const o = document.createElement('option');
     o.value = file; o.textContent = label; heroSel.appendChild(o);
   }
-  document.getElementById('addHero').addEventListener('click', () => PT.addToken(heroSel.value, 16, 'card'));
-  document.getElementById('addCardBack').addEventListener('click', () => PT.addToken('BackofCards.png', 16, 'card'));
+  document.getElementById('addHero').addEventListener('click', () => PT.addToken(heroSel.value, 30, 'card'));
+  document.getElementById('addCardBack').addEventListener('click', () => PT.addToken('BackofCards.png', 30, 'card'));
 
   // ---- active color swatches ----
   document.querySelectorAll('#toolbar .sw').forEach((b) => b.addEventListener('click', () => {
@@ -64,8 +64,10 @@
   }));
 
   // ---- color-dependent tokens ----
-  document.getElementById('addChariot').addEventListener('click', () => PT.addToken('ChariotIcon' + PT.getActiveColor() + '.png', 8));
+  document.getElementById('addChariot').addEventListener('click', () => PT.addToken('ChariotIcon' + PT.getActiveColor() + '.png', 8, 'chariot'));
   document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken(PT.getActiveColor() + 'Pliebe.png', 16, 'card'));
+  document.getElementById('addMarker').addEventListener('click',  () => PT.addMarker(PT.getActiveColor()));
+  document.getElementById('addRound').addEventListener('click',   () => PT.addRound());
 
   // ---- fixed tokens ----
   document.getElementById('addCheer').addEventListener('click', () => PT.addToken('Cheer.png', 16, 'card'));
@@ -75,7 +77,7 @@
   document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6));
   document.getElementById('addLightning').addEventListener('click', () => PT.addToken('LightningToken.png', 6));
   document.getElementById('addSun').addEventListener('click',       () => PT.addToken('SunToken.png', 6));
-  document.getElementById('addIncome').addEventListener('click',    () => PT.addToken('IncomeToken.png', 6));
+  document.getElementById('addIncome').addEventListener('click',    () => PT.addToken('IncomeToken.png', 6, 'income'));
 
   // ---- dice ----
   document.getElementById('rollDice').addEventListener('click', () => PT.rollDice(parseInt(document.getElementById('diceCount').value, 10) || 1));
