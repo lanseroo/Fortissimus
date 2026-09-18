@@ -114,6 +114,10 @@
   const nextPlayerBtn = document.getElementById('nextPlayer');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
+  const barracks = document.getElementById('barracks');
+  const barracksLine = document.getElementById('barracksLine');
+  const barRelic = document.getElementById('barRelic');
+  const barChariot = document.getElementById('barChariot');
 
   // sync the toolbar active-color swatch to a color
   function reflectSwatch(color) {
@@ -160,6 +164,21 @@
       turnbar.hidden = true;
     }
 
+    // barracks reward panel (open while a mini is being seated to the barracks)
+    if (f.barracks) {
+      const b = f.barracks;
+      const r = (f.res && f.res[b.color]) || { coin: 0, zap: 0, sun: 0 };
+      barracks.hidden = false;
+      barracksLine.textContent = b.color + ' → Barracks: +1 VP · take a resource'
+        + (b.picked ? ' ✓' : '');
+      barracks.querySelectorAll('.bpick').forEach((btn) => { btn.disabled = b.picked; });
+      barRelic.disabled = b.relic || r.zap < 2;
+      barChariot.disabled = b.chariot || r.sun < 2;
+      barracksLine.style.color = FLOW_COLORS[b.color] || '#ffd479';
+    } else {
+      barracks.hidden = true;
+    }
+
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
     nextBtn.disabled = !f.started || f.over;
   }
@@ -171,4 +190,9 @@
   nextPlayerBtn.addEventListener('click', () => PT.nextPlayer());
   buyDieBtn.addEventListener('click', () => PT.buyDie());
   discardModBtn.addEventListener('click', () => PT.discardModifier());
+  barracks.querySelectorAll('.bpick').forEach((btn) =>
+    btn.addEventListener('click', () => PT.barracksPick(btn.dataset.kind)));
+  barRelic.addEventListener('click', () => PT.barracksMove('relic'));
+  barChariot.addEventListener('click', () => PT.barracksMove('chariot'));
+  document.getElementById('barDone').addEventListener('click', () => PT.barracksDone());
 </script>

@@ -81,20 +81,20 @@
   // I-VI + red-flag milestones), and the two oval racing lanes.
   const RACE_SLOTS = [
     // barracks: each player's start circles take that color's minis only
-    ...rowSlots(0.048, 0.128, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Blue' })),
-    ...rowSlots(0.246, 0.326, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Green' })),
-    ...rowSlots(0.431, 0.510, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Purple' })),
-    ...rowSlots(0.618, 0.698, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Yellow' })),
+    ...rowSlots(0.048, 0.128, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Blue',   role: 'barracks' })),
+    ...rowSlots(0.246, 0.326, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Green',  role: 'barracks' })),
+    ...rowSlots(0.431, 0.510, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Purple', role: 'barracks' })),
+    ...rowSlots(0.618, 0.698, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Yellow', role: 'barracks' })),
     // center 0-6 lap bar — exact cell centers measured off the art (uneven spacing)
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
       (u, i) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5, ...(i === 0 ? { role: 'lap-start' } : {}) })),
-    ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5).map((s, i) => (i === 3 ? { ...s, role: 'relic-start' } : s)),     // relic track (4 rungs)
-    ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5).map((s, i) => (i === 4 ? { ...s, role: 'chariot-start' } : s)),   // chariot track (5 rungs)
+    ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5).map((s, i) => ({ ...s, track: 'relic',   ord: 3 - i, ...(i === 3 ? { role: 'relic-start' }   : {}) })),   // relic track (4 rungs)
+    ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5).map((s, i) => ({ ...s, track: 'chariot', ord: 4 - i, ...(i === 4 ? { role: 'chariot-start' } : {}) })),   // chariot track (5 rungs)
     // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
       (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, ...(i === 0 ? { role: 'era-start' } : {}) })),
     ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4),  // outer lane (16) — chariots race
-    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4),   // inner lane (24) — circle tokens
+    ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4).map((s, i) => (i === 0 ? { ...s, role: 'foot-start' } : s)),   // inner lane (24) — on-foot markers
   ];
 
   // Column board: 3 pillars, 6 reward rungs each. Rung v-range read off the
@@ -304,6 +304,7 @@
       slotMarkersGroup.add(marker);
       SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
                    coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
+                   track: s.track || null, ord: (s.ord ?? null), bx: b.x,
                    marker, occupants: [] });
     }
   }
@@ -744,14 +745,22 @@
   // leave the piece exactly where it was dropped (free-placement fallback).
   const endDrag = () => {
     if (dragging && selected) {
+      const prevSlot = selected.userData.slot;   // where it sat before this drag (for barracks re-drop guard)
       // leaving an event slot it paid into? refund the fee it was charged.
       if (selected.userData.eventFee) {
         adjustRes(selected.userData.color, 'coin', selected.userData.eventFee);
         selected.userData.eventFee = 0;
       }
       freeSlot(selected);
-      const s = nearestSlot(selected, selected.position.x, selected.position.z);
+      let s = nearestSlot(selected, selected.position.x, selected.position.z);
       if (s) {
+        // events fill inner->out: redirect a mini to the innermost free circle of
+        // its color's triad (the coin slot first), so the fee count stays correct.
+        if (s.event && selected.userData.type === 'mini') {
+          const opts = SLOTS.filter((o) => o.event && o.boardKey === s.boardKey &&
+                                           o.color === selected.userData.color && !o.occupants.length);
+          if (opts.length) { opts.sort((a, b) => Math.abs(a.x - a.bx) - Math.abs(b.x - b.bx)); s = opts[0]; }
+        }
         // event entry fee = exposed coin icons on this strip before we cover one.
         if (s.event && selected.userData.type === 'mini') {
           const fee = SLOTS.filter((o) => o.boardKey === s.boardKey && o.coin && !o.occupants.length).length;
@@ -760,6 +769,10 @@
         s.occupants.push(selected);
         selected.userData.slot = s;
         layoutStack(s);   // positions the piece (fanned if sharing the slot)
+        // sending a fresh mini to the barracks earns its reward (VP + resource + track moves).
+        if (s.role === 'barracks' && selected.userData.type === 'mini' && prevSlot !== s) {
+          openBarracks(selected.userData.color);
+        }
       }
     }
     highlightSlot(null);
@@ -906,7 +919,7 @@
   const PHASES = ['Upkeep & Market', 'Blind Placement', 'Resolution & Podiums', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum phase only runs these rounds
-  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {} };
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -932,6 +945,43 @@
   function resetVP() {
     document.querySelectorAll('#vpPanel .vp .val').forEach((el) => { el.textContent = '0'; });
   }
+  function addVP(color, n) {
+    const el = document.querySelector('#vpPanel .vp[data-color="' + color + '"] .val');
+    if (el) el.textContent = String((+el.textContent || 0) + n);
+  }
+
+  // ---- barracks reward: +1 VP + choose a resource + optional track moves ----
+  function moveUpTrack(color, track) {
+    const marker = pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
+                                      p.userData.slot && p.userData.slot.track === track);
+    if (!marker) return false;
+    const next = SLOTS.find((o) => o.track === track && o.ord === marker.userData.slot.ord + 1);
+    if (!next) return false;          // already at the top rung
+    placeOnSlot(marker, next);
+    return true;
+  }
+  function openBarracks(color) {
+    addVP(color, 1);
+    GAME.barracks = { color, picked: false, relic: false, chariot: false };
+    notifyFlow();
+  }
+  function barracksPick(kind) {
+    const b = GAME.barracks; if (!b || b.picked) return;
+    adjustRes(b.color, kind, 1);      // notifyFlow inside adjustRes
+    b.picked = true;
+    notifyFlow();
+  }
+  function barracksMove(track) {
+    const b = GAME.barracks; if (!b) return;
+    const kind = track === 'relic' ? 'zap' : 'sun';
+    if ((track === 'relic' ? b.relic : b.chariot)) return;   // already used this barracks mini
+    if ((GAME.res[b.color]?.[kind] || 0) < 2) return;        // not enough to spend
+    if (!moveUpTrack(b.color, track)) return;                // at the top → don't charge
+    adjustRes(b.color, kind, -2);     // notifyFlow inside adjustRes
+    if (track === 'relic') b.relic = true; else b.chariot = true;
+    notifyFlow();
+  }
+  function barracksDone() { GAME.barracks = null; notifyFlow(); }
   const phasesFor = (round) =>
     PHASES.filter((p) => p !== 'Colosseum' || COLOSSEUM_ROUNDS.includes(round));
   const eraOf = (round) => (round <= 3 ? 'Act I' : round <= 5 ? 'Act II' : 'Act III');
@@ -952,6 +1002,7 @@
       turnIndex: GAME.turnIndex, current: perPlayer && GAME.started && !GAME.over ? GAME.order[GAME.turnIndex] : null,
       perPlayer,
       res: JSON.parse(JSON.stringify(GAME.res)),
+      barracks: GAME.barracks ? { ...GAME.barracks } : null,
     };
   }
   const notifyFlow = () => { if (flowCb) flowCb(getFlow()); };
@@ -1005,13 +1056,22 @@
   // Buy a cup die with Lightning (⚡): charge the current player (guided — they bump
   // the dice count + roll). Rules: 1⚡ = +1 die to your cup before rolling.
   function buyDie() { const c = curPlayer(); if (c) adjustRes(c, 'zap', -DIE_ZAP_COST); }
-  // Discard a Cheer/Jeer from the current player's hand for +2 coins.
+  // World anchor for a faction's discard pile: beside its deck, opposite the hand fan.
+  function discardAnchor(b) { const a = deckAnchor(b); return { x: a.x, z: a.z - 30 }; }
+  // Discard a Cheer/Jeer from the current player's hand for +2 coins. The card goes
+  // face-up onto that player's discard pile (beside their deck) rather than vanishing.
   function discardModifier() {
     const c = curPlayer(); if (!c) return;
     const card = pieces.find((p) => p.userData.type === 'card' && p.userData.owner === c &&
                                     p.userData.zone === 'hand' && p.userData.cardKind === 'modifier');
     if (!card) return;
-    removePiece(card);
+    const b = LAYOUT.find((x) => x.color === c);
+    const a = b ? discardAnchor(b) : { x: card.position.x, z: card.position.z };
+    const n = pieces.filter((p) => p.userData.type === 'card' && p.userData.owner === c &&
+                                   p.userData.zone === 'discard').length;
+    card.userData.zone = 'discard';
+    setCardFace(card, card.userData.face);   // reveal it face-up on the pile
+    card.position.set(a.x + (Math.random() - 0.5) * 1.4, 0.06 + n * 0.05, a.z + (Math.random() - 0.5) * 1.4);
     adjustRes(c, 'coin', MODIFIER_COIN);
   }
 
@@ -1157,7 +1217,7 @@
     }
 
     // markers for all 4 nations at the start of every relevant track (auto-fan)
-    for (const role of ['column-start', 'relic-start', 'chariot-start', 'lap-start']) {
+    for (const role of ['column-start', 'relic-start', 'chariot-start', 'lap-start', 'foot-start']) {
       for (const slot of slotsByRole(role)) {
         for (const color of ALL_COLORS) placeOnSlot(addMarker(color), slot);
       }
@@ -1184,6 +1244,7 @@
     setEventSlot, frameTable, initGame, dealHand,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     nextPlayer, prevPlayer, focusPlayer, buyDie, discardModifier,
+    barracksPick, barracksMove, barracksDone,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;

@@ -186,4 +186,26 @@
   }
   .turnbtns button:hover { background: #3a3d42; }
   #nextPlayer { flex-basis: 100%; }
+
+  /* barracks reward panel */
+  #barracks {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #3a3d42;
+  }
+  #barracksLine { font-size: 0.82rem; font-weight: 600; margin-bottom: 6px; }
+  .barbtns { display: flex; gap: 6px; margin-bottom: 6px; }
+  .barbtns button, #barDone {
+    flex: 1 1 auto;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30;
+    color: #f2f2f2;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  #barDone { width: 100%; margin-top: 2px; }
+  .barbtns button:hover:not(:disabled), #barDone:hover { background: #3a3d42; }
+  .barbtns button:disabled { opacity: 0.4; cursor: default; }
 </style>
