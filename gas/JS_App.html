@@ -83,12 +83,12 @@
     ...rowSlots(0.618, 0.698, 2, 0.063, ['mini'], 4.5).map((s) => ({ ...s, color: 'Yellow' })),
     // center 0-6 lap bar — exact cell centers measured off the art (uneven spacing)
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
-      (u) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5 })),
-    ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5),     // relic track (4 rungs)
-    ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5),     // chariot track (5 rungs)
+      (u, i) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5, ...(i === 0 ? { role: 'lap-start' } : {}) })),
+    ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5).map((s, i) => (i === 3 ? { ...s, role: 'relic-start' } : s)),     // relic track (4 rungs)
+    ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5).map((s, i) => (i === 4 ? { ...s, role: 'chariot-start' } : s)),   // chariot track (5 rungs)
     // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
-      (u) => ({ u, v: 0.945, accepts: ['round'], r: 4.5 })),
+      (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, ...(i === 0 ? { role: 'era-start' } : {}) })),
     ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4),  // outer lane (16) — chariots race
     ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4),   // inner lane (24) — circle tokens
   ];
@@ -99,10 +99,13 @@
   // Left/center/right pillars show Column2/Column3/Column1 (see COLUMN_OVERLAYS);
   // Fortuna (Column1, right) sits lower than Bacchus/Mercury, so ranges differ.
   // 7 rungs each: 6 reward cells + the bottom start rung (same pitch).
+  // Bottom (7th) rung of each pillar is that column's start — tagged so game
+  // setup can seat every nation's marker there.
+  const columnStart = (s, i) => (i === 6 ? { ...s, role: 'column-start' } : s);
   const COLUMN_SLOTS = [
-    ...colSlots(0.149, 0.175, 0.781, 7, ['marker'], 5),   // left  = Column2 (Bacchus)
-    ...colSlots(0.501, 0.180, 0.782, 7, ['marker'], 5),   // center= Column3 (Mercury)
-    ...colSlots(0.855, 0.241, 0.817, 7, ['marker'], 5),   // right = Column1 (Fortuna)
+    ...colSlots(0.149, 0.175, 0.781, 7, ['marker'], 5).map(columnStart),   // left  = Column2 (Bacchus)
+    ...colSlots(0.501, 0.180, 0.782, 7, ['marker'], 5).map(columnStart),   // center= Column3 (Mercury)
+    ...colSlots(0.855, 0.241, 0.817, 7, ['marker'], 5).map(columnStart),   // right = Column1 (Fortuna)
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
@@ -133,9 +136,24 @@
   // Faction mats (shared template for all 4): income track, hero market
   // circles, and hero card slots below.
   const FACTION_SLOTS = [
-    ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4),                          // income track
-    ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s) => ({ ...s, boardColor: true })), // hero market circles (this mat's color)
-    ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7),                            // hero card slots (sit low, hang off bottom, clear the α-ε letters)
+    ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4).map((s) => ({ ...s, role: 'income' })),  // income track
+    ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s) => ({ ...s, boardColor: true, role: 'hero-market' })), // hero market circles (this mat's color)
+    ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7).map((s) => ({ ...s, role: 'card' })),      // hero card slots (sit low, hang off bottom, clear the α-ε letters)
+    // holders below the mat — good-sized, each accepts one kind, stacking:
+    // coin / lightning / sun currency + the player's dice "cup" (pre-rolled dice).
+    { u: 0.20, v: 1.12, accepts: ['coin'],      r: 9, role: 'currency' },
+    { u: 0.40, v: 1.12, accepts: ['lightning'], r: 9, role: 'currency' },
+    { u: 0.60, v: 1.12, accepts: ['sun'],       r: 9, role: 'currency' },
+    { u: 0.80, v: 1.12, accepts: ['die'],       r: 9, role: 'cup' },
+  ];
+
+  // Shared market (no art yet): a face-down draw pile on the left + 3 revealed
+  // hero slots. Rendered as a plain plane below the table, zoomable like a board.
+  const MARKET_SLOTS = [
+    { u: 0.14, v: 0.5, accepts: ['card'], r: 12, role: 'market-deck' },
+    { u: 0.38, v: 0.5, accepts: ['card'], r: 12, role: 'market-hero' },
+    { u: 0.62, v: 0.5, accepts: ['card'], r: 12, role: 'market-hero' },
+    { u: 0.86, v: 0.5, accepts: ['card'], r: 12, role: 'market-hero' },
   ];
 
   // Full-table layout matching the physical table. x = left(-)/right(+),
@@ -171,6 +189,8 @@
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, color: 'Yellow', slotsDef: FACTION_SLOTS },   // Yellow, far right
     { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, color: 'Green',  slotsDef: FACTION_SLOTS },   // Green, bottom-left
     { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, color: 'Purple', slotsDef: FACTION_SLOTS },   // Purple, bottom-right
+    // shared market — plain plane (no art), below the table, zoomable like a board
+    { market: true, x: 0, z: 300, w: 150, h: 55, slotsDef: MARKET_SLOTS },
   ];
 
   // Drawn column art (rung faces) overlaid on the empty board pillars, so the
@@ -276,22 +296,36 @@
       const color = s.boardColor ? (b.color || null) : (s.color || null);
       const marker = makeSlotMarker(x, by, z, r, color);
       slotMarkersGroup.add(marker);
-      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, marker, occupants: [] });
+      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null, marker, occupants: [] });
     }
   }
 
   // A locked board plane at (x,z) sized `w` wide; height follows the image.
   // `y` lifts a board above overlapping neighbors (events sit atop their strip).
   function makeBoard(b) {
+    const isMarket = b.market || !b.file;
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(b.w, b.w),               // resized once texture loads
-      new THREE.MeshStandardMaterial({ roughness: 0.85 })
+      new THREE.PlaneGeometry(b.w, isMarket ? (b.h || b.w) : b.w),   // textured boards resize on load
+      isMarket
+        ? new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: 0.9, emissive: 0x0a0b0d })
+        : new THREE.MeshStandardMaterial({ roughness: 0.85 })
     );
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(b.x, b.y || 0, b.z);
     mesh.userData.isBoard = true;                      // never added to pieces[]
     scene.add(mesh);
-    applyBoardTexture(mesh, b.file, b.w, b);
+    if (isMarket) {
+      // subtle border so the plain plane reads as a "board"; build slots now
+      // (height is known — no texture to wait on).
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(mesh.geometry),
+        new THREE.LineBasicMaterial({ color: 0x6a6f78 })
+      );
+      mesh.add(edges);
+      if (b.slotsDef) buildSlotsFor(b, b.w, b.h || b.w);
+    } else {
+      applyBoardTexture(mesh, b.file, b.w, b);
+    }
     return mesh;
   }
 
@@ -370,7 +404,8 @@
   // sharing a rung, fanned out so they're all visible. Everything else is
   // single-occupancy (one mini per circle, one card per slot, ...).
   const STACK_MAX = 4;
-  function isStack(s) { return s.accepts.includes('marker') || s.accepts.includes('round'); }
+  const STACK_TYPES = ['marker', 'round', 'coin', 'lightning', 'sun', 'die'];
+  function isStack(s) { return s.accepts.some((t) => STACK_TYPES.includes(t)); }
 
   // Lay a slot's occupants out: centered when alone, else fanned on a small
   // ring with a slight per-index height step so overlaps stay readable.
@@ -425,6 +460,21 @@
     layoutStack(s);   // re-center/re-fan whatever remains
   }
 
+  // Programmatic placement (game setup): drop a piece straight onto a slot,
+  // bypassing the drag/snap path.
+  function placeOnSlot(piece, slot) {
+    if (!piece || !slot) return piece;
+    freeSlot(piece);
+    slot.occupants.push(piece);
+    piece.userData.slot = slot;
+    layoutStack(slot);
+    return piece;
+  }
+  // Find built SLOTS by tagged role (optionally scoped to one mat's owner color).
+  function slotsByRole(role, owner = null) {
+    return SLOTS.filter((s) => s.role === role && (owner === null || s.owner === owner));
+  }
+
   // While dragging: show only the rings this piece can snap to (color-aware).
   function showDragSlots(piece) {
     if (slotsForced) return;                       // manual override already shows everything
@@ -458,7 +508,7 @@
     ];
   }
 
-  function addMini(file, colorName = NATION_COLORS[file] || activeColorName) {
+  function addMini(file, colorName = NATION_COLORS[file] || activeColorName, targetSlot = null) {
     loader.load(ASSET_BASE + file, (geometry) => {
       geometry.rotateX(-Math.PI / 2);        // stand upright (CAD is usually Z-up)
       geometry.center();
@@ -475,10 +525,11 @@
       mesh.position.y = (-geometry.boundingBox.min.y) * scale;   // base on board
       const g = new THREE.Group();
       g.add(mesh);
-      const [x, z] = spawnXZ();
-      g.position.set(x, 0, z);
       g.userData.color = colorName;
       registerPiece(g, 'mini');
+      // STL load is async, so a setup snap has to happen here in the callback.
+      if (targetSlot) { placeOnSlot(g, targetSlot); }
+      else { const [x, z] = spawnXZ(); g.position.set(x, 0, z); }
     });
   }
 
@@ -758,10 +809,67 @@
     updateDiceTotal();
   }
 
+  // ------------------------------------------------------------------ game setup
+  const NATIONS = [
+    { color: 'Blue',   stl: 'AchaeanMini.stl' },
+    { color: 'Green',  stl: 'AegyptusMini.stl' },
+    { color: 'Yellow', stl: 'AnatoliaMini.stl' },
+    { color: 'Purple', stl: 'PhoenicanMini.stl' },
+  ];
+  const ALL_COLORS = NATIONS.map((n) => n.color);
+
+  // Lay a face-down pile of `n` card backs centered at world (x,z): step up in y
+  // with a tiny xz jitter so it reads as a stacked deck.
+  function dealPile(file, n, x, z, size) {
+    for (let i = 0; i < n; i++) {
+      const c = addToken(file, size, 'card');
+      c.position.set(x + (Math.random() - 0.5) * 1.4, 0.06 + i * 0.05, z + (Math.random() - 0.5) * 1.4);
+    }
+  }
+
+  // One-click game setup: seat every faction's starting pieces + deal the market.
+  function initGame(heroPool = []) {
+    clearPieces();
+
+    // per-faction: 5 color-matched minis on the hero-market circles + income token
+    for (const nat of NATIONS) {
+      for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot);
+      const inc = slotsByRole('income', nat.color)[0];
+      if (inc) placeOnSlot(addToken('IncomeToken.png', 6, 'income'), inc);
+    }
+
+    // per-mat: face-down starting deck (3 plebe + cheer + jeer = 5 cards) off the
+    // mat's OUTER edge (left of left-side mats, right of right-side mats).
+    for (const b of LAYOUT) {
+      if (!b.color) continue;
+      const outX = b.x + (b.x < 0 ? -(b.w / 2 + 12) : (b.w / 2 + 12));
+      dealPile('BackofCards.png', 5, outX, b.z, 22);
+    }
+
+    // markers for all 4 nations at the start of every relevant track (auto-fan)
+    for (const role of ['column-start', 'relic-start', 'chariot-start', 'lap-start']) {
+      for (const slot of slotsByRole(role)) {
+        for (const color of ALL_COLORS) placeOnSlot(addMarker(color), slot);
+      }
+    }
+    const era = slotsByRole('era-start')[0];      // round tracker on the era start
+    if (era) placeOnSlot(addRound(), era);
+
+    // market: 3 revealed heroes (random from the pool) + a face-down draw pile
+    const pool = heroPool.slice();
+    for (const slot of slotsByRole('market-hero')) {
+      if (!pool.length) break;
+      const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      placeOnSlot(addToken(pick, 22, 'card'), slot);
+    }
+    const deck = slotsByRole('market-deck')[0];
+    if (deck) dealPile('BackofCards.png', 3, deck.x, deck.z, 22);
+  }
+
   // ------------------------------------------------------------------ public API
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable,
+    setEventSlot, frameTable, initGame,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;

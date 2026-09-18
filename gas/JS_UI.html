@@ -75,16 +75,17 @@
   document.getElementById('addJeer').addEventListener('click',  () => PT.addToken('Jeer.png', CARD_SIZE, 'card'));
 
   // ---- currency ----
-  document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6));
-  document.getElementById('addLightning').addEventListener('click', () => PT.addToken('LightningToken.png', 6));
-  document.getElementById('addSun').addEventListener('click',       () => PT.addToken('SunToken.png', 6));
+  document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6, 'coin'));
+  document.getElementById('addLightning').addEventListener('click', () => PT.addToken('LightningToken.png', 6, 'lightning'));
+  document.getElementById('addSun').addEventListener('click',       () => PT.addToken('SunToken.png', 6, 'sun'));
   document.getElementById('addIncome').addEventListener('click',    () => PT.addToken('IncomeToken.png', 6, 'income'));
 
   // ---- dice ----
   document.getElementById('rollDice').addEventListener('click', () => PT.rollDice(parseInt(document.getElementById('diceCount').value, 10) || 1));
   document.getElementById('reroll').addEventListener('click', () => PT.reroll());
 
-  // ---- view ----
+  // ---- view / game ----
+  document.getElementById('initGame').addEventListener('click', () => PT.initGame(HEROES.map((h) => h[0])));
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
   const showSlots = document.getElementById('showSlots');
