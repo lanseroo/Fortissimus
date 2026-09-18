@@ -10,6 +10,76 @@
     Blue:   0x2f6fdb, Green: 0x2ea84f, Purple: 0x7b3fb0, Yellow: 0xf5b800,
   };
 
+  // ------------------------------------------------------------------ slot defs
+  // Snap slots are defined in board-local normalized coords: u = 0..1 left->right
+  // across the board width, v = 0..1 top->bottom down the height. They convert to
+  // world during each board's texture load (when height is known). `r` = marker
+  // ring radius (world units) and snap tolerance; `accepts` = piece types that
+  // may snap here. ALL coords below are best-effort estimates read off the board
+  // art and are meant to be tuned visually — nudge the numbers until the rings
+  // sit on the printed circles/cells.
+  const CARD = ['card', 'mini'];          // hero cards & minis
+  const TOK  = ['token', 'mini'];         // markers, chariots, plebes, minis
+  const gridSlots = (cols, rows, accepts, r = 5) => {
+    const out = []; for (const v of rows) for (const u of cols) out.push({ u, v, accepts, r }); return out;
+  };
+  const rowSlots = (u0, u1, n, v, accepts, r = 5) => {
+    const out = []; for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : i / (n - 1); out.push({ u: u0 + (u1 - u0) * t, v, accepts, r }); } return out;
+  };
+  const colSlots = (u, v0, v1, n, accepts, r = 5) => {
+    const out = []; for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : i / (n - 1); out.push({ u, v: v0 + (v1 - v0) * t, accepts, r }); } return out;
+  };
+  const ellipseSlots = (cu, cv, ru, rv, n, accepts, r = 6, deg0 = -90) => {
+    const out = []; for (let i = 0; i < n; i++) { const a = deg0 * Math.PI / 180 + i / n * 2 * Math.PI; out.push({ u: cu + ru * Math.cos(a), v: cv + rv * Math.sin(a), accepts, r }); } return out;
+  };
+
+  // Event reward strips: 6-column x 2-row hero-placement grid
+  // (top row Blue/Purple, bottom row Green/Yellow).
+  const EVENT_GRID = gridSlots(
+    [0.240, 0.336, 0.431, 0.527, 0.623, 0.719], [0.176, 0.376], CARD, 5);
+
+  // Race track: player start circles, 0-6 lap row, relic track (left),
+  // chariot track (right), era track (bottom). Oval race lanes TBD.
+  const RACE_SLOTS = [
+    ...rowSlots(0.055, 0.126, 2, 0.075, TOK, 4.5),        // Blue start pair
+    ...rowSlots(0.252, 0.324, 2, 0.075, TOK, 4.5),        // Green start pair
+    ...rowSlots(0.412, 0.484, 2, 0.075, TOK, 4.5),        // Purple start pair
+    ...rowSlots(0.664, 0.736, 2, 0.075, TOK, 4.5),        // Yellow start pair
+    ...rowSlots(0.277, 0.723, 7, 0.515, ['token'], 5),    // lap counter 0-6
+    ...colSlots(0.034, 0.313, 0.813, 5, ['token'], 5),    // relic track rungs
+    ...colSlots(0.967, 0.313, 0.813, 5, ['token'], 5),    // chariot track rungs
+    ...rowSlots(0.290, 0.568, 6, 0.940, ['token'], 4.5),  // era track I-VI
+  ];
+
+  // Column board: 3 pillars, ~6 rungs each (art is on separate overlays, so
+  // these are pure estimates — expect to tune once markers are visible).
+  const COLUMN_SLOTS = [
+    ...colSlots(0.150, 0.18, 0.90, 6, TOK, 5),
+    ...colSlots(0.505, 0.18, 0.90, 6, TOK, 5),
+    ...colSlots(0.850, 0.18, 0.90, 6, TOK, 5),
+  ];
+
+  // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
+  const UNDERWORLD_SLOTS = [
+    { u: 0.173, v: 0.366, accepts: CARD, r: 8 }, { u: 0.331, v: 0.366, accepts: CARD, r: 8 },
+    { u: 0.173, v: 0.702, accepts: CARD, r: 8 }, { u: 0.331, v: 0.702, accepts: CARD, r: 8 },
+    { u: 0.770, v: 0.501, accepts: CARD, r: 8 },
+  ];
+
+  // Colosseum: 12 fighter positions around the arena + center gladiator slot.
+  const COLOSSEUM_SLOTS = [
+    ...ellipseSlots(0.50, 0.44, 0.40, 0.30, 12, CARD, 6),
+    { u: 0.50, v: 0.476, accepts: CARD, r: 8 },
+  ];
+
+  // Faction mats (shared template for all 4): income track, hero market
+  // circles, and hero card slots below.
+  const FACTION_SLOTS = [
+    ...rowSlots(0.090, 0.481, 5, 0.200, ['token'], 4),   // income track
+    ...rowSlots(0.063, 0.685, 5, 0.620, CARD, 5),        // hero market
+    ...rowSlots(0.092, 0.732, 5, 0.865, ['card'], 7),    // hero card slots
+  ];
+
   // Full-table layout matching the physical table. x = left(-)/right(+),
   // z = far/top(-)/near/bottom(+). `w` = world width; height follows each
   // image's true aspect at load. All non-player boards share BW so they render
@@ -21,17 +91,17 @@
   const FW = 132;   // uniform player/faction-mat width
   const LAYOUT = [
     // top row
-    { file: 'ColosseumBoard.png', x:    0, z: -100, w: BW },              // top-center
+    { file: 'ColosseumBoard.png', x:    0, z: -100, w: BW, slotsDef: COLOSSEUM_SLOTS },  // top-center
     { file: 'ArcheryEvent.png',   x:  175, z: -100, w: BW, deck: true },  // Event Deck (top card)
     // middle row (spine)
-    { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW },              // pillars, left
-    { file: 'RaceTrackBoard.png', x:    0, z:  -20, w: BW },              // race track, center
-    { file: 'UnderworldBoard.png',x:  125, z:  -35, w: BW },              // underworld, right
+    { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW, slotsDef: COLUMN_SLOTS },     // pillars, left
+    { file: 'RaceTrackBoard.png', x:    0, z:  -20, w: BW, slotsDef: RACE_SLOTS },       // race track, center
+    { file: 'UnderworldBoard.png',x:  125, z:  -35, w: BW, slotsDef: UNDERWORLD_SLOTS }, // underworld, right
     // event reward strips (sit directly above each active event).
     // Ordered left->center->right to match the column board: Event 2, 3, 1.
-    { file: 'Event2Board.png',    x: -125, z:   45, w: BW },
-    { file: 'Event3Board.png',    x:    0, z:   45, w: BW },
-    { file: 'Event1Board.png',    x:  125, z:   45, w: BW },
+    { file: 'Event2Board.png',    x: -125, z:   45, w: BW, slotsDef: EVENT_GRID },
+    { file: 'Event3Board.png',    x:    0, z:   45, w: BW, slotsDef: EVENT_GRID },
+    { file: 'Event1Board.png',    x:  125, z:   45, w: BW, slotsDef: EVENT_GRID },
     // active event slots (swappable — any mini-game can be dealt to any slot).
     // Overlap each strip just enough to cover its black band (not the circle row),
     // sitting clearly above the strip in y so the flat planes don't z-fight.
@@ -39,10 +109,10 @@
     { file: 'LongJumpEvent.png',  x:    0, z:   76, w: BW, y: 0.4, slot: 1 },
     { file: 'SprintEvent.png',    x:  125, z:   76, w: BW, y: 0.4, slot: 2 },
     // player/faction mats
-    { file: 'ArchaeaBoard.png',   x: -255, z:    0, w: FW },   // Blue, far left
-    { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW },   // Yellow, far right
-    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW },   // Green, bottom-left
-    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW },   // Purple, bottom-right
+    { file: 'ArchaeaBoard.png',   x: -255, z:    0, w: FW, slotsDef: FACTION_SLOTS },   // Blue, far left
+    { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, slotsDef: FACTION_SLOTS },   // Yellow, far right
+    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Green, bottom-left
+    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW, slotsDef: FACTION_SLOTS },   // Purple, bottom-right
   ];
 
   const container = document.getElementById('viewer');
@@ -102,44 +172,106 @@
 
   const eventSlots = [];   // slot index -> board Mesh (swappable)
 
+  // ---- snap slots ----
+  const SLOTS = [];        // { x, y, z, r, accepts, marker, occupant }
+  const slotMarkersGroup = new THREE.Group();
+  scene.add(slotMarkersGroup);
+  const SNAP_MIN = 6;      // minimum snap tolerance (world units)
+
+  function makeSlotMarker(x, y, z, r) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(Math.max(r - 1.2, 0.5), r, 30),
+      new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, y, z);
+    ring.userData.baseOpacity = 0.45;
+    return ring;
+  }
+
+  // Convert a board's normalized slotsDef into world-space SLOTS (+ ring markers).
+  function buildSlotsFor(b, w, h) {
+    const by = (b.y || 0) + 0.06;
+    for (const s of b.slotsDef) {
+      const x = b.x + (s.u - 0.5) * w;
+      const z = b.z + (s.v - 0.5) * h;
+      const r = s.r || 5;
+      const marker = makeSlotMarker(x, by, z, r);
+      slotMarkersGroup.add(marker);
+      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, marker, occupant: null });
+    }
+  }
+
   // A locked board plane at (x,z) sized `w` wide; height follows the image.
   // `y` lifts a board above overlapping neighbors (events sit atop their strip).
-  function makeBoard(file, x, z, w, y = 0) {
+  function makeBoard(b) {
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, w),                 // resized once texture loads
+      new THREE.PlaneGeometry(b.w, b.w),               // resized once texture loads
       new THREE.MeshStandardMaterial({ roughness: 0.85 })
     );
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y, z);
-    mesh.userData.isBoard = true;                    // never added to pieces[]
+    mesh.position.set(b.x, b.y || 0, b.z);
+    mesh.userData.isBoard = true;                      // never added to pieces[]
     scene.add(mesh);
-    applyBoardTexture(mesh, file, w);
+    applyBoardTexture(mesh, b.file, b.w, b);
     return mesh;
   }
 
-  function applyBoardTexture(mesh, file, w) {
+  // `boardDef` is passed only on the initial build (not on event-slot swaps), so
+  // slots are created once per board when its height first becomes known.
+  function applyBoardTexture(mesh, file, w, boardDef) {
     new THREE.TextureLoader().load(ASSET_BASE + file, (t) => {
       const aspect = (t.image.width || 2) / (t.image.height || 1);
+      const h = w / aspect;
       mesh.geometry.dispose();
-      mesh.geometry = new THREE.PlaneGeometry(w, w / aspect);
+      mesh.geometry = new THREE.PlaneGeometry(w, h);
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = renderer.capabilities.getMaxAnisotropy();
       mesh.material.map = t;
       mesh.material.needsUpdate = true;
+      if (boardDef && boardDef.slotsDef && !mesh.userData.slotsBuilt) {
+        mesh.userData.slotsBuilt = true;
+        buildSlotsFor(boardDef, w, h);
+      }
     });
   }
 
   function buildTable() {
     for (const b of LAYOUT) {
-      const mesh = makeBoard(b.file, b.x, b.z, b.w, b.y || 0);
+      const mesh = makeBoard(b);
       if (b.slot !== undefined) { eventSlots[b.slot] = mesh; mesh.userData.slotW = b.w; }
     }
   }
 
-  // Swap the mini-game shown in an active-event slot (0..2).
+  // Swap the mini-game shown in an active-event slot (0..2). No boardDef -> the
+  // swappable event boards never carry slots.
   function setEventSlot(i, file) {
     const mesh = eventSlots[i];
     if (mesh) applyBoardTexture(mesh, file, mesh.userData.slotW);
+  }
+
+  // Nearest free, type-compatible slot within its snap tolerance (or null).
+  function nearestSlot(type, x, z, ignore) {
+    let best = null, bestD = Infinity;
+    for (const s of SLOTS) {
+      if (!s.accepts.includes(type)) continue;
+      if (s.occupant && s.occupant !== ignore) continue;
+      const d = Math.hypot(s.x - x, s.z - z);
+      if (d <= Math.max(s.r + 2, SNAP_MIN) && d < bestD) { bestD = d; best = s; }
+    }
+    return best;
+  }
+
+  let hlSlot = null;
+  function highlightSlot(s) {
+    if (hlSlot === s) return;
+    if (hlSlot) { hlSlot.marker.material.opacity = hlSlot.marker.userData.baseOpacity; hlSlot.marker.scale.setScalar(1); }
+    hlSlot = s;
+    if (s) { s.marker.material.opacity = 1; s.marker.scale.setScalar(1.18); }
+  }
+
+  function freeSlot(piece) {
+    if (piece && piece.userData.slot) { piece.userData.slot.occupant = null; piece.userData.slot = null; }
   }
 
   // ------------------------------------------------------------------ pieces
@@ -284,6 +416,7 @@
   }
 
   function removePiece(group) {
+    freeSlot(group);
     const i = pieces.indexOf(group);
     if (i >= 0) pieces.splice(i, 1);
     group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
@@ -315,10 +448,28 @@
     if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
       selected.position.x = hitPoint.x + dragOffset.x;
       selected.position.z = hitPoint.z + dragOffset.z;
+      // live preview: highlight the slot this piece would snap to on release
+      highlightSlot(nearestSlot(selected.userData.type, selected.position.x, selected.position.z, selected));
     }
   });
 
-  const endDrag = () => { dragging = false; controls.enabled = true; };
+  // On release: snap to the nearest compatible slot if close enough, otherwise
+  // leave the piece exactly where it was dropped (free-placement fallback).
+  const endDrag = () => {
+    if (dragging && selected) {
+      freeSlot(selected);
+      const s = nearestSlot(selected.userData.type, selected.position.x, selected.position.z, selected);
+      if (s) {
+        selected.position.x = s.x;
+        selected.position.z = s.z;
+        s.occupant = selected;
+        selected.userData.slot = s;
+      }
+    }
+    highlightSlot(null);
+    dragging = false;
+    controls.enabled = true;
+  };
   renderer.domElement.addEventListener('pointerup', endDrag);
   renderer.domElement.addEventListener('pointerleave', endDrag);
 
@@ -361,6 +512,7 @@
   window.PT = {
     addMini, addToken, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable,
+    setSlotsVisible: (v) => { slotMarkersGroup.visible = v; },
     setActiveColor: (name) => { activeColorName = name; },
     getActiveColor: () => activeColorName,
     COLORS,
