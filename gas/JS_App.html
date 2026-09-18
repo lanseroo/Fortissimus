@@ -54,7 +54,9 @@
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 8000);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // logarithmicDepthBuffer keeps coplanar boards from z-fighting/flickering
+  // across the large depth range needed to frame the whole table.
+  const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   container.appendChild(renderer.domElement);
 
@@ -341,7 +343,9 @@
     const dist = (radius / Math.sin(fov / 2)) * 0.62;    // margin
     controls.target.set(cx, 0, cz);
     camera.position.set(cx, dist * 0.92, cz + dist * 0.55);
-    camera.far = dist * 12;
+    // Tight near/far around the table keeps depth precision high (less flicker).
+    camera.near = 0.5;
+    camera.far = dist * 4;
     camera.updateProjectionMatrix();
     controls.update();
   }
