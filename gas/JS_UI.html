@@ -106,8 +106,20 @@
   const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800' };
   const flowLine = document.getElementById('flowLine');
   const flowOrder = document.getElementById('flowOrder');
+  const flowRes = document.getElementById('flowRes');
+  const turnbar = document.getElementById('turnbar');
+  const turnLine = document.getElementById('turnLine');
+  const buyDieBtn = document.getElementById('buyDie');
+  const discardModBtn = document.getElementById('discardMod');
+  const nextPlayerBtn = document.getElementById('nextPlayer');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
+
+  // sync the toolbar active-color swatch to a color
+  function reflectSwatch(color) {
+    document.querySelectorAll('#toolbar .sw').forEach((s) =>
+      s.classList.toggle('active', s.dataset.color === color));
+  }
 
   function renderFlow(f) {
     if (!f.started) {
@@ -122,6 +134,32 @@
         '<span class="seat' + (i === 0 ? ' lead' : '') + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
         + (i + 1) + '. ' + c + '</span>').join('');
     }
+
+    // per-player resource readout (coin / ⚡ / ☀), current player emphasized
+    if (f.started && f.res) {
+      flowRes.innerHTML = f.order.map((c) => {
+        const r = f.res[c] || { coin: 0, zap: 0, sun: 0 };
+        const cls = 'resrow' + (c === f.current ? ' cur' : '');
+        const coin = '<span' + (r.coin < 0 ? ' class="neg"' : '') + '>🪙' + r.coin + '</span>';
+        return '<div class="' + cls + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
+          + c + ' ' + coin + ' ⚡' + r.zap + ' ☀' + r.sun + '</div>';
+      }).join('');
+    } else {
+      flowRes.innerHTML = '';
+    }
+
+    // per-player turn bar (only during Upkeep & Blind Placement)
+    if (f.started && !f.over && f.perPlayer && f.current) {
+      turnbar.hidden = false;
+      const isUpkeep = f.phase === 'Upkeep & Market';
+      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice & roll the cup' : 'play a card + a mini onto an event');
+      buyDieBtn.hidden = !isUpkeep;
+      discardModBtn.hidden = isUpkeep;
+      reflectSwatch(f.current);
+    } else {
+      turnbar.hidden = true;
+    }
+
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
     nextBtn.disabled = !f.started || f.over;
   }
@@ -130,4 +168,7 @@
   renderFlow(PT.getFlow());
   nextBtn.addEventListener('click', () => PT.nextPhase());
   prevBtn.addEventListener('click', () => PT.prevPhase());
+  nextPlayerBtn.addEventListener('click', () => PT.nextPlayer());
+  buyDieBtn.addEventListener('click', () => PT.buyDie());
+  discardModBtn.addEventListener('click', () => PT.discardModifier());
 </script>

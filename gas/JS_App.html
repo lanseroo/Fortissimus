@@ -67,9 +67,13 @@
   // color-restricted (top row cols 0-2 Blue / 3-5 Purple; bottom cols 0-2
   // Green / 3-5 Yellow).
   const EVENT_COLS = [0.240, 0.336, 0.431, 0.527, 0.623, 0.719];
+  // The innermost circle of each color's triad (Blue col 2 / Purple col 3, and
+  // likewise Green/Yellow below) carries a coin icon: `coin: true`. Event entry
+  // fee = number of still-exposed coin icons on the whole strip before placing,
+  // so the first mini onto an event pays 4, then 3, 2, 1 as coins get covered.
   const EVENT_GRID = [
-    ...EVENT_COLS.map((u, i) => ({ u, v: 0.176, accepts: ['mini'], r: 5, color: i < 3 ? 'Blue'  : 'Purple' })),
-    ...EVENT_COLS.map((u, i) => ({ u, v: 0.376, accepts: ['mini'], r: 5, color: i < 3 ? 'Green' : 'Yellow' })),
+    ...EVENT_COLS.map((u, i) => ({ u, v: 0.176, accepts: ['mini'], r: 5, color: i < 3 ? 'Blue'  : 'Purple', coin: (i === 2 || i === 3) })),
+    ...EVENT_COLS.map((u, i) => ({ u, v: 0.376, accepts: ['mini'], r: 5, color: i < 3 ? 'Green' : 'Yellow', coin: (i === 2 || i === 3) })),
   ];
 
   // Race track: player barracks (start circles), 0-6 lap row, relic track
@@ -298,7 +302,9 @@
       const color = s.boardColor ? (b.color || null) : (s.color || null);
       const marker = makeSlotMarker(x, by, z, r, color);
       slotMarkersGroup.add(marker);
-      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null, marker, occupants: [] });
+      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
+                   coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
+                   marker, occupants: [] });
     }
   }
 
@@ -328,7 +334,7 @@
     } else {
       // faction mats carry a currency/cup tray below the board (slots reach ~v1.68);
       // record it so click-to-focus frames the tray too, not just the board rect.
-      if (b.color) mesh.userData.padV = { top: 0, bottom: 1.68 };
+      if (b.color) { mesh.userData.padV = { top: 0, bottom: 1.68 }; mesh.userData.color = b.color; }
       applyBoardTexture(mesh, b.file, b.w, b);
     }
     return mesh;
@@ -738,9 +744,19 @@
   // leave the piece exactly where it was dropped (free-placement fallback).
   const endDrag = () => {
     if (dragging && selected) {
+      // leaving an event slot it paid into? refund the fee it was charged.
+      if (selected.userData.eventFee) {
+        adjustRes(selected.userData.color, 'coin', selected.userData.eventFee);
+        selected.userData.eventFee = 0;
+      }
       freeSlot(selected);
       const s = nearestSlot(selected, selected.position.x, selected.position.z);
       if (s) {
+        // event entry fee = exposed coin icons on this strip before we cover one.
+        if (s.event && selected.userData.type === 'mini') {
+          const fee = SLOTS.filter((o) => o.boardKey === s.boardKey && o.coin && !o.occupants.length).length;
+          if (fee) { adjustRes(selected.userData.color, 'coin', -fee); selected.userData.eventFee = fee; }
+        }
         s.occupants.push(selected);
         selected.userData.slot = s;
         layoutStack(s);   // positions the piece (fanned if sharing the slot)
@@ -783,6 +799,20 @@
       fromT: controls.target.clone(), toT: toTarget.clone(),
       t0: performance.now(), dur,
     };
+  }
+
+  // Frame an arbitrary world-space rectangle from the angled overhead view.
+  // `margin` <1 zooms tighter; always flies (used for sub-table framing too).
+  function frameBox(minX, maxX, minZ, maxZ, margin = 0.62) {
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const radius = 0.5 * Math.hypot(maxX - minX, maxZ - minZ);
+    const fov = camera.fov * Math.PI / 180;
+    const dist = (radius / Math.sin(fov / 2)) * margin;
+    camera.near = 0.5;
+    camera.far = dist * 6;
+    camera.updateProjectionMatrix();
+    focusedBoard = null;
+    flyTo(new THREE.Vector3(cx, 0, cz), new THREE.Vector3(cx, dist * 0.92, cz + dist * 0.55));
   }
 
   // Frame the whole table from an angled overhead view. Clears any board focus.
@@ -863,14 +893,37 @@
   // both the round-1 seat coin bonus and round-1 turn order.
   const SEAT_ORDER = ['Blue', 'Yellow', 'Purple', 'Green'];
 
+  // Tunable rules numbers (rules still WIP — keep as constants, not hard-coded logic).
+  const START_INCOME  = { coin: 3, zap: 2, sun: 0 };  // per-round income (matches setup tokens)
+  const DIE_COST      = 1;                             // ❓ coins per purchased cup die (guess)
+  const MODIFIER_COIN = 2;                             // Cheer/Jeer discard reward
+  const PER_PLAYER_PHASES = ['Upkeep & Market', 'Blind Placement'];
+  const seatBonusOf = (c) => ([3, 2, 1, 0][SEAT_ORDER.indexOf(c)] || 0);
+
   // -------------------------------------------------------------- game flow (state)
   // Guided-sandbox backbone: the app tracks round / phase / turn order and drives them
   // via buttons; players still move pieces freely. Numbers here are tunable (rules WIP).
   const PHASES = ['Upkeep & Market', 'Blind Placement', 'Resolution & Podiums', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum phase only runs these rounds
-  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice() };
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {} };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
+
+  // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
+  function initRes() { for (const c of ALL_COLORS) GAME.res[c] = { coin: seatBonusOf(c), zap: 0, sun: 0 }; }
+  function adjustRes(color, kind, n) {
+    const r = GAME.res[color];
+    if (!r || !(kind in r)) return;
+    r[kind] += n;
+    notifyFlow();
+  }
+  const grantIncome = (color) => {
+    const r = GAME.res[color]; if (!r) return;
+    r.coin += START_INCOME.coin; r.zap += START_INCOME.zap; r.sun += START_INCOME.sun;
+  };
+  const curPhase = () => phasesFor(GAME.round)[GAME.phaseIndex];
+  const isPerPlayer = () => PER_PLAYER_PHASES.includes(curPhase());
+  const curPlayer = () => (isPerPlayer() ? GAME.order[GAME.turnIndex] : null);
 
   const vpOf = (color) => {
     const el = document.querySelector('#vpPanel .vp[data-color="' + color + '"] .val');
@@ -889,19 +942,85 @@
 
   function getFlow() {
     const phases = phasesFor(GAME.round);
+    const phase = phases[GAME.phaseIndex];
+    const perPlayer = PER_PLAYER_PHASES.includes(phase);
     return {
       started: GAME.started, over: GAME.over,
       round: GAME.round, totalRounds: TOTAL_ROUNDS, era: eraOf(GAME.round),
-      phase: phases[GAME.phaseIndex], phases, phaseIndex: GAME.phaseIndex,
+      phase, phases, phaseIndex: GAME.phaseIndex,
       order: GAME.order.slice(),
+      turnIndex: GAME.turnIndex, current: perPlayer && GAME.started && !GAME.over ? GAME.order[GAME.turnIndex] : null,
+      perPlayer,
+      res: JSON.parse(JSON.stringify(GAME.res)),
     };
   }
   const notifyFlow = () => { if (flowCb) flowCb(getFlow()); };
 
+  // ---- camera framing per player ----
+  const matMeshOf = (color) => boardMeshes.find((m) => m.userData.color === color);
+  function focusPlayer(color) { const m = matMeshOf(color); if (m) focusBoard(m); }
+  // Frame a player's mat together with the central event row (strips z≈45, active z≈76).
+  function focusMatAndEvents(color) {
+    const mat = LAYOUT.find((b) => b.color === color);
+    if (!mat) { frameTable(true); return; }
+    const events = LAYOUT.filter((b) => b.slotsDef === EVENT_GRID || b.slot !== undefined);
+    const boxes = [mat, ...events];
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const b of boxes) {
+      const hw = b.w / 2, hz = (b.h || b.w) / 2;
+      minX = Math.min(minX, b.x - hw); maxX = Math.max(maxX, b.x + hw);
+      minZ = Math.min(minZ, b.z - hz); maxZ = Math.max(maxZ, b.z + hz);
+    }
+    frameBox(minX, maxX, minZ, maxZ, 0.85);
+  }
+  const focusCurrent = () => {
+    const c = curPlayer(); if (!c) return;
+    if (curPhase() === 'Blind Placement') focusMatAndEvents(c); else focusPlayer(c);
+  };
+
+  // Called after any phase change. On forward entry to Upkeep, everyone simultaneously
+  // gets income + a fresh 3-card hand; ◂ Back never re-grants (guarded by `forward`).
+  function enterPhase(forward) {
+    GAME.turnIndex = 0;
+    if (!GAME.started || GAME.over) { return; }
+    if (curPhase() === 'Upkeep & Market' && forward) {
+      for (const c of ALL_COLORS) { grantIncome(c); dealHand(c, 3); }
+    }
+    if (isPerPlayer()) { activeColorName = curPlayer(); focusCurrent(); }
+    else { frameTable(true); }
+  }
+
+  // Step the active-player cursor within a per-player phase (cycles / loops).
+  function stepPlayer(dir) {
+    if (!GAME.started || GAME.over || !isPerPlayer()) return;
+    const n = GAME.order.length;
+    GAME.turnIndex = (GAME.turnIndex + dir + n) % n;
+    activeColorName = curPlayer();
+    focusCurrent();
+    notifyFlow();
+  }
+  const nextPlayer = () => stepPlayer(1);
+  const prevPlayer = () => stepPlayer(-1);
+
+  // Purchase a cup die: charge the current player (guided — they bump dice count + roll).
+  function buyDie() { const c = curPlayer(); if (c) adjustRes(c, 'coin', -DIE_COST); }
+  // Discard a Cheer/Jeer from the current player's hand for +2 coins.
+  function discardModifier() {
+    const c = curPlayer(); if (!c) return;
+    const card = pieces.find((p) => p.userData.type === 'card' && p.userData.owner === c &&
+                                    p.userData.zone === 'hand' && p.userData.cardKind === 'modifier');
+    if (!card) return;
+    removePiece(card);
+    adjustRes(c, 'coin', MODIFIER_COIN);
+  }
+
   function startGame() {
     GAME.started = true; GAME.over = false; GAME.round = 1; GAME.phaseIndex = 0;
     GAME.order = computeOrder(1);
+    GAME.turnIndex = 0;
+    initRes();
     resetVP();
+    enterPhase(true);
     notifyFlow();
   }
   function nextPhase() {
@@ -914,6 +1033,7 @@
     } else {
       GAME.over = true;
     }
+    enterPhase(true);
     notifyFlow();
   }
   function prevPhase() {
@@ -925,6 +1045,7 @@
       GAME.round--; GAME.order = computeOrder(GAME.round);
       GAME.phaseIndex = phasesFor(GAME.round).length - 1;
     }
+    enterPhase(false);
     notifyFlow();
   }
 
@@ -1061,6 +1182,7 @@
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable, initGame, dealHand,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
+    nextPlayer, prevPlayer, focusPlayer, buyDie, discardModifier,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;
