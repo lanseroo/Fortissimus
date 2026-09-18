@@ -72,8 +72,9 @@
   document.getElementById('addRound').addEventListener('click',   () => PT.addRound());
 
   // ---- fixed tokens ----
-  document.getElementById('addCheer').addEventListener('click', () => PT.addToken('Cheer.png', CARD_SIZE, 'card'));
-  document.getElementById('addJeer').addEventListener('click',  () => PT.addToken('Jeer.png', CARD_SIZE, 'card'));
+  const addModifier = (file) => { PT.addToken(file, CARD_SIZE, 'card').userData.cardKind = 'modifier'; };
+  document.getElementById('addCheer').addEventListener('click', () => addModifier('Cheer.png'));
+  document.getElementById('addJeer').addEventListener('click',  () => addModifier('Jeer.png'));
 
   // ---- currency ----
   document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6, 'coin'));

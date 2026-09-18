@@ -402,6 +402,9 @@
     const type = piece.userData.type;
     if (!s.accepts.includes(type)) return false;
     if (type === 'mini' && s.color && s.color !== piece.userData.color) return false;
+    // Cheer/Jeer are hand modifiers — they never occupy a mat's hero-card slots
+    // (the mini-tied slots). They stay in hand until discarded or played.
+    if (type === 'card' && s.role === 'card' && piece.userData.cardKind === 'modifier') return false;
     return true;
   }
 
@@ -901,6 +904,7 @@
       c.userData.owner = colorName;
       c.userData.zone = 'deck';
       c.userData.face = face;
+      c.userData.cardKind = (face === 'Cheer.png' || face === 'Jeer.png') ? 'modifier' : 'hero';
       c.position.set(x + (Math.random() - 0.5) * 1.4, 0.06 + i * 0.05, z + (Math.random() - 0.5) * 1.4);
     });
   }
