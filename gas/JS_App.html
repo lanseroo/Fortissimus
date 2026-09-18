@@ -127,24 +127,27 @@
     });
   }
 
-  // Flat PNG token lying on the board
+  // Flat PNG token lying on the board. `worldSize` is the LONGEST edge; the
+  // short edge follows the image's true aspect (portrait cards stay rectangular).
   function addToken(file, worldSize = 7, type = 'token') {
-    const tex = loadTexture(file);
     const g = new THREE.Group();
-    const build = () => {
-      const aspect = (tex.image && tex.image.width / tex.image.height) || 1;
-      const w = worldSize, h = worldSize / aspect;
+    const [x, z] = spawnXZ();
+    g.position.set(x, 0.06, z);
+    // Always size from the actually-loaded image so aspect is never guessed.
+    new THREE.TextureLoader().load(ASSET_BASE + file, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const iw = tex.image.width, ih = tex.image.height;
+      const aspect = (iw / ih) || 1;
+      const w = aspect >= 1 ? worldSize : worldSize * aspect;   // wide image
+      const h = aspect >= 1 ? worldSize / aspect : worldSize;   // tall image
       const plane = new THREE.Mesh(
         new THREE.PlaneGeometry(w, h),
         new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false })
       );
       plane.rotation.x = -Math.PI / 2;
       g.add(plane);
-    };
-    if (tex.image) build();                 // already cached + loaded
-    else new THREE.TextureLoader().load(ASSET_BASE + file, () => build());
-    const [x, z] = spawnXZ();
-    g.position.set(x, 0.06, z);
+    });
     return registerPiece(g, type);
   }
 
