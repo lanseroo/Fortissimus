@@ -275,7 +275,7 @@
       const color = s.boardColor ? (b.color || null) : (s.color || null);
       const marker = makeSlotMarker(x, by, z, r, color);
       slotMarkersGroup.add(marker);
-      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, marker, occupant: null });
+      SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, marker, occupants: [] });
     }
   }
 
@@ -365,12 +365,42 @@
     return true;
   }
 
-  // Nearest free, compatible slot within its snap tolerance (or null).
+  // Track slots (marker/round position pieces) stack: up to one per nation
+  // sharing a rung, fanned out so they're all visible. Everything else is
+  // single-occupancy (one mini per circle, one card per slot, ...).
+  const STACK_MAX = 4;
+  function isStack(s) { return s.accepts.includes('marker') || s.accepts.includes('round'); }
+
+  // Lay a slot's occupants out: centered when alone, else fanned on a small
+  // ring with a slight per-index height step so overlaps stay readable.
+  function layoutStack(s) {
+    const n = s.occupants.length;
+    s.occupants.forEach((p, i) => {
+      const baseY = (p.userData.baseY !== undefined) ? p.userData.baseY : p.position.y;
+      if (isStack(s) && n > 1) {
+        const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+        const rr = s.r * 0.5;
+        p.position.x = s.x + Math.cos(a) * rr;
+        p.position.z = s.z + Math.sin(a) * rr;
+        p.position.y = baseY + i * 0.05;
+      } else {
+        p.position.x = s.x;
+        p.position.z = s.z;
+        p.position.y = baseY;
+      }
+    });
+  }
+
+  // Nearest compatible slot within its snap tolerance (or null): single slots
+  // must be free (or hold this piece); stack slots must have room.
   function nearestSlot(piece, x, z) {
     let best = null, bestD = Infinity;
     for (const s of SLOTS) {
       if (!slotAccepts(s, piece)) continue;
-      if (s.occupant && s.occupant !== piece) continue;
+      if (!s.occupants.includes(piece)) {
+        if (isStack(s)) { if (s.occupants.length >= STACK_MAX) continue; }
+        else if (s.occupants.length) continue;
+      }
       const d = Math.hypot(s.x - x, s.z - z);
       if (d <= Math.max(s.r + 2, SNAP_MIN) && d < bestD) { bestD = d; best = s; }
     }
@@ -386,7 +416,12 @@
   }
 
   function freeSlot(piece) {
-    if (piece && piece.userData.slot) { piece.userData.slot.occupant = null; piece.userData.slot = null; }
+    const s = piece && piece.userData.slot;
+    if (!s) return;
+    const i = s.occupants.indexOf(piece);
+    if (i >= 0) s.occupants.splice(i, 1);
+    piece.userData.slot = null;
+    layoutStack(s);   // re-center/re-fan whatever remains
   }
 
   // While dragging: show only the rings this piece can snap to (color-aware).
@@ -472,22 +507,26 @@
 
   // Flat circle "marker" token in a player color — the position piece for the
   // column/lap/relic/chariot/inner-lane tracks. Thin dark rim for contrast.
+  // transparent + high renderOrder so it draws over the (transparent) column
+  // overlay art; baseY sits it above that art.
+  const MARKER_Y = 0.12;
   function addMarker(colorName = activeColorName) {
     const g = new THREE.Group();
     const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(4, 32),
-      new THREE.MeshBasicMaterial({ color: COLORS[colorName], side: THREE.DoubleSide })
+      new THREE.CircleGeometry(2, 32),
+      new THREE.MeshBasicMaterial({ color: COLORS[colorName], side: THREE.DoubleSide, transparent: true })
     );
-    disc.rotation.x = -Math.PI / 2;
+    disc.rotation.x = -Math.PI / 2; disc.renderOrder = 6;
     const rim = new THREE.Mesh(
-      new THREE.RingGeometry(4, 4.7, 32),
-      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide })
+      new THREE.RingGeometry(2, 2.4, 32),
+      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true })
     );
-    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.01;
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.01; rim.renderOrder = 7;
     g.add(disc); g.add(rim);
     const [x, z] = spawnXZ();
-    g.position.set(x, 0.07, z);
+    g.position.set(x, MARKER_Y, z);
     g.userData.color = colorName;
+    g.userData.baseY = MARKER_Y;
     return registerPiece(g, 'marker');
   }
 
@@ -495,13 +534,14 @@
   function addRound() {
     const g = new THREE.Group();
     const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(3.5, 32),
-      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide })
+      new THREE.CircleGeometry(1.75, 32),
+      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true })
     );
-    disc.rotation.x = -Math.PI / 2;
+    disc.rotation.x = -Math.PI / 2; disc.renderOrder = 6;
     g.add(disc);
     const [x, z] = spawnXZ();
-    g.position.set(x, 0.07, z);
+    g.position.set(x, MARKER_Y, z);
+    g.userData.baseY = MARKER_Y;
     return registerPiece(g, 'round');
   }
 
@@ -627,10 +667,9 @@
       freeSlot(selected);
       const s = nearestSlot(selected, selected.position.x, selected.position.z);
       if (s) {
-        selected.position.x = s.x;
-        selected.position.z = s.z;
-        s.occupant = selected;
+        s.occupants.push(selected);
         selected.userData.slot = s;
+        layoutStack(s);   // positions the piece (fanned if sharing the slot)
       }
     }
     highlightSlot(null);

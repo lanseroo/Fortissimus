@@ -2,6 +2,7 @@
   // Toolbar / panel wiring. Runs after JS_App (both are modules → DOM order),
   // so window.PT is defined by the time this executes.
   const PT = window.PT;
+  const CARD_SIZE = 22;   // shared size for all card pieces (hero/plebe/cheer/jeer/back)
 
   // ---- active-event slots (3 boards dealt from the shuffled event deck each round) ----
   // Any of the 6 mini-games can land in any of the 3 slots; slots are swappable.
@@ -53,8 +54,8 @@
     const o = document.createElement('option');
     o.value = file; o.textContent = label; heroSel.appendChild(o);
   }
-  document.getElementById('addHero').addEventListener('click', () => PT.addToken(heroSel.value, 30, 'card'));
-  document.getElementById('addCardBack').addEventListener('click', () => PT.addToken('BackofCards.png', 30, 'card'));
+  document.getElementById('addHero').addEventListener('click', () => PT.addToken(heroSel.value, CARD_SIZE, 'card'));
+  document.getElementById('addCardBack').addEventListener('click', () => PT.addToken('BackofCards.png', CARD_SIZE, 'card'));
 
   // ---- active color swatches ----
   document.querySelectorAll('#toolbar .sw').forEach((b) => b.addEventListener('click', () => {
@@ -65,13 +66,13 @@
 
   // ---- color-dependent tokens ----
   document.getElementById('addChariot').addEventListener('click', () => PT.addToken('ChariotIcon' + PT.getActiveColor() + '.png', 8, 'chariot'));
-  document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken(PT.getActiveColor() + 'Pliebe.png', 16, 'card'));
+  document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken(PT.getActiveColor() + 'Pliebe.png', CARD_SIZE, 'card'));
   document.getElementById('addMarker').addEventListener('click',  () => PT.addMarker(PT.getActiveColor()));
   document.getElementById('addRound').addEventListener('click',   () => PT.addRound());
 
   // ---- fixed tokens ----
-  document.getElementById('addCheer').addEventListener('click', () => PT.addToken('Cheer.png', 16, 'card'));
-  document.getElementById('addJeer').addEventListener('click',  () => PT.addToken('Jeer.png', 16, 'card'));
+  document.getElementById('addCheer').addEventListener('click', () => PT.addToken('Cheer.png', CARD_SIZE, 'card'));
+  document.getElementById('addJeer').addEventListener('click',  () => PT.addToken('Jeer.png', CARD_SIZE, 'card'));
 
   // ---- currency ----
   document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6));
