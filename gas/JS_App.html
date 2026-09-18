@@ -10,24 +10,36 @@
     Blue:   0x2f6fdb, Green: 0x2ea84f, Purple: 0x7b3fb0, Yellow: 0xf5b800,
   };
 
-  // Full-table layout. Coordinates derived from the user's table-layout image
-  // (image ~1014x739, scaled by S about its center). x = left(-)/right(+),
-  // z = far/top(-)/near/bottom(+). `w` = world width; height follows the image
-  // aspect at load. `slot` marks the 3 swappable active-event boards; `deck`
-  // marks the static Event-Deck card. Everything here is locked scenery.
+  // Full-table layout matching the physical table. x = left(-)/right(+),
+  // z = far/top(-)/near/bottom(+). `w` = world width; height follows each
+  // image's true aspect at load. All non-player boards share BW so they render
+  // the same size; the 4 player/faction mats share the (slightly larger) FW.
+  // `slot` marks the 3 swappable active-event boards (events are dealt from a
+  // shuffled deck each round); `deck` marks the static Event-Deck card.
+  // Everything here is locked scenery.
+  const BW = 116;   // uniform board width (all non-player boards)
+  const FW = 132;   // uniform player/faction-mat width
   const LAYOUT = [
-    { file: 'RaceTrackBoard.png', x:    0, z:   -8, w: 118 },   // center spine
-    { file: 'ColosseumBoard.png', x:    0, z:  -88, w: 118 },   // top-center
-    { file: 'UnderworldBoard.png',x:  113, z:  -32, w: 107 },   // upper-right
-    { file: 'ColumnBoard.png',    x: -129, z:  -36, w: 118 },   // upper-left
-    { file: 'ArchaeaBoard.png',   x: -235, z:    1, w:  66 },   // far left (Blue)
-    { file: 'AnatoliaBoard.png',  x:  230, z:    1, w:  66 },   // far right (Yellow)
-    { file: 'AegyptusBoard.png',  x: -163, z:  163, w: 132 },   // bottom-left (Green)
-    { file: 'PhoeniciaBoard.png', x:  156, z:  163, w: 116 },   // bottom-right (Purple)
-    { file: 'ArcheryEvent.png',   x:  173, z: -126, w: 118, deck: true },  // Event Deck
-    { file: 'DiscusEvent.png',    x: -129, z:   52, w: 118, slot: 0 },     // active event 1
-    { file: 'LongJumpEvent.png',  x:   -7, z:   95, w: 115, slot: 1 },     // active event 2
-    { file: 'SprintEvent.png',    x:  114, z:   51, w: 110, slot: 2 },     // active event 3
+    // top row
+    { file: 'ColosseumBoard.png', x:    0, z: -100, w: BW },              // top-center
+    { file: 'ArcheryEvent.png',   x:  175, z: -100, w: BW, deck: true },  // Event Deck (top card)
+    // middle row (spine)
+    { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW },              // pillars, left
+    { file: 'RaceTrackBoard.png', x:    0, z:  -20, w: BW },              // race track, center
+    { file: 'UnderworldBoard.png',x:  125, z:  -35, w: BW },              // underworld, right
+    // event reward strips (sit directly above each active event)
+    { file: 'Event1Board.png',    x: -125, z:   45, w: BW },
+    { file: 'Event2Board.png',    x:    0, z:   45, w: BW },
+    { file: 'Event3Board.png',    x:  125, z:   45, w: BW },
+    // active event slots (swappable — any mini-game can be dealt to any slot)
+    { file: 'DiscusEvent.png',    x: -125, z:  105, w: BW, slot: 0 },
+    { file: 'LongJumpEvent.png',  x:    0, z:  105, w: BW, slot: 1 },
+    { file: 'SprintEvent.png',    x:  125, z:  105, w: BW, slot: 2 },
+    // player/faction mats
+    { file: 'ArchaeaBoard.png',   x: -255, z:    0, w: FW },   // Blue, far left
+    { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW },   // Yellow, far right
+    { file: 'AegyptusBoard.png',  x: -160, z:  178, w: FW },   // Green, bottom-left
+    { file: 'PhoeniciaBoard.png', x:  160, z:  178, w: FW },   // Purple, bottom-right
   ];
 
   const container = document.getElementById('viewer');
