@@ -190,9 +190,9 @@
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, color: 'Yellow', slotsDef: FACTION_SLOTS },   // Yellow, far right
     { file: 'AegyptusBoard.png',  x: -160, z:  225, w: FW, color: 'Green',  slotsDef: FACTION_SLOTS },   // Green, bottom-left
     { file: 'PhoeniciaBoard.png', x:  160, z:  225, w: FW, color: 'Purple', slotsDef: FACTION_SLOTS },   // Purple, bottom-right
-    // shared market — plain plane (no art), bottom-center between the two lower mats,
-    // zoomable like a board (mats flank it left/right; their currency trays clear it in x)
-    { market: true, x: 0, z: 265, w: 150, h: 55, slotsDef: MARKET_SLOTS },
+    // shared market — plain plane (no art), centered just below the middle active
+    // event (LongJump bottom ≈ z109); zoomable like a board
+    { market: true, x: 0, z: 145, w: 150, h: 55, slotsDef: MARKET_SLOTS },
   ];
 
   // Drawn column art (rung faces) overlaid on the empty board pillars, so the
