@@ -70,9 +70,11 @@
     ...rowSlots(0.246, 0.326, 2, 0.063, TOK, 4.5),        // Green barracks
     ...rowSlots(0.431, 0.510, 2, 0.063, TOK, 4.5),        // Purple barracks
     ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
-    // round counter 0-6 — exact cell centers measured off the art (uneven spacing)
+    // round counter 0-6 — exact cell centers measured off the art (uneven spacing).
+    // v measures to 0.522 (box center) but renders high on-screen, so nudged down
+    // to 0.58 as a deliberate visible calibration step (dial back if it overshoots).
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
-      (u) => ({ u, v: 0.524, accepts: ['token'], r: 6 })),
+      (u) => ({ u, v: 0.58, accepts: ['token'], r: 6 })),
     ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
     ...rowSlots(0.293, 0.643, 9, 0.895, ['token'], 4),    // event/era track (9 tiles)
