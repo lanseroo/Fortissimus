@@ -920,7 +920,8 @@
     take.forEach((c, i) => {
       c.userData.zone = 'hand';
       setCardFace(c, c.userData.face);               // reveal to the active player
-      c.position.set(a.x, 0.06, a.z + 34 + i * 26);  // column below the deck
+      // fan side-by-side just below the deck, slight overlap (later cards on top)
+      c.position.set(a.x + (i - (take.length - 1) / 2) * 13, 0.06 + i * 0.02, a.z + 30);
     });
   }
 
