@@ -9,6 +9,12 @@
   const COLORS = {                                         // player colors
     Blue:   0x2f6fdb, Green: 0x2ea84f, Purple: 0x7b3fb0, Yellow: 0xf5b800,
   };
+  const NATION_COLORS = {                                  // minis spawn in their nation's color
+    'AchaeanMini.stl':   'Blue',
+    'AegyptusMini.stl':  'Green',
+    'AnatoliaMini.stl':  'Yellow',
+    'PhoenicanMini.stl': 'Purple',
+  };
 
   // ------------------------------------------------------------------ slot defs
   // Snap slots are defined in board-local normalized coords: u = 0..1 left->right
@@ -72,7 +78,7 @@
     ...rowSlots(0.618, 0.698, 2, 0.063, TOK, 4.5),        // Yellow barracks
     // center 0-6 lap bar — exact cell centers measured off the art (uneven spacing)
     ...[0.267, 0.335, 0.406, 0.484, 0.562, 0.638, 0.719].map(
-      (u) => ({ u, v: 0.522, accepts: ['token'], r: 6 })),
+      (u) => ({ u, v: 0.522, accepts: ['token'], r: 4.5 })),
     ...colSlots(0.038, 0.42, 0.84, 4, ['token'], 5),      // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['token'], 5),      // chariot track (5 rungs)
     // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — measured centers
@@ -226,6 +232,7 @@
   }
 
   const eventSlots = [];   // slot index -> board Mesh (swappable)
+  const boardMeshes = [];  // all board planes, for click-to-focus raycasting
 
   // ---- snap slots ----
   const SLOTS = [];        // { x, y, z, r, accepts, marker, occupant }
@@ -297,6 +304,7 @@
   function buildTable() {
     for (const b of LAYOUT) {
       const mesh = makeBoard(b);
+      boardMeshes.push(mesh);
       if (b.slot !== undefined) { eventSlots[b.slot] = mesh; mesh.userData.slotW = b.w; }
     }
     buildColumnOverlays();
@@ -381,7 +389,7 @@
     ];
   }
 
-  function addMini(file, colorName = activeColorName) {
+  function addMini(file, colorName = NATION_COLORS[file] || activeColorName) {
     loader.load(ASSET_BASE + file, (geometry) => {
       geometry.rotateX(-Math.PI / 2);        // stand upright (CAD is usually Z-up)
       geometry.center();
@@ -480,6 +488,7 @@
   const hitPoint = new THREE.Vector3();
   let selected = null, dragging = false;
   let selectionBox = null;
+  let downX = 0, downY = 0, downPiece = false;   // click-vs-drag detection
 
   function setNDC(e) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -512,9 +521,12 @@
 
   renderer.domElement.addEventListener('pointerdown', (e) => {
     setNDC(e);
+    downX = e.clientX; downY = e.clientY;
+    camTween = null;                          // any interaction cancels a camera flight
     raycaster.setFromCamera(ndc, camera);
     // Only pieces are selectable; boards are not in `pieces`, so they're inert.
     const hit = raycaster.intersectObjects(pieces, true)[0];
+    downPiece = !!hit;
     if (hit) {
       const p = pieceFromHit(hit.object);
       select(p);
@@ -559,6 +571,17 @@
   renderer.domElement.addEventListener('pointerup', endDrag);
   renderer.domElement.addEventListener('pointerleave', endDrag);
 
+  // Click (no drag) on a board -> zoom into it; click on empty table -> frame table.
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (downPiece) return;                                          // piece drag handled above
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;   // was an orbit/pan
+    setNDC(e);
+    raycaster.setFromCamera(ndc, camera);
+    const bhit = raycaster.intersectObjects(boardMeshes, false)[0];
+    if (bhit) focusBoard(bhit.object);
+    else if (focusedBoard) frameTable(true);
+  });
+
   window.addEventListener('keydown', (e) => {
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
       e.preventDefault();
@@ -567,8 +590,20 @@
   });
 
   // ------------------------------------------------------------------ camera helpers
-  // Frame the whole table from an angled overhead view.
-  function frameTable() {
+  let focusedBoard = null;
+  let camTween = null;    // { fromP, toP, fromT, toT, t0, dur } — active camera flight
+
+  // Ease the camera to a new position/target over `dur` ms (see render loop).
+  function flyTo(toTarget, toPos, dur = 600) {
+    camTween = {
+      fromP: camera.position.clone(), toP: toPos.clone(),
+      fromT: controls.target.clone(), toT: toTarget.clone(),
+      t0: performance.now(), dur,
+    };
+  }
+
+  // Frame the whole table from an angled overhead view. Clears any board focus.
+  function frameTable(animate = false) {
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const b of LAYOUT) {
       minX = Math.min(minX, b.x - b.w / 2); maxX = Math.max(maxX, b.x + b.w / 2);
@@ -578,13 +613,32 @@
     const radius = 0.5 * Math.hypot(maxX - minX, maxZ - minZ);
     const fov = camera.fov * Math.PI / 180;
     const dist = (radius / Math.sin(fov / 2)) * 0.62;    // margin
-    controls.target.set(cx, 0, cz);
-    camera.position.set(cx, dist * 0.92, cz + dist * 0.55);
     // Tight near/far around the table keeps depth precision high (less flicker).
     camera.near = 0.5;
     camera.far = dist * 4;
     camera.updateProjectionMatrix();
-    controls.update();
+    focusedBoard = null;
+    const target = new THREE.Vector3(cx, 0, cz);
+    const pos = new THREE.Vector3(cx, dist * 0.92, cz + dist * 0.55);
+    if (animate) { flyTo(target, pos); }
+    else { camTween = null; controls.target.copy(target); camera.position.copy(pos); controls.update(); }
+  }
+
+  // Zoom in to frame a single board (same angled overhead framing, closer in).
+  function focusBoard(mesh) {
+    const p = mesh.geometry.parameters || {};
+    const w = p.width || mesh.userData.slotW || 100;
+    const h = p.height || w;
+    const cx = mesh.position.x, cz = mesh.position.z;
+    const radius = 0.5 * Math.hypot(w, h);
+    const fov = camera.fov * Math.PI / 180;
+    const dist = (radius / Math.sin(fov / 2)) * 0.80;    // tighter than table = zoomed in
+    camera.near = 0.5;
+    camera.far = dist * 8;
+    camera.updateProjectionMatrix();
+    focusedBoard = mesh;
+    flyTo(new THREE.Vector3(cx, 0, cz),
+          new THREE.Vector3(cx, dist * 0.92, cz + dist * 0.55));
   }
 
   function resetView() { frameTable(); }
@@ -608,6 +662,13 @@
   // ------------------------------------------------------------------ render loop
   (function animate() {
     requestAnimationFrame(animate);
+    if (camTween) {
+      const k = Math.min(1, (performance.now() - camTween.t0) / camTween.dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;   // easeInOutQuad
+      camera.position.lerpVectors(camTween.fromP, camTween.toP, e);
+      controls.target.lerpVectors(camTween.fromT, camTween.toT, e);
+      if (k >= 1) camTween = null;
+    }
     controls.update();
     if (selectionBox) selectionBox.update();
     renderer.render(scene, camera);
