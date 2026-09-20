@@ -566,15 +566,36 @@
       // raised to sit just atop the base so the figure's legs don't bury it.
       if (sym !== null && sym !== undefined) {
         g.userData.sym = sym;
-        // Uniform chip size: base widths differ and some poses have wide arms/weapons,
-        // so size off MINI_H (constant), not the bounding box, and lift to clear the base top.
-        const chipR = MINI_H * 0.24;
+        // Find the base (not the whole figure): scan the bottom slab for its footprint
+        // CENTER (x/z) and TOP (y) so the chip sits centered on the base and just above
+        // it — robust to off-center poses and taller bases (e.g. Phoenicia).
+        const pos = geometry.attributes.position;
+        const minY = geometry.boundingBox.min.y, maxY = geometry.boundingBox.max.y;
+        const span = (maxY - minY) || 1, bins = 40, band = minY + span * 0.04;
+        let bx = 0, bz = 0, bn = 0;
+        for (let i = 0; i < pos.count; i++) {
+          if (pos.getY(i) <= band) { bx += pos.getX(i); bz += pos.getZ(i); bn++; }
+        }
+        if (bn) { bx /= bn; bz /= bn; }
+        const binMaxR2 = new Float32Array(bins);
+        for (let i = 0; i < pos.count; i++) {
+          let bi = Math.floor((pos.getY(i) - minY) / span * bins);
+          bi = bi < 0 ? 0 : (bi >= bins ? bins - 1 : bi);
+          const x = pos.getX(i) - bx, z = pos.getZ(i) - bz, r2 = x * x + z * z;
+          if (r2 > binMaxR2[bi]) binMaxR2[bi] = r2;
+        }
+        const baseR = Math.sqrt(binMaxR2[0]) || 1;
+        let topLocal = band;                                   // base top = where footprint collapses
+        for (let b = 1; b < bins; b++) {
+          if (Math.sqrt(binMaxR2[b]) < baseR * 0.55) { topLocal = minY + span * b / bins; break; }
+        }
+        const chipR = MINI_H * 0.24;                           // uniform size across factions
         const disc = new THREE.Mesh(
           new THREE.CircleGeometry(chipR, 48),
           new THREE.MeshBasicMaterial({ map: makeSymbolTexture(colorName, sym), transparent: true, depthWrite: false })
         );
         disc.rotation.x = -Math.PI / 2;
-        disc.position.y = MINI_H * 0.10;                        // sit just above the base top
+        disc.position.set(bx * scale, (topLocal - minY) * scale + MINI_H * 0.02, bz * scale);
         disc.renderOrder = 2;
         g.add(disc);
       }
