@@ -584,18 +584,23 @@
           const x = pos.getX(i) - bx, z = pos.getZ(i) - bz, r2 = x * x + z * z;
           if (r2 > binMaxR2[bi]) binMaxR2[bi] = r2;
         }
-        const baseR = Math.sqrt(binMaxR2[0]) || 1;
-        let topLocal = band;                                   // base top = where footprint collapses
+        // base plateau radius = widest of the bottom bins; base top = first bin above it
+        // where the footprint narrows toward the legs (legs run ~70% of the base radius,
+        // so use a 0.78 threshold — 0.55 either never triggered or latched onto a thin
+        // spot high up). Clamp the lift so it always lands on the base, never mid-figure.
+        const baseR = Math.sqrt(Math.max(binMaxR2[0], binMaxR2[1], binMaxR2[2])) || 1;
+        let topFrac = 0.12;                                    // fallback ~base height
         for (let b = 1; b < bins; b++) {
-          if (Math.sqrt(binMaxR2[b]) < baseR * 0.55) { topLocal = minY + span * b / bins; break; }
+          if (Math.sqrt(binMaxR2[b]) < baseR * 0.78) { topFrac = b / bins; break; }
         }
+        topFrac = Math.max(0.08, Math.min(0.20, topFrac));
         const chipR = MINI_H * 0.24;                           // uniform size across factions
         const disc = new THREE.Mesh(
           new THREE.CircleGeometry(chipR, 48),
           new THREE.MeshBasicMaterial({ map: makeSymbolTexture(colorName, sym), transparent: true, depthWrite: false })
         );
         disc.rotation.x = -Math.PI / 2;
-        disc.position.set(bx * scale, (topLocal - minY) * scale + MINI_H * 0.02, bz * scale);
+        disc.position.set(bx * scale, span * topFrac * scale + MINI_H * 0.01, bz * scale);
         disc.renderOrder = 2;
         g.add(disc);
       }
