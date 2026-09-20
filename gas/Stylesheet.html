@@ -169,6 +169,8 @@
   button.die.draw { cursor: pointer; border-color: #ffd479; }
   button.die.draw:hover { background: #34373d; }
   button.die:disabled { cursor: default; }
+  /* blank (unrolled cup / unfilled hero slot) die — dashed empty square */
+  .die.blank { color: transparent; border-style: dashed; background: #1c1d21; }
   .drawnDie { display: inline-flex; align-items: center; gap: 3px; }
   .diebump {
     width: 20px; height: 34px;
@@ -179,6 +181,30 @@
   }
   .diebump:hover:not(:disabled) { background: #3a3d42; }
   .diebump:disabled { opacity: 0.35; cursor: default; }
+
+  /* per-hero event dice list (left panel, Resolution / Colosseum) */
+  #heroList { display: flex; flex-direction: column; gap: 8px; }
+  .hero {
+    border: 1px solid #3a3d42; border-radius: 6px;
+    background: #17181b; padding: 8px; cursor: pointer;
+  }
+  .hero:hover { border-color: #55585e; }
+  .hero.sel { border-color: #ffd479; box-shadow: 0 0 0 1px #ffd479 inset; }
+  .hero-top { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; }
+  .hero-top .hsym { width: 16px; height: 16px; flex: 0 0 auto; }
+  .hero-lbl { flex: 1 1 auto; color: #e6e8ea; }
+  .hero-cnt { font-variant-numeric: tabular-nums; color: #c98b2e; font-weight: 700; }
+  .hero-cnt.ok { color: #2ea84f; }
+  .hero-dice { display: flex; flex-wrap: wrap; gap: 4px; margin: 7px 0; min-height: 34px; align-content: flex-start; }
+  .hdie { display: inline-flex; align-items: center; gap: 2px; }
+  .hero-acts { display: flex; gap: 6px; }
+  .hero-acts button {
+    flex: 1 1 auto; padding: 5px 6px; border-radius: 4px;
+    border: 1px solid #4a4d52; background: #2a2c30; color: #f2f2f2;
+    cursor: pointer; font-size: 0.78rem;
+  }
+  .hero-acts button:hover:not(:disabled) { background: #3a3d42; }
+  .hero-acts button:disabled { opacity: 0.4; cursor: default; }
 
   /* ------------------------------------------------------------- center modal */
   #modalBackdrop {

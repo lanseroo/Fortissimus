@@ -125,13 +125,12 @@
   const ppCupHint = document.getElementById('ppCupHint');
   const econ = document.getElementById('econ');
   const compete = document.getElementById('compete');
-  const drawnGrid = document.getElementById('drawnGrid');
+  const heroList = document.getElementById('heroList');
+  const competeHint = document.getElementById('competeHint');
   const exZapBtn = document.getElementById('exZap');
   const exSunBtn = document.getElementById('exSun');
   const addDieBtn = document.getElementById('addDie');
   const rollCupBtn = document.getElementById('rollCup');
-  const rollRandBtn = document.getElementById('rollRand');
-  const clearDrawnBtn = document.getElementById('clearDrawn');
 
   function renderPlayerPanel(f) {
     const owner = ownerOf(f);
@@ -142,39 +141,67 @@
     const r = (f.res && f.res[owner]) || { coin: 0, zap: 0, sun: 0 };
     ppRes.textContent = '🪙 ' + r.coin + '    ⚡ ' + r.zap + '    ☀ ' + r.sun;
 
-    const isUpkeep = f.started && !f.over && f.phase === 'Upkeep & Market';
+    const isUpkeep = f.started && !f.over && f.phase === 'Upkeep';
     const isEvent = f.started && !f.over && EVENT_PHASES.includes(f.phase);
+    const rolled = !!(f.cupRolled && f.cupRolled[owner]);
 
-    // cup readout — clickable to draw only during event phases
+    // cup readout — dice are blank (null) until the once-per-round roll; clickable to
+    // draw into the selected hero only during event phases.
     const cup = (f.cup && f.cup[owner]) || [];
+    const heroSelected = f.selectedHeroId !== null && f.selectedHeroId !== undefined;
     cupGrid.innerHTML = cup.length
-      ? cup.map((v, i) =>
-          '<button class="die' + (isEvent ? ' draw' : '') + '" data-idx="' + i + '"'
-          + (isEvent ? '' : ' disabled') + ' style="color:' + col + '">' + DICE_GLYPH(v) + '</button>').join('')
+      ? cup.map((v, i) => {
+          const blank = v === null || v === undefined;
+          const clickable = isEvent && !blank && heroSelected;
+          return '<button class="die' + (blank ? ' blank' : '') + (clickable ? ' draw' : '') + '" data-idx="' + i + '"'
+            + (clickable ? '' : ' disabled') + ' style="color:' + col + '">' + (blank ? '' : DICE_GLYPH(v)) + '</button>';
+        }).join('')
       : '<span class="ppmini">empty</span>';
-    ppCupHint.textContent = cup.length + ' die' + (cup.length === 1 ? '' : 's') + ' in cup'
-      + (isEvent ? ' — click one to draw' : '');
+    ppCupHint.textContent = isUpkeep
+      ? (rolled ? cup.length + ' dice rolled — locked for this round.' : 'Blank — roll your cup once this round (required).')
+      : (cup.length + ' die' + (cup.length === 1 ? '' : 's') + ' in cup'
+         + (isEvent ? (heroSelected ? ' — click one to draw into the selected hero' : ' — select a hero first') : ''));
 
-    // economy (Upkeep only)
+    // economy (Upkeep only): roll the cup ONCE, buy dice only before that roll.
     econ.hidden = !isUpkeep;
     if (isUpkeep) {
       exZapBtn.disabled = r.zap < 1;
       exSunBtn.disabled = r.sun < 1;
-      addDieBtn.disabled = r.zap < 1;
+      addDieBtn.disabled = r.zap < 1 || rolled;
+      rollCupBtn.disabled = rolled;
     }
 
-    // competition scratchpad (event phases only)
+    // per-hero event dice (event phases only)
     compete.hidden = !isEvent;
     if (isEvent) {
-      const drawn = (f.drawn && f.drawn[owner]) || [];
-      drawnGrid.innerHTML = drawn.length
-        ? drawn.map((d, i) =>
-            '<div class="drawnDie">'
-            + '<button class="diebump" data-idx="' + i + '" data-dir="-1" title="−1 (−1☀)"' + (r.sun < 1 || d.v <= 1 ? ' disabled' : '') + '>–</button>'
-            + '<span class="die" style="color:' + col + '">' + DICE_GLYPH(d.v) + '</span>'
-            + '<button class="diebump" data-idx="' + i + '" data-dir="1" title="+1 (−1☀)"' + (r.sun < 1 || d.v >= 6 ? ' disabled' : '') + '>+</button>'
-            + '</div>').join('')
-        : '<span class="ppmini">no dice drawn yet</span>';
+      const heroes = f.heroes || [];
+      heroList.innerHTML = heroes.length
+        ? heroes.map((h) => {
+            const sel = h.id === f.selectedHeroId;
+            const have = h.dice.length, need = h.required;
+            const label = h.face ? labelForFace(h.face) : 'Inactive';
+            const chip = h.symImg ? '<img class="hsym" src="' + window.ASSET_BASE + h.symImg + '" alt="">' : '';
+            const dice = h.dice.map((v, i) =>
+              '<span class="hdie">'
+              + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="-1" title="−1 (−1☀)"' + (r.sun < 1 || v <= 1 ? ' disabled' : '') + '>–</button>'
+              + '<span class="die" style="color:' + col + '">' + DICE_GLYPH(v) + '</span>'
+              + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="1" title="+1 (−1☀)"' + (r.sun < 1 || v >= 6 ? ' disabled' : '') + '>+</button>'
+              + '</span>').join('');
+            const empties = Array.from({ length: Math.max(0, need - have) }, () => '<span class="die blank"></span>').join('');
+            const full = have >= need;
+            return '<div class="hero' + (sel ? ' sel' : '') + '" data-id="' + h.id + '">'
+              + '<div class="hero-top">' + chip + '<span class="hero-lbl">' + label + '</span>'
+              + '<span class="hero-cnt' + (full ? ' ok' : '') + '">' + have + '/' + need + '</span></div>'
+              + '<div class="hero-dice">' + dice + empties + '</div>'
+              + '<div class="hero-acts">'
+              + '<button class="hero-roll" data-id="' + h.id + '"' + (full ? ' disabled' : '') + '>Roll die</button>'
+              + '<button class="hero-clear" data-id="' + h.id + '"' + (have ? '' : ' disabled') + '>Clear</button>'
+              + '</div></div>';
+          }).join('')
+        : '<span class="ppmini">' + owner + ' has no minis at an event.</span>';
+      competeHint.textContent = f.eventGateOk
+        ? 'All heroes have their dice — advance when ready.'
+        : 'Every competing hero needs its full dice before the event can continue.';
     }
   }
 
@@ -215,8 +242,12 @@
     // per-player turn bar (only during Upkeep & Blind Placement)
     if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
-      const isUpkeep = f.phase === 'Upkeep & Market';
-      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'use the left panel to roll the cup, buy dice & exchange' : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)');
+      const msg = f.phase === 'Upkeep'
+        ? 'use the left panel to roll the cup (required), buy dice & exchange'
+        : f.phase === 'Market'
+          ? 'shop the revealed market heroes (drag one to your mat)'
+          : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)';
+      turnLine.textContent = f.current + '’s turn — ' + msg;
       reflectSwatch(f.current);
     } else {
       turnbar.hidden = true;
@@ -259,7 +290,14 @@
     }
 
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
-    nextBtn.disabled = !f.started || f.over;
+    // hard gates: can't leave Upkeep until the current player rolls their cup; can't leave
+    // an event until every competing hero (all colors) has its required dice.
+    const rollBlocked = f.started && !f.over && f.phase === 'Upkeep' && !f.rollGateOk;
+    const eventBlocked = f.started && !f.over && EVENT_PHASES.includes(f.phase) && !f.eventGateOk;
+    nextBtn.disabled = !f.started || f.over || rollBlocked || eventBlocked;
+    nextBtn.title = rollBlocked ? (f.current + ' must roll their cup first')
+      : eventBlocked ? 'Every competing hero needs its dice first'
+      : 'Advance to the next phase / round';
 
     renderPlayerPanel(f);
   }
@@ -310,17 +348,22 @@
   exZapBtn.addEventListener('click', () => PT.exchangeForCoin(ownerOf(curFlow), 'zap'));
   exSunBtn.addEventListener('click', () => PT.exchangeForCoin(ownerOf(curFlow), 'sun'));
   addDieBtn.addEventListener('click', () => PT.addCupDie(ownerOf(curFlow)));
-  rollRandBtn.addEventListener('click', () => PT.rollRandomDie(ownerOf(curFlow)));
-  clearDrawnBtn.addEventListener('click', () => PT.clearDrawn(ownerOf(curFlow)));
   cupGrid.addEventListener('click', (e) => {
     const b = e.target.closest('.die');
     if (!b || b.disabled || b.dataset.idx === undefined) return;
-    PT.drawFromCup(ownerOf(curFlow), +b.dataset.idx);
+    PT.drawFromCup(ownerOf(curFlow), +b.dataset.idx);   // draws into the selected hero
   });
-  drawnGrid.addEventListener('click', (e) => {
-    const b = e.target.closest('.diebump');
-    if (!b || b.disabled) return;
-    PT.bumpDrawnDie(ownerOf(curFlow), +b.dataset.idx, +b.dataset.dir);
+  // per-hero event dice: select a hero, roll/clear its dice, or ±1 bump a die (owner read live)
+  heroList.addEventListener('click', (e) => {
+    const owner = ownerOf(curFlow);
+    const bump = e.target.closest('.diebump');
+    if (bump) { PT.bumpHeroDie(+bump.dataset.id, +bump.dataset.idx, +bump.dataset.dir); return; }
+    const roll = e.target.closest('.hero-roll');
+    if (roll) { PT.selectHero(+roll.dataset.id); PT.rollRandomDie(owner); return; }
+    const clr = e.target.closest('.hero-clear');
+    if (clr) { PT.clearHeroDice(+clr.dataset.id); return; }
+    const row = e.target.closest('.hero');
+    if (row) PT.selectHero(+row.dataset.id);
   });
 
   // standings +/- (event-delegated: rows are re-rendered each flow update)
