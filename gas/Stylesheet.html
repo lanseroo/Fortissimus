@@ -186,6 +186,9 @@
     display: flex; align-items: center; justify-content: center;
     background: rgba(0, 0, 0, 0.55);
   }
+  /* the `hidden` attribute must beat the display:flex above (equal specificity, so
+     this rule wins by coming later); without it the modal is always shown. */
+  #modalBackdrop[hidden] { display: none; }
   #modalBox {
     width: 300px;
     background: #202226;
