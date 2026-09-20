@@ -196,6 +196,38 @@
     nextBtn.disabled = !f.started || f.over;
   }
 
+  // ---- click a mini -> show the hero card in its matching α-ε slot (left overlay) ----
+  const miniCard = document.getElementById('miniCard');
+  const miniCardHead = document.getElementById('miniCardHead');
+  const miniCardImg = document.getElementById('miniCardImg');
+  const miniCardCap = document.getElementById('miniCardCap');
+  document.getElementById('miniCardClose').addEventListener('click', () => { miniCard.hidden = true; });
+
+  const FACE_LABELS = Object.fromEntries(HEROES);   // '2_3_Hero.png' -> 'Str2 Spd3'
+  function labelForFace(face) {
+    if (!face) return '';
+    if (FACE_LABELS[face]) return FACE_LABELS[face];
+    if (/Pliebe/i.test(face)) return 'Plebe';
+    if (/Cheer/i.test(face)) return 'Cheer';
+    if (/Jeer/i.test(face)) return 'Jeer';
+    return face.replace(/\.png$/i, '');
+  }
+  PT.onMiniClick((info) => {
+    miniCard.hidden = false;
+    const col = FLOW_COLORS[info.color] || '#ccc';
+    miniCardHead.innerHTML = '<span class="mcdot" style="background:' + col + '"></span>'
+      + (info.color || '?') + ' · <b>' + (info.sym || '?') + '</b>';
+    if (info.face) {
+      miniCardImg.src = window.ASSET_BASE + info.face;
+      miniCardImg.style.display = '';
+      miniCardCap.textContent = labelForFace(info.face);
+    } else {
+      miniCardImg.removeAttribute('src');
+      miniCardImg.style.display = 'none';
+      miniCardCap.textContent = info.sym ? ('No hero in slot ' + info.sym + ' yet.') : 'This mini has no symbol.';
+    }
+  });
+
   PT.onFlow(renderFlow);
   renderFlow(PT.getFlow());
   nextBtn.addEventListener('click', () => PT.nextPhase());

@@ -78,12 +78,34 @@
     height: 78vh;
   }
   #viewer {
+    position: relative;
     flex: 1 1 auto;
     background: radial-gradient(circle at 50% 35%, #33383f, #16181b);
     border-radius: 8px;
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
     overflow: hidden;
   }
+
+  /* mini → tied hero card (left overlay) */
+  #miniCard {
+    position: absolute; top: 12px; left: 12px; z-index: 5;
+    width: 180px;
+    background: rgba(23, 24, 27, 0.94);
+    border: 1px solid #3a3d42; border-radius: 8px;
+    padding: 10px 10px 12px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  }
+  #miniCardHead { font-size: 0.85rem; font-weight: 600; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
+  #miniCard .mcdot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+  #miniCardImg { width: 100%; border-radius: 6px; display: block; background: #0d0e10; }
+  #miniCardCap { font-size: 0.8rem; color: #cfd3d8; margin-top: 8px; text-align: center; }
+  #miniCardClose {
+    position: absolute; top: 6px; right: 6px;
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1px solid #4a4d52; background: #2a2c30; color: #f2f2f2;
+    cursor: pointer; font-size: 0.8rem; line-height: 1;
+  }
+  #miniCardClose:hover { background: #3a3d42; }
   #viewer canvas { display: block; cursor: grab; }
   #viewer canvas:active { cursor: grabbing; }
 
