@@ -563,6 +563,9 @@
     g.position.set(x, 0.06, z);
     // Always size from the actually-loaded image so aspect is never guessed.
     new THREE.TextureLoader().load(ASSET_BASE + file, (tex) => {
+      // A card whose face was already applied (setCardFace) must not be clobbered
+      // by this back-texture load resolving late — the two loads race on the plane.
+      if (g.userData.faceApplied) { tex.dispose(); return; }
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
       const iw = tex.image.width, ih = tex.image.height;
@@ -1166,14 +1169,26 @@
   // Point a card at a texture, resizing its plane to that image's aspect. Cards are
   // flat planes, so "face down" is just the card back; flipping swaps the map.
   function setCardFace(g, file) {
+    // Claim the plane synchronously so a late-resolving addToken back-load can't
+    // clobber the face we're about to apply (the two loads race on the same plane).
+    g.userData.faceApplied = true;
     new THREE.TextureLoader().load(ASSET_BASE + file, (tex) => {
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      const plane = g.children[0];
-      if (!plane) return;
       const aspect = (tex.image.width / tex.image.height) || 1;
       const w = aspect >= 1 ? 22 : 22 * aspect;
       const h = aspect >= 1 ? 22 / aspect : 22;
+      // If addToken's loader bailed (faceApplied) the plane may not exist yet — mint it.
+      let plane = g.children[0];
+      if (!plane) {
+        plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, h),
+          new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false })
+        );
+        plane.rotation.x = -Math.PI / 2;
+        g.add(plane);
+        return;
+      }
       plane.geometry.dispose();
       plane.geometry = new THREE.PlaneGeometry(w, h);
       plane.material.map = tex;
