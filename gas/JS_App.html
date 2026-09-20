@@ -1067,12 +1067,19 @@
   }
   // Move a nation's on-foot marker n steps along the lane (n may be negative for a
   // manual correction); bank/unbank laps on the 0-6 bar as it crosses the line.
+  // One space holds one runner: after a forward move, if the resting space already
+  // has another player's marker, hop forward to the next empty space (banking laps).
   function advanceRace(color, n = 1) {
     const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
     const m = raceMarkerOf(color); if (!m) return;
     const L = RACE_LANE.length;
-    for (let s = n; s > 0; s--) { st.pos++; if (st.pos >= L) { st.pos = 0; if (st.laps < LAP_MAX) st.laps++; } }
+    const stepFwd = () => { st.pos++; if (st.pos >= L) { st.pos = 0; if (st.laps < LAP_MAX) st.laps++; } };
+    const occupiedByOther = (pos) => RACE_LANE[pos].occupants.some(
+      (p) => p !== m && p.userData.type === 'marker' && p.userData.color !== color);
+    for (let s = n; s > 0; s--) stepFwd();
     for (let s = n; s < 0; s++) { st.pos--; if (st.pos < 0) { st.pos = L - 1; if (st.laps > 0) st.laps--; } }
+    // hop off a shared space onto the next free one (forward moves only)
+    if (n > 0) { let guard = 0; while (occupiedByOther(st.pos) && guard++ < L) stepFwd(); }
     placeOnTrackOrd(color, 'lap', st.laps);
     placeOnSlot(m, RACE_LANE[st.pos]);
     notifyFlow();
