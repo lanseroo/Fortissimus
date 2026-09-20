@@ -15,9 +15,9 @@
     'AnatoliaMini.stl':  'Yellow',
     'PhoenicanMini.stl': 'Purple',
   };
-  // A faction's 5 minis carry these symbols (matching the α-ε letters printed on
-  // the mat's 5 hero-card slots). Mini α is tied to the hero card in slot α, etc.
-  const HERO_SYMBOLS = ['α', 'β', 'γ', 'δ', 'ε'];
+  // A faction's 5 minis each carry that faction's own market symbol (slots 0-4).
+  // The symbol is a per-faction icon baked into Symbol<Color><0-4>.png (cropped from
+  // the player boards); the numeric index ties mini i to the hero card in card slot i.
 
   // ------------------------------------------------------------------ slot defs
   // Snap slots are defined in board-local normalized coords: u = 0..1 left->right
@@ -144,8 +144,8 @@
   // circles, and hero card slots below.
   const FACTION_SLOTS = [
     ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4).map((s) => ({ ...s, role: 'income' })),  // income track
-    ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s, i) => ({ ...s, boardColor: true, role: 'hero-market', sym: HERO_SYMBOLS[i] })), // hero market circles (this mat's color)
-    ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7).map((s, i) => ({ ...s, role: 'card', sym: HERO_SYMBOLS[i] })),      // hero card slots (α-ε, each tied to the same-symbol mini)
+    ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s, i) => ({ ...s, boardColor: true, role: 'hero-market', sym: i })), // hero market circles (this mat's color)
+    ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7).map((s, i) => ({ ...s, role: 'card', sym: i })),      // hero card slots (0-4, each tied to the same-index mini)
     // holders below the mat — large, each accepts one kind, deep stacking (~limitless):
     // coin / lightning / sun currency + the player's dice "cup" (pre-rolled dice, biggest
     // so the faces stay readable). Sit low (v>1.3) so the hero cards don't cover them.
@@ -308,7 +308,7 @@
       SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
                    coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
                    track: s.track || null, ord: (s.ord ?? null), bx: b.x, lane: s.lane || null,
-                   sym: s.sym || null, marker, occupants: [] });
+                   sym: (s.sym ?? null), marker, occupants: [] });
     }
   }
 
@@ -533,21 +533,12 @@
     ];
   }
 
-  // A round "poker-chip" texture bearing a Greek letter — a mini's identity
-  // symbol (α-ε), laid flat on its base so you can read which hero card it ties to.
-  function makeSymbolTexture(letter) {
-    const S = 128, cv = document.createElement('canvas');
-    cv.width = cv.height = S;
-    const ctx = cv.getContext('2d');
-    ctx.clearRect(0, 0, S, S);
-    ctx.beginPath(); ctx.arc(S / 2, S / 2, S / 2 - 5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(18,18,22,0.88)'; ctx.fill();
-    ctx.lineWidth = 7; ctx.strokeStyle = '#f2e6c8'; ctx.stroke();
-    ctx.fillStyle = '#f7efd8';
-    ctx.font = 'bold 82px Georgia, "Times New Roman", serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(letter, S / 2, S / 2 + 6);
-    const tex = new THREE.CanvasTexture(cv);
+  // Baked "poker-chip" texture bearing this faction's own market symbol for slot
+  // `idx` (0-4) — cropped from the player boards into Symbol<Color><0-4>.png. Laid
+  // flat atop the mini's base so you can read which hero card it ties to.
+  function symbolFile(colorName, idx) { return 'Symbol' + colorName + idx + '.png'; }
+  function makeSymbolTexture(colorName, idx) {
+    const tex = new THREE.TextureLoader().load(ASSET_BASE + symbolFile(colorName, idx));
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     return tex;
@@ -571,17 +562,17 @@
       const g = new THREE.Group();
       g.add(mesh);
       g.userData.color = colorName;
-      // identity chip (α-ε) flat on the base, ringing the figure's feet so it stays
-      // readable from above even though the mini stands over its center.
-      if (sym) {
+      // identity chip: this faction's market symbol, sized to the mini's base and
+      // raised to sit just atop the base so the figure's legs don't bury it.
+      if (sym !== null && sym !== undefined) {
         g.userData.sym = sym;
-        const baseR = 0.5 * Math.max(size.x, size.z) * scale;
+        const baseR = 0.5 * Math.max(size.x, size.z) * scale;   // base radius
         const disc = new THREE.Mesh(
-          new THREE.CircleGeometry(Math.max(2.6, baseR * 1.55), 40),
-          new THREE.MeshBasicMaterial({ map: makeSymbolTexture(sym), transparent: true, depthWrite: false })
+          new THREE.CircleGeometry(Math.max(1.8, baseR), 48),
+          new THREE.MeshBasicMaterial({ map: makeSymbolTexture(colorName, sym), transparent: true, depthWrite: false })
         );
         disc.rotation.x = -Math.PI / 2;
-        disc.position.y = 0.28;
+        disc.position.y = size.y * scale * 0.06;               // just above the base top
         disc.renderOrder = 2;
         g.add(disc);
       }
@@ -836,10 +827,15 @@
 
   // The hero card a mini is tied to = the card in the same-color, same-symbol slot.
   function miniCardInfo(mini) {
-    const color = mini.userData.color || null, sym = mini.userData.sym || null;
-    const slot = sym && SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
+    const color = mini.userData.color || null, sym = mini.userData.sym ?? null;
+    const slot = (sym !== null) && SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
     const card = slot && slot.occupants[slot.occupants.length - 1];
-    return { color, sym, face: card ? (card.userData.face || null) : null, hasCard: !!card };
+    return {
+      color, sym,
+      symImg: (color !== null && sym !== null) ? symbolFile(color, sym) : null,
+      face: card ? (card.userData.face || null) : null,
+      hasCard: !!card,
+    };
   }
 
   // Click (no drag): on a mini -> show its tied hero card; on a board -> zoom in;
@@ -1306,18 +1302,10 @@
     // starting income. Everyone gets base income (3🪙 / 2⚡ / 3 cup dice); on top of
     // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0) via SEAT_ORDER.
     NATIONS.forEach((nat) => {
-      // 5 minis, each stamped with its α-ε symbol...
+      // 5 minis, each stamped with this faction's slot symbol (0-4). Card slots start
+      // EMPTY — deal a hand and slot a hero to activate a mini; a mini with no card in
+      // its matching slot is simply inactive.
       for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot, slot.sym);
-      // ...and tied to a face-down hero card in the same-symbol card slot below.
-      const pool = heroPool.slice();
-      for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-      slotsByRole('card', nat.color).forEach((slot, i) => {
-        const face = pool[i] || pool[i % (pool.length || 1)] || 'BackofCards.png';
-        const c = addToken('BackofCards.png', 22, 'card');   // seated face-down; click its mini to peek
-        c.userData.owner = nat.color; c.userData.zone = 'slot';
-        c.userData.face = face; c.userData.cardKind = 'hero'; c.userData.sym = slot.sym;
-        placeOnSlot(c, slot);
-      });
       const inc = slotsByRole('income', nat.color)[0];
       if (inc) placeOnSlot(addToken('IncomeToken.png', 6, 'income'), inc);
       const seatBonus = [3, 2, 1, 0][SEAT_ORDER.indexOf(nat.color)] || 0;

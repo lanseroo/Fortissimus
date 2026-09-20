@@ -215,8 +215,11 @@
   PT.onMiniClick((info) => {
     miniCard.hidden = false;
     const col = FLOW_COLORS[info.color] || '#ccc';
+    const chip = info.symImg
+      ? '<img class="mcsym" src="' + window.ASSET_BASE + info.symImg + '" alt="symbol">'
+      : '';
     miniCardHead.innerHTML = '<span class="mcdot" style="background:' + col + '"></span>'
-      + (info.color || '?') + ' · <b>' + (info.sym || '?') + '</b>';
+      + (info.color || '?') + chip;
     if (info.face) {
       miniCardImg.src = window.ASSET_BASE + info.face;
       miniCardImg.style.display = '';
@@ -224,7 +227,7 @@
     } else {
       miniCardImg.removeAttribute('src');
       miniCardImg.style.display = 'none';
-      miniCardCap.textContent = info.sym ? ('No hero in slot ' + info.sym + ' yet.') : 'This mini has no symbol.';
+      miniCardCap.textContent = 'No hero card linked — this mini is inactive.';
     }
   });
 
