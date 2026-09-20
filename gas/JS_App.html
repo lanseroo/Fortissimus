@@ -1009,7 +1009,7 @@
   const PHASES = ['Upkeep & Market', 'Blind Placement', 'Resolution & Podiums', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum phase only runs these rounds
-  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {} };
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, drawn: {} };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1102,6 +1102,90 @@
     notifyFlow();
   }
   function barracksDone() { GAME.barracks = null; notifyFlow(); }
+
+  // ---- dice cup + competition scratchpad (panel is source of truth, mirrored to 3D) ----
+  // GAME.cup[color]   = array of prerolled die values (1-6), shown in the left panel
+  //                     AND mirrored onto that faction's 3D cup slot.
+  // GAME.drawn[color] = per-competition scratchpad of { v, source:'cup'|'roll' } dice the
+  //                     player has pulled/rolled this event; not bound to a specific event.
+  const CUP_START       = 3;   // dice each faction starts with in its cup
+  const COIN_PER_EXCHANGE = 2; // ⚡ or ☀ → this many 🪙 (Upkeep exchange)
+  const rollFace = () => 1 + Math.floor(Math.random() * 6);
+  const cupSlotOf = (color) => slotsByRole('cup', color)[0] || null;
+
+  // Rebuild the faction's 3D cup slot dice to match GAME.cup[color].
+  function syncCup3D(color) {
+    const slot = cupSlotOf(color);
+    if (!slot) return;
+    for (const p of [...slot.occupants]) if (p.userData.type === 'die') removePiece(p);
+    for (const v of (GAME.cup[color] || [])) placeOnSlot(makeDie(v), slot);
+    updateDiceTotal();
+  }
+
+  // Seed every faction's cup (CUP_START prerolled dice) + empty drawn scratchpad.
+  function initCup() {
+    for (const c of ALL_COLORS) {
+      GAME.cup[c] = [];
+      GAME.drawn[c] = [];
+      for (let k = 0; k < CUP_START; k++) GAME.cup[c].push(rollFace());
+    }
+  }
+
+  function rollCup(color) {
+    const arr = GAME.cup[color]; if (!arr) return;
+    for (let i = 0; i < arr.length; i++) arr[i] = rollFace();
+    syncCup3D(color);
+    notifyFlow();
+  }
+
+  // Buy a cup die with Lightning: 1⚡ → +1 prerolled die in your cup.
+  function addCupDie(color) {
+    const r = GAME.res[color]; if (!r || r.zap < DIE_ZAP_COST) return;
+    if (!GAME.cup[color]) GAME.cup[color] = [];
+    GAME.cup[color].push(rollFace());
+    adjustRes(color, 'zap', -DIE_ZAP_COST);   // notifies
+    syncCup3D(color);
+    notifyFlow();
+  }
+
+  // Upkeep exchange: spend 1⚡ or 1☀ for 2🪙.
+  function exchangeForCoin(color, kind) {
+    if (kind !== 'zap' && kind !== 'sun') return;
+    const r = GAME.res[color]; if (!r || r[kind] < 1) return;
+    adjustRes(color, kind, -1);                // notifies
+    adjustRes(color, 'coin', COIN_PER_EXCHANGE);
+  }
+
+  // Draw a specific (known-value) prerolled die out of the cup into the scratchpad.
+  function drawFromCup(color, idx) {
+    const arr = GAME.cup[color]; if (!arr || idx < 0 || idx >= arr.length) return;
+    const v = arr.splice(idx, 1)[0];
+    if (!GAME.drawn[color]) GAME.drawn[color] = [];
+    GAME.drawn[color].push({ v, source: 'cup' });
+    syncCup3D(color);
+    notifyFlow();
+  }
+
+  // Roll a FRESH random die into the scratchpad — general supply, cup untouched.
+  function rollRandomDie(color) {
+    if (!GAME.drawn[color]) GAME.drawn[color] = [];
+    GAME.drawn[color].push({ v: rollFace(), source: 'roll' });
+    notifyFlow();
+  }
+
+  // Set-die: spend 1☀ to bump a drawn die one pip (dir ±1), staying within 1-6.
+  function bumpDrawnDie(color, idx, dir) {
+    const arr = GAME.drawn[color]; if (!arr || idx < 0 || idx >= arr.length) return;
+    const r = GAME.res[color]; if (!r || r.sun < 1) return;
+    const nv = arr[idx].v + (dir > 0 ? 1 : -1);
+    if (nv < 1 || nv > 6) return;
+    arr[idx].v = nv;
+    adjustRes(color, 'sun', -1);               // notifies
+    notifyFlow();
+  }
+
+  function clearDrawn(color) { GAME.drawn[color] = []; notifyFlow(); }
+
   const phasesFor = (round) =>
     PHASES.filter((p) => p !== 'Colosseum' || COLOSSEUM_ROUNDS.includes(round));
   const eraOf = (round) => (round <= 3 ? 'Act I' : round <= 5 ? 'Act II' : 'Act III');
@@ -1126,6 +1210,9 @@
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
+      cup: JSON.parse(JSON.stringify(GAME.cup)),
+      drawn: JSON.parse(JSON.stringify(GAME.drawn)),
+      activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
   }
@@ -1339,8 +1426,11 @@
       const seatBonus = [3, 2, 1, 0][SEAT_ORDER.indexOf(nat.color)] || 0;
       fill(nat.color, 'coin', 'CoinToken.png', 3 + seatBonus);
       fill(nat.color, 'lightning', 'LightningToken.png', 2);
-      fill(nat.color, 'die', null, 3);
     });
+
+    // seed each faction's dice cup (state) + mirror the prerolled dice onto the 3D cups
+    initCup();
+    for (const c of ALL_COLORS) syncCup3D(c);
 
     // per-mat: face-down starting deck (3 plebe + cheer + jeer) off the mat's OUTER
     // edge, built as real cards so "Deal hand" can pull from it face-up.
@@ -1387,6 +1477,7 @@
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
     nextPlayer, prevPlayer, focusPlayer, buyDie,
+    rollCup, addCupDie, exchangeForCoin, drawFromCup, rollRandomDie, bumpDrawnDie, clearDrawn,
     barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;

@@ -102,15 +102,81 @@
   const flowRes = document.getElementById('flowRes');
   const turnbar = document.getElementById('turnbar');
   const turnLine = document.getElementById('turnLine');
-  const buyDieBtn = document.getElementById('buyDie');
   const nextPlayerBtn = document.getElementById('nextPlayer');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
+  const modalBackdrop = document.getElementById('modalBackdrop');
   const barracks = document.getElementById('barracks');
   const barracksLine = document.getElementById('barracksLine');
   const barRelic = document.getElementById('barRelic');
   const barChariot = document.getElementById('barChariot');
   const standings = document.getElementById('standings');
+
+  // ---- left player panel (current player's cup / economy / competition) ----
+  const EVENT_PHASES = ['Resolution & Podiums', 'Colosseum'];   // dice-drawing phases
+  const DICE_GLYPH = (v) => String.fromCodePoint(0x2680 + (Math.max(1, Math.min(6, v)) - 1));  // ⚀..⚅
+  let curFlow = null;                       // last flow snapshot (owner read at click time)
+  const ownerOf = (f) => (f && f.current) || PT.getActiveColor();
+
+  const ppDot = document.getElementById('ppDot');
+  const ppName = document.getElementById('ppName');
+  const ppRes = document.getElementById('ppRes');
+  const cupGrid = document.getElementById('cupGrid');
+  const ppCupHint = document.getElementById('ppCupHint');
+  const econ = document.getElementById('econ');
+  const compete = document.getElementById('compete');
+  const drawnGrid = document.getElementById('drawnGrid');
+  const exZapBtn = document.getElementById('exZap');
+  const exSunBtn = document.getElementById('exSun');
+  const addDieBtn = document.getElementById('addDie');
+  const rollCupBtn = document.getElementById('rollCup');
+  const rollRandBtn = document.getElementById('rollRand');
+  const clearDrawnBtn = document.getElementById('clearDrawn');
+
+  function renderPlayerPanel(f) {
+    const owner = ownerOf(f);
+    const col = FLOW_COLORS[owner] || '#ccc';
+    ppDot.style.background = col;
+    ppName.textContent = owner || '—';
+    ppName.style.color = col;
+    const r = (f.res && f.res[owner]) || { coin: 0, zap: 0, sun: 0 };
+    ppRes.textContent = '🪙 ' + r.coin + '    ⚡ ' + r.zap + '    ☀ ' + r.sun;
+
+    const isUpkeep = f.started && !f.over && f.phase === 'Upkeep & Market';
+    const isEvent = f.started && !f.over && EVENT_PHASES.includes(f.phase);
+
+    // cup readout — clickable to draw only during event phases
+    const cup = (f.cup && f.cup[owner]) || [];
+    cupGrid.innerHTML = cup.length
+      ? cup.map((v, i) =>
+          '<button class="die' + (isEvent ? ' draw' : '') + '" data-idx="' + i + '"'
+          + (isEvent ? '' : ' disabled') + ' style="color:' + col + '">' + DICE_GLYPH(v) + '</button>').join('')
+      : '<span class="ppmini">empty</span>';
+    ppCupHint.textContent = cup.length + ' die' + (cup.length === 1 ? '' : 's') + ' in cup'
+      + (isEvent ? ' — click one to draw' : '');
+
+    // economy (Upkeep only)
+    econ.hidden = !isUpkeep;
+    if (isUpkeep) {
+      exZapBtn.disabled = r.zap < 1;
+      exSunBtn.disabled = r.sun < 1;
+      addDieBtn.disabled = r.zap < 1;
+    }
+
+    // competition scratchpad (event phases only)
+    compete.hidden = !isEvent;
+    if (isEvent) {
+      const drawn = (f.drawn && f.drawn[owner]) || [];
+      drawnGrid.innerHTML = drawn.length
+        ? drawn.map((d, i) =>
+            '<div class="drawnDie">'
+            + '<button class="diebump" data-idx="' + i + '" data-dir="-1" title="−1 (−1☀)"' + (r.sun < 1 || d.v <= 1 ? ' disabled' : '') + '>–</button>'
+            + '<span class="die" style="color:' + col + '">' + DICE_GLYPH(d.v) + '</span>'
+            + '<button class="diebump" data-idx="' + i + '" data-dir="1" title="+1 (−1☀)"' + (r.sun < 1 || d.v >= 6 ? ' disabled' : '') + '>+</button>'
+            + '</div>').join('')
+        : '<span class="ppmini">no dice drawn yet</span>';
+    }
+  }
 
   // sync the toolbar active-color swatch to a color
   function reflectSwatch(color) {
@@ -119,6 +185,7 @@
   }
 
   function renderFlow(f) {
+    curFlow = f;
     if (!f.started) {
       flowLine.textContent = 'Round — · Setup';
       flowOrder.textContent = 'Click “New game” to begin.';
@@ -149,8 +216,7 @@
     if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
       const isUpkeep = f.phase === 'Upkeep & Market';
-      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'buy dice (⚡) & roll the cup' : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)');
-      buyDieBtn.hidden = !isUpkeep;
+      turnLine.textContent = f.current + '’s turn — ' + (isUpkeep ? 'use the left panel to roll the cup, buy dice & exchange' : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)');
       reflectSwatch(f.current);
     } else {
       turnbar.hidden = true;
@@ -160,7 +226,7 @@
     if (f.barracks) {
       const b = f.barracks;
       const r = (f.res && f.res[b.color]) || { coin: 0, zap: 0, sun: 0 };
-      barracks.hidden = false;
+      modalBackdrop.hidden = false;
       barracksLine.textContent = b.color + ' → Barracks: +1 step · take a resource'
         + (b.picked ? ' ✓' : '');
       barracks.querySelectorAll('.bpick').forEach((btn) => { btn.disabled = b.picked; });
@@ -168,7 +234,7 @@
       barChariot.disabled = b.chariot || r.sun < 2;
       barracksLine.style.color = FLOW_COLORS[b.color] || '#ffd479';
     } else {
-      barracks.hidden = true;
+      modalBackdrop.hidden = true;
     }
 
     // standings: laps first, then furthest into the current lap (the real score)
@@ -194,6 +260,8 @@
 
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
     nextBtn.disabled = !f.started || f.over;
+
+    renderPlayerPanel(f);
   }
 
   // ---- click a mini -> show the hero card in its matching α-ε slot (left overlay) ----
@@ -236,7 +304,25 @@
   nextBtn.addEventListener('click', () => PT.nextPhase());
   prevBtn.addEventListener('click', () => PT.prevPhase());
   nextPlayerBtn.addEventListener('click', () => PT.nextPlayer());
-  buyDieBtn.addEventListener('click', () => PT.buyDie());
+
+  // left player panel — owner read at click time so buttons always act on the right player
+  rollCupBtn.addEventListener('click', () => PT.rollCup(ownerOf(curFlow)));
+  exZapBtn.addEventListener('click', () => PT.exchangeForCoin(ownerOf(curFlow), 'zap'));
+  exSunBtn.addEventListener('click', () => PT.exchangeForCoin(ownerOf(curFlow), 'sun'));
+  addDieBtn.addEventListener('click', () => PT.addCupDie(ownerOf(curFlow)));
+  rollRandBtn.addEventListener('click', () => PT.rollRandomDie(ownerOf(curFlow)));
+  clearDrawnBtn.addEventListener('click', () => PT.clearDrawn(ownerOf(curFlow)));
+  cupGrid.addEventListener('click', (e) => {
+    const b = e.target.closest('.die');
+    if (!b || b.disabled || b.dataset.idx === undefined) return;
+    PT.drawFromCup(ownerOf(curFlow), +b.dataset.idx);
+  });
+  drawnGrid.addEventListener('click', (e) => {
+    const b = e.target.closest('.diebump');
+    if (!b || b.disabled) return;
+    PT.bumpDrawnDie(ownerOf(curFlow), +b.dataset.idx, +b.dataset.dir);
+  });
+
   // standings +/- (event-delegated: rows are re-rendered each flow update)
   standings.addEventListener('click', (e) => {
     const btn = e.target.closest('.radv');

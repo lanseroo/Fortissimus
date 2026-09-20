@@ -110,6 +110,93 @@
   #viewer canvas { display: block; cursor: grab; }
   #viewer canvas:active { cursor: grabbing; }
 
+  /* ------------------------------------------------------------- player panel (left) */
+  #playerPanel {
+    flex: 0 0 230px;
+    background: #202226;
+    border: 1px solid #3a3d42;
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow: auto;
+  }
+  #ppHead { display: flex; align-items: center; gap: 8px; font-size: 1.05rem; font-weight: 700; }
+  #ppHead .ppdot { width: 16px; height: 16px; border-radius: 50%; display: inline-block; flex: 0 0 auto; background: #666; }
+  #ppRes {
+    margin: 6px 0 12px;
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+    color: #e6e8ea;
+    letter-spacing: 0.5px;
+  }
+  .ppsec { margin-bottom: 14px; padding-top: 10px; border-top: 1px solid #3a3d42; }
+  .ppsec-h { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.6px; color: #9aa0a6; margin-bottom: 8px; }
+  .ppmini { font-size: 0.74rem; color: #8a8f96; margin-top: 6px; line-height: 1.35; }
+  .ppbtns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ppbtns button, .ppwide {
+    flex: 1 1 auto;
+    padding: 7px 8px;
+    border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30;
+    color: #f2f2f2;
+    cursor: pointer;
+    font-size: 0.82rem;
+  }
+  .ppwide { width: 100%; margin-top: 6px; }
+  .ppbtns button:hover:not(:disabled), .ppwide:hover:not(:disabled) { background: #3a3d42; }
+  .ppbtns button:disabled, .ppwide:disabled { opacity: 0.4; cursor: default; }
+
+  /* dice grids (cup + drawn scratchpad) — unicode dice faces */
+  .digrid {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 40px;
+    padding: 8px;
+    background: #17181b;
+    border: 1px solid #3a3d42;
+    border-radius: 6px;
+    align-content: flex-start;
+  }
+  .die {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px;
+    border-radius: 6px;
+    border: 1px solid #4a4d52;
+    background: #24262b;
+    font-size: 1.5rem; line-height: 1;
+    color: #f2f2f2;
+  }
+  button.die { cursor: default; padding: 0; }
+  button.die.draw { cursor: pointer; border-color: #ffd479; }
+  button.die.draw:hover { background: #34373d; }
+  button.die:disabled { cursor: default; }
+  .drawnDie { display: inline-flex; align-items: center; gap: 3px; }
+  .diebump {
+    width: 20px; height: 34px;
+    border-radius: 4px;
+    border: 1px solid #4a4d52;
+    background: #2a2c30; color: #f2f2f2;
+    cursor: pointer; font-size: 1rem; line-height: 1; padding: 0;
+  }
+  .diebump:hover:not(:disabled) { background: #3a3d42; }
+  .diebump:disabled { opacity: 0.35; cursor: default; }
+
+  /* ------------------------------------------------------------- center modal */
+  #modalBackdrop {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  #modalBox {
+    width: 300px;
+    background: #202226;
+    border: 1px solid #4a4d52;
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+  }
+  #modalBox #barracks { margin: 0; padding: 0; border: 0; }
+  #modalBox #barracksLine { font-size: 0.95rem; }
+
   /* ------------------------------------------------------------- VP panel */
   #vpPanel {
     flex: 0 0 220px;
