@@ -566,13 +566,15 @@
       // raised to sit just atop the base so the figure's legs don't bury it.
       if (sym !== null && sym !== undefined) {
         g.userData.sym = sym;
-        const baseR = 0.5 * Math.max(size.x, size.z) * scale;   // base radius
+        // Uniform chip size: base widths differ and some poses have wide arms/weapons,
+        // so size off MINI_H (constant), not the bounding box, and lift to clear the base top.
+        const chipR = MINI_H * 0.24;
         const disc = new THREE.Mesh(
-          new THREE.CircleGeometry(Math.max(1.8, baseR), 48),
+          new THREE.CircleGeometry(chipR, 48),
           new THREE.MeshBasicMaterial({ map: makeSymbolTexture(colorName, sym), transparent: true, depthWrite: false })
         );
         disc.rotation.x = -Math.PI / 2;
-        disc.position.y = size.y * scale * 0.06;               // just above the base top
+        disc.position.y = MINI_H * 0.10;                        // sit just above the base top
         disc.renderOrder = 2;
         g.add(disc);
       }
