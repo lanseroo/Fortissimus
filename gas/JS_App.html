@@ -1192,11 +1192,13 @@
     },
     'SprintEvent.png': {
       name: 'Sprint', dir: 'min', dice: 2, rerolls: (st) => st.str,
-      objective: 'sum − Speed (min 1), LOWEST wins; reroll up to Strength times',
-      score: (sum, st) => Math.max(1, sum - st.speed),
-      // sponsor keyed to score (lower = better); 1/2/3/4/5 → ⚡⚡⚡☀☀ … ⚡, ≥6 nothing.
-      sponsor: (v) => ({ 1: { zap: 3, sun: 2 }, 2: { zap: 2, sun: 2 }, 3: { zap: 2, sun: 1 },
-                         4: { zap: 1, sun: 1 }, 5: { zap: 1 } })[v] || null,
+      objective: 'sum − Speed, LOWEST wins (can go negative); reroll up to Strength times',
+      score: (sum, st) => sum - st.speed,            // no floor — Speed/Jeer can push it negative
+      // sponsor keyed to score (lower = better); ≤1/2/3/4/5 → ⚡⚡⚡☀☀ … ⚡, ≥6 nothing.
+      // ≤1 (beating the best rung) still earns the TOP reward rather than falling off the ladder.
+      sponsor: (v) => v <= 1 ? { zap: 3, sun: 2 } : v === 2 ? { zap: 2, sun: 2 }
+                    : v === 3 ? { zap: 2, sun: 1 } : v === 4 ? { zap: 1, sun: 1 }
+                    : v === 5 ? { zap: 1 } : null,
     },
     'LongJumpEvent.png': {
       name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
