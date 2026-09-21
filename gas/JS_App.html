@@ -146,13 +146,9 @@
     ...rowSlots(0.090, 0.481, 5, 0.200, ['income'], 4).map((s) => ({ ...s, role: 'income' })),  // income track
     ...rowSlots(0.063, 0.685, 5, 0.620, ['mini'], 5).map((s, i) => ({ ...s, boardColor: true, role: 'hero-market', sym: i })), // hero market circles (this mat's color)
     ...rowSlots(0.092, 0.732, 5, 0.900, ['card'], 7).map((s, i) => ({ ...s, role: 'card', sym: i })),      // hero card slots (0-4, each tied to the same-index mini)
-    // holders below the mat — large, each accepts one kind, deep stacking (~limitless):
-    // coin / lightning / sun currency + the player's dice "cup" (pre-rolled dice, biggest
-    // so the faces stay readable). Sit low (v>1.3) so the hero cards don't cover them.
-    { u: 0.13, v: 1.36, accepts: ['coin'],      r: 14, role: 'currency' },
-    { u: 0.36, v: 1.36, accepts: ['lightning'], r: 14, role: 'currency' },
-    { u: 0.59, v: 1.36, accepts: ['sun'],       r: 14, role: 'currency' },
-    { u: 0.85, v: 1.36, accepts: ['die'],       r: 18, role: 'cup' },
+    // The freed strip below the mat now holds the player's (private) HAND of cards —
+    // resources live only in the left/right menus now, no currency/cup tokens on the table.
+    ...rowSlots(0.060, 0.940, 6, 1.300, ['card'], 8).map((s, i) => ({ ...s, role: 'hand', ord: i })),      // hand slots (left→right)
   ];
 
   // Shared market (no art yet): a face-down draw pile on the left + 3 revealed
@@ -744,6 +740,7 @@
   let downX = 0, downY = 0, downPiece = false;   // click-vs-drag detection
   let downPieceObj = null;                        // the piece pressed (for click-to-inspect)
   let miniClickCb = null;                         // UI hook: mini clicked -> show its tied hero card
+  let miniPlaceCb = null;                          // UI hook: own mini clicked in Blind Placement -> placement menu
 
   function setNDC(e) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -813,6 +810,7 @@
   // On release: snap to the nearest compatible slot if close enough, otherwise
   // leave the piece exactly where it was dropped (free-placement fallback).
   const endDrag = () => {
+    let committedThisDrag = false;               // Blind Placement: a fresh mini commit ends the turn
     if (dragging && selected) {
       const prevSlot = selected.userData.slot;   // where it sat before this drag (for barracks re-drop guard)
       // leaving an event slot it paid into? refund the fee it was charged.
@@ -851,11 +849,24 @@
           setCardFace(selected, selected.userData.face);   // face-up on the pile
         }
       }
+      // Blind Placement: committing one mini to an event/barracks ends your turn.
+      // Barracks defers the pass until its reward modal is dismissed (barracksDone).
+      if (curPhase() === 'Blind Placement' && selected.userData.type === 'mini'
+          && selected.userData.color === curPlayer()) {
+        const ns = selected.userData.slot;
+        const wasCommitted = prevSlot && (prevSlot.event || prevSlot.role === 'barracks');
+        const nowCommitted = ns && (ns.event || ns.role === 'barracks');
+        if (nowCommitted && !wasCommitted) {
+          if (ns.role === 'barracks') GAME.pendingTurnEnd = true;
+          else committedThisDrag = true;
+        }
+      }
     }
     highlightSlot(null);
     if (dragging) hideDragSlots();   // re-hide rings once the piece is dropped
     dragging = false;
     controls.enabled = true;
+    if (committedThisDrag) nextPlayer();   // advance after cleanup (re-focuses the next board)
   };
   renderer.domElement.addEventListener('pointerup', endDrag);
   renderer.domElement.addEventListener('pointerleave', endDrag);
@@ -878,8 +889,10 @@
   renderer.domElement.addEventListener('pointerup', (e) => {
     const click = Math.hypot(e.clientX - downX, e.clientY - downY) <= 6;
     if (downPiece) {                                                // piece drag handled in endDrag
-      if (click && downPieceObj && downPieceObj.userData.type === 'mini' && miniClickCb) {
-        miniClickCb(miniCardInfo(downPieceObj));
+      if (click && downPieceObj && downPieceObj.userData.type === 'mini') {
+        const place = placementFor(downPieceObj);                   // your own mini in Blind Placement?
+        if (place && miniPlaceCb) miniPlaceCb(place);               // -> choose an event/barracks
+        else if (miniClickCb) miniClickCb(miniCardInfo(downPieceObj));   // -> inspect its tied card
       }
       return;
     }
@@ -1020,7 +1033,8 @@
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
-                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, eventKeys: [] };
+                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, eventKeys: [],
+                 pendingTurnEnd: false };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1119,7 +1133,12 @@
     if (track === 'relic') b.relic = true; else b.chariot = true;
     notifyFlow();
   }
-  function barracksDone() { GAME.barracks = null; notifyFlow(); }
+  function barracksDone() {
+    GAME.barracks = null;
+    // A barracks commit during Blind Placement ends the turn once its reward is done.
+    if (GAME.pendingTurnEnd) { GAME.pendingTurnEnd = false; nextPlayer(); }
+    else notifyFlow();
+  }
 
   // ---- dice cup (private, panel-only) + per-hero event dice (public) ----
   // GAME.cup[color]       = array of this round's cup dice; each entry is a value (1-6)
@@ -1622,7 +1641,7 @@
   }
   const focusCurrent = () => {
     const c = curPlayer(); if (!c) return;
-    if (curPhase() === 'Blind Placement') focusMatAndEvents(c); else focusPlayer(c);
+    focusPlayer(c);   // per-player phases (incl. Blind Placement) frame just the active board
   };
 
   // Called after any phase change. On forward entry to Upkeep, everyone simultaneously
@@ -1664,6 +1683,56 @@
   }
   const nextPlayer = () => stepPlayer(1);
   const prevPlayer = () => stepPlayer(-1);
+
+  // ---- Blind Placement: click a mini to send it to an event / barracks ----
+  // Returns the placement menu for a mini, or null if it can't be placed right now
+  // (wrong phase, not the current player's, locked, or already committed this round).
+  function placementFor(mini) {
+    if (!GAME.started || GAME.over || curPhase() !== 'Blind Placement') return null;
+    if (!mini || mini.userData.type !== 'mini') return null;
+    if (mini.userData.color !== curPlayer() || mini.userData.locked) return null;
+    const cur = mini.userData.slot;
+    if (cur && (cur.event || cur.role === 'barracks')) return null;   // already committed
+    const color = mini.userData.color;
+    const coins = GAME.res[color]?.coin ?? 0;
+    const options = [0, 1, 2].map((i) => {
+      const free = SLOTS.some((o) => o.event && eventSlotIndex(o.bx) === i && o.color === color && !o.occupants.length);
+      const fee  = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === i && o.coin && !o.occupants.length).length;
+      return { kind: 'event', key: i, label: labelForEvent(i), fee, disabled: !free || fee > coins };
+    });
+    const barFree = SLOTS.some((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
+    options.push({ kind: 'barracks', key: 'barracks', label: 'Barracks', fee: 0, disabled: !barFree });
+    return {
+      id: mini.userData.id, color, sym: mini.userData.sym ?? null,
+      symImg: (mini.userData.sym != null) ? symbolFile(color, mini.userData.sym) : null,
+      face: miniCardInfo(mini).face, options,
+    };
+  }
+  // Commit a mini to an event (key 0/1/2) or the barracks — the virtual "drag".
+  function sendMiniTo(id, kind, key) {
+    if (!GAME.started || GAME.over || curPhase() !== 'Blind Placement') return;
+    const mini = findMini(id);
+    if (!mini || mini.userData.color !== curPlayer() || mini.userData.locked) return;
+    const cur = mini.userData.slot;
+    if (cur && (cur.event || cur.role === 'barracks')) return;        // already committed
+    const color = mini.userData.color;
+    if (kind === 'barracks') {
+      const bar = SLOTS.find((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
+      if (!bar) return;
+      placeOnSlot(mini, bar);
+      openBarracks(color);                    // reward modal; turn ends when it's dismissed
+      GAME.pendingTurnEnd = true;
+      notifyFlow();
+    } else {
+      const opts = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.color === color && !o.occupants.length)
+                        .sort((a, b) => Math.abs(a.x - a.bx) - Math.abs(b.x - b.bx));   // innermost (coin) first
+      if (!opts.length) return;
+      const fee = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.coin && !o.occupants.length).length;
+      if (fee) { adjustRes(color, 'coin', -fee); mini.userData.eventFee = fee; }
+      placeOnSlot(mini, opts[0]);
+      nextPlayer();                           // committing one mini ends the turn
+    }
+  }
 
   // Buy a cup die with Lightning (⚡): charge the current player (guided — they bump
   // the dice count + roll). Rules: 1⚡ = +1 die to your cup before rolling.
@@ -1786,18 +1855,16 @@
   // them in a column just below the deck. Like the dice cup, the hand is private —
   // it'll be hidden from other players when visibility lands.
   function dealHand(colorName, n = 3) {
-    const b = LAYOUT.find((x) => x.color === colorName);
-    if (!b) return;
-    const a = deckAnchor(b);
     const deck = pieces
       .filter((p) => p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'deck')
       .sort((p, q) => q.position.y - p.position.y);   // top of the pile first
+    const hand = slotsByRole('hand', colorName).sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0));
     const take = deck.slice(0, n);
-    take.forEach((c, i) => {
+    take.forEach((c) => {
       c.userData.zone = 'hand';
       setCardFace(c, c.userData.face);               // reveal to the active player
-      // fan side-by-side just below the deck, slight overlap (later cards on top)
-      c.position.set(a.x + (i - (take.length - 1) / 2) * 13, 0.06 + i * 0.02, a.z + 30);
+      const free = hand.find((s) => !s.occupants.length);   // fill left→right, keep any held cards
+      if (free) placeOnSlot(c, free);
     });
   }
 
@@ -1805,18 +1872,9 @@
   function initGame(heroPool = []) {
     clearPieces();
 
-    // fill a faction's own currency/cup holder with n pieces of a type
-    function fill(color, type, file, n) {
-      const slot = SLOTS.find((s) => s.owner === color && s.accepts.includes(type));
-      if (!slot) return;
-      for (let k = 0; k < n; k++) {
-        placeOnSlot(type === 'die' ? makeDie() : addToken(file, 6, type), slot);
-      }
-    }
-
-    // per-faction: 5 color-matched minis on the hero-market circles + income token +
-    // starting income. Everyone gets base income (3🪙 / 2⚡ / 3 cup dice); on top of
-    // that, seat order grants a coin bonus (seat 1 +3, 2 +2, 3 +1, 4 +0) via SEAT_ORDER.
+    // per-faction: 5 color-matched minis on the hero-market circles + income token.
+    // Resources (🪙/⚡/☀) are NOT tokens on the table anymore — they're tracked in
+    // GAME.res and shown in the left/right menus, so nothing is seated for them here.
     NATIONS.forEach((nat) => {
       // 5 minis, each stamped with this faction's slot symbol (0-4). Card slots start
       // EMPTY — deal a hand and slot a hero to activate a mini; a mini with no card in
@@ -1824,9 +1882,6 @@
       for (const slot of slotsByRole('hero-market', nat.color)) addMini(nat.stl, nat.color, slot, slot.sym);
       const inc = slotsByRole('income', nat.color)[0];
       if (inc) placeOnSlot(addToken('IncomeToken.png', 6, 'income'), inc);
-      const seatBonus = [3, 2, 1, 0][SEAT_ORDER.indexOf(nat.color)] || 0;
-      fill(nat.color, 'coin', 'CoinToken.png', 3 + seatBonus);
-      fill(nat.color, 'lightning', 'LightningToken.png', 2);
     });
 
     // seed each faction's (private, panel-only) dice cup — blank until rolled in Upkeep
@@ -1876,6 +1931,7 @@
     setEventSlot, frameTable, initGame, dealHand,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
+    onMiniPlace: (cb) => { miniPlaceCb = cb; }, sendMiniTo,
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,

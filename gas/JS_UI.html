@@ -413,6 +413,36 @@
     }
   });
 
+  // ---- Blind Placement: click-a-mini placement menu ----
+  const miniPlace = document.getElementById('miniPlace');
+  const mpHead = document.getElementById('mpHead');
+  const mpBtns = document.getElementById('mpBtns');
+  let mpId = null;
+  document.getElementById('miniPlaceClose').addEventListener('click', () => { miniPlace.hidden = true; });
+  PT.onMiniPlace((info) => {
+    miniCard.hidden = true;                 // never show both overlays at once
+    miniPlace.hidden = false;
+    mpId = info.id;
+    const col = FLOW_COLORS[info.color] || '#ccc';
+    const chip = info.symImg
+      ? '<img class="mcsym" src="' + window.ASSET_BASE + info.symImg + '" alt="symbol">'
+      : '';
+    mpHead.innerHTML = '<span class="mcdot" style="background:' + col + '"></span>Send '
+      + (info.color || '?') + ' hero' + chip;
+    mpBtns.innerHTML = info.options.map((o) => {
+      const fee = (o.kind === 'event' && o.fee) ? ' <span class="mpfee">' + o.fee + '🪙</span>' : '';
+      return '<button class="mpbtn" data-kind="' + o.kind + '" data-key="' + o.key + '"'
+        + (o.disabled ? ' disabled' : '') + '>' + o.label + fee + '</button>';
+    }).join('');
+  });
+  mpBtns.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || btn.disabled) return;
+    const key = btn.dataset.kind === 'event' ? Number(btn.dataset.key) : btn.dataset.key;
+    PT.sendMiniTo(mpId, btn.dataset.kind, key);
+    miniPlace.hidden = true;
+  });
+
   PT.onFlow(renderFlow);
   renderFlow(PT.getFlow());
   nextBtn.addEventListener('click', () => PT.nextPhase());
