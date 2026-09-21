@@ -136,6 +136,33 @@
     cursor: pointer; font-size: 0.8rem; line-height: 1;
   }
   #miniPlaceClose:hover { background: #3a3d42; }
+  /* Market purchase overlay — mirrors #miniPlace, anchored top-right of the viewer. */
+  #marketBuy {
+    position: absolute; top: 12px; right: 12px; z-index: 6;
+    width: 200px;
+    background: rgba(23, 24, 27, 0.96);
+    border: 1px solid #3a3d42; border-radius: 8px;
+    padding: 10px 10px 12px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  }
+  #mbHead { font-size: 0.85rem; font-weight: 600; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
+  #marketBuy .mcdot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+  #mbBtns { display: flex; flex-direction: column; gap: 6px; }
+  #mbBtns .mpbtn {
+    width: 100%; text-align: center; padding: 7px 9px; border-radius: 6px;
+    border: 1px solid #4a4d52; background: #2a2c30; color: #f2f2f2;
+    cursor: pointer; font-size: 0.82rem;
+  }
+  #mbBtns .mpbtn:hover:not(:disabled) { background: #3a3d42; }
+  #mbBtns .mpbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  #mbBtns .mpfee { color: #f5b800; font-weight: 600; font-size: 0.8rem; }
+  #marketBuyClose {
+    position: absolute; top: 6px; right: 6px;
+    width: 22px; height: 22px; border-radius: 4px;
+    border: 1px solid #4a4d52; background: #2a2c30; color: #f2f2f2;
+    cursor: pointer; font-size: 0.8rem; line-height: 1;
+  }
+  #marketBuyClose:hover { background: #3a3d42; }
   #viewer canvas { display: block; cursor: grab; }
   #viewer canvas:active { cursor: grabbing; }
 
@@ -376,7 +403,8 @@
   #resolveEvent { flex-basis: 100%; border-color: #6a5a2a; background: #3a331f; color: #ffd479; }
   #resolveEvent:hover:not(:disabled) { background: #4a4026; }
 
-  /* podium readout (after an event resolves) */
+  /* live event ranking + podium readout (after an event resolves) */
+  #eventRankBox,
   #podiumBox {
     margin-top: 8px;
     padding: 8px;
@@ -384,7 +412,10 @@
     border-radius: 5px;
     background: #17181c;
   }
+  #eventRankBox { border-color: #4a5d72; }
+  #eventRankBox .pod-h,
   #podiumBox .pod-h { font-size: 0.78rem; color: #ffd479; margin-bottom: 5px; }
+  #eventRankBox .pod-h { color: #9fd2ff; }
   .podrow { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; padding: 2px 0; }
   .podrow .psym { width: 14px; height: 14px; flex: 0 0 auto; }
   .podrow .ppl { width: 16px; text-align: right; opacity: 0.85; }

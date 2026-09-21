@@ -105,6 +105,7 @@
   const nextPlayerBtn = document.getElementById('nextPlayer');
   const resolveEventBtn = document.getElementById('resolveEvent');
   const podiumBox = document.getElementById('podiumBox');
+  const eventRankBox = document.getElementById('eventRankBox');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
   const modalBackdrop = document.getElementById('modalBackdrop');
@@ -167,7 +168,7 @@
         }).join('')
       : '<span class="ppmini">empty</span>';
     ppCupHint.textContent = isUpkeep
-      ? (rolled ? cup.length + ' dice rolled — locked for this round.' : 'Blank — roll your cup once this round (required).')
+      ? (rolled ? cup.length + ' dice rolled — locked for this round.' : 'Buy dice & exchange first — rolling the cup ENDS your turn.')
       : (cup.length + ' die' + (cup.length === 1 ? '' : 's') + ' in cup'
          + (isEvent ? (heroSelected ? ' — click one to draw into the selected hero' : ' — select a hero first') : ''));
 
@@ -272,13 +273,16 @@
       reflectSwatch(f.current);
     } else if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
-      nextPlayerBtn.hidden = false; nextPlayerBtn.disabled = false;
-      nextPlayerBtn.title = 'Pass to the next player (loops)';
       resolveEventBtn.hidden = true;
+      // Upkeep: rolling the cup ENDS the turn, so hide the Next player button entirely there.
+      const isUpkeep = f.phase === 'Upkeep';
+      nextPlayerBtn.hidden = isUpkeep;
+      nextPlayerBtn.disabled = false;
+      nextPlayerBtn.title = 'Pass to the next player (loops)';
       const msg = f.phase === 'Upkeep'
-        ? 'use the left panel to roll the cup (required), buy dice & exchange'
+        ? 'buy dice & exchange, then roll the cup to END your turn'
         : f.phase === 'Market'
-          ? 'shop the revealed market heroes (drag one to your mat)'
+          ? 'click a market hero to buy it — buy any you can afford, then Next player'
           : 'play a card + a mini onto an event (drag a Cheer/Jeer to your discard for +2🪙)';
       turnLine.textContent = f.current + '’s turn — ' + msg;
       reflectSwatch(f.current);
@@ -304,6 +308,29 @@
     } else {
       podiumBox.hidden = true;
       podiumBox.innerHTML = '';
+    }
+
+    // live event standings: every hero at the CURRENT event, ranked by running total (dice +
+    // Cheer/Jeer). Visible all through an event so players can watch the podium — even with the
+    // Cheer/Jeer modal open.
+    const ranks = (f.started && !f.over && f.isEvent) ? (f.eventRanks || []) : [];
+    if (ranks.length) {
+      eventRankBox.hidden = false;
+      let place = 0, prevTot = null;
+      eventRankBox.innerHTML = '<div class="pod-h">📊 Current ranking</div>'
+        + ranks.map((row, i) => {
+            if (prevTot === null || row.total !== prevTot) { place = i + 1; prevTot = row.total; }
+            const col = FLOW_COLORS[row.color] || '#ccc';
+            const sym = row.symImg ? '<img class="psym" src="' + window.ASSET_BASE + row.symImg + '" alt="">' : '';
+            return '<div class="podrow" style="color:' + col + '">'
+              + '<span class="ppl">' + place + '.</span>' + sym
+              + '<span class="pwho">' + row.color + '</span>'
+              + '<span class="ptot">Σ' + row.total + (row.diced ? '' : '…') + '</span>'
+              + '</div>';
+          }).join('');
+    } else {
+      eventRankBox.hidden = true;
+      eventRankBox.innerHTML = '';
     }
 
     // barracks reward panel (open while a mini is being seated to the barracks)
@@ -397,7 +424,7 @@
     const rollBlocked = f.started && !f.over && f.phase === 'Upkeep' && !f.rollGateOk;
     const eventBlocked = f.started && !f.over && f.isEvent && !(f.eventWalk && f.eventWalk.complete);
     nextBtn.disabled = !f.started || f.over || rollBlocked || eventBlocked;
-    nextBtn.title = rollBlocked ? (f.current + ' must roll their cup first')
+    nextBtn.title = rollBlocked ? 'Every player must roll their cup first'
       : eventBlocked ? 'Resolve every event before advancing'
       : 'Advance to the next phase / round';
 
@@ -467,6 +494,32 @@
     const key = btn.dataset.kind === 'event' ? Number(btn.dataset.key) : btn.dataset.key;
     PT.sendMiniTo(mpId, btn.dataset.kind, key);
     miniPlace.hidden = true;
+  });
+
+  // ---- Market: click-a-card purchase menu ----
+  const marketBuy = document.getElementById('marketBuy');
+  const mbHead = document.getElementById('mbHead');
+  const mbBtns = document.getElementById('mbBtns');
+  let mbId = null;
+  document.getElementById('marketBuyClose').addEventListener('click', () => { marketBuy.hidden = true; });
+  PT.onMarketBuy((info) => {
+    miniCard.hidden = true; miniPlace.hidden = true;   // one overlay at a time
+    marketBuy.hidden = false;
+    mbId = info.cardId;
+    const col = FLOW_COLORS[info.color] || '#ccc';
+    mbHead.innerHTML = '<span class="mcdot" style="background:' + col + '"></span>Buy '
+      + labelForFace(info.face) + ' — ' + (info.color || '?');
+    mbBtns.innerHTML = info.options.length
+      ? info.options.map((o, i) =>
+          '<button class="mpbtn" data-idx="' + i + '"' + (o.affordable ? '' : ' disabled')
+          + '>' + o.label + '</button>').join('')
+      : '<span class="mpfee">Not for sale</span>';
+  });
+  mbBtns.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || btn.disabled) return;
+    PT.buyMarketCard(mbId, Number(btn.dataset.idx));
+    marketBuy.hidden = true;
   });
 
   PT.onFlow(renderFlow);

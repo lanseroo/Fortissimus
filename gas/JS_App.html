@@ -741,6 +741,7 @@
   let downPieceObj = null;                        // the piece pressed (for click-to-inspect)
   let miniClickCb = null;                         // UI hook: mini clicked -> show its tied hero card
   let miniPlaceCb = null;                          // UI hook: own mini clicked in Blind Placement -> placement menu
+  let marketBuyCb = null;                          // UI hook: market card clicked in Market -> purchase overlay
 
   function setNDC(e) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -784,6 +785,10 @@
       const p = pieceFromHit(hit.object);
       // Waiting/Colosseum minis are locked: no select/drag (but a click still inspects the card).
       if (p.userData.locked) return;
+      // During Upkeep the hand is frozen — cards can't be moved (roll the cup to end your turn).
+      if (curPhase() === 'Upkeep' && p.userData.type === 'card') return;
+      // Market cards can't be dragged off the display — buy them (a click opens the purchase menu).
+      if (p.userData.type === 'card' && p.userData.slot && p.userData.slot.role === 'market-hero') return;
       select(p);
       dragging = true;
       controls.enabled = false;
@@ -893,6 +898,11 @@
         const place = placementFor(downPieceObj);                   // your own mini in Blind Placement?
         if (place && miniPlaceCb) miniPlaceCb(place);               // -> choose an event/barracks
         else if (miniClickCb) miniClickCb(miniCardInfo(downPieceObj));   // -> inspect its tied card
+      } else if (click && downPieceObj && downPieceObj.userData.type === 'card'
+                 && curPhase() === 'Market' && downPieceObj.userData.slot
+                 && downPieceObj.userData.slot.role === 'market-hero') {
+        const info = marketBuyInfo(downPieceObj.userData.id);       // click a market card -> buy overlay
+        if (info && marketBuyCb) marketBuyCb(info);
       }
       return;
     }
@@ -1034,7 +1044,7 @@
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
                  eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
-                 eventKeys: [], pendingTurnEnd: false };
+                 eventKeys: [], pendingTurnEnd: false, marketPool: [] };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1178,10 +1188,13 @@
   function initCup() { for (const c of ALL_COLORS) resetCup(c); }
 
   // Roll the cup — ONCE per round. Fills every die; locks until next round's reset.
+  // In Upkeep rolling is your LAST action: after buying dice & exchanging, the roll ENDS your
+  // turn (auto-passes to the next player). Buy/exchange must happen before the roll.
   function rollCup(color) {
     const arr = GAME.cup[color]; if (!arr || GAME.cupRolled[color]) return;
     for (let i = 0; i < arr.length; i++) arr[i] = rollFace();
     GAME.cupRolled[color] = true;
+    if (curPhase() === 'Upkeep' && color === curPlayer()) { nextPlayer(); return; }  // roll = end turn
     notifyFlow();
   }
 
@@ -1447,6 +1460,67 @@
     advanceModWait();
   }
 
+  // ---- Market shop (Market phase) ---------------------------------------------------------
+  // A revealed market hero costs resources keyed on its (unordered) stat pair; some pairs offer
+  // two payment options (rules-draft §3). Bought cards go to the buyer's DISCARD (into their deck
+  // on the next reshuffle). The 3-slot display restocks (with replacement from GAME.marketPool)
+  // whenever the turn passes to the next player, so each shopper sees a full board.
+  const HERO_COSTS = {
+    '12': [{ coin: 3, zap: 1 }, { coin: 1, zap: 2 }],
+    '22': [{ zap: 3 }],
+    '13': [{ zap: 3 }, { coin: 1, zap: 2 }],
+    '23': [{ zap: 2, sun: 1 }, { sun: 2 }],
+    '33': [{ zap: 2, sun: 2 }],
+  };
+  function heroCostOptions(face) {
+    const m = /^(\d)_(\d)_Hero/.exec(face || ''); if (!m) return [];
+    const key = [+m[1], +m[2]].sort().join('');
+    return (HERO_COSTS[key] || []).map((c) => ({ coin: c.coin || 0, zap: c.zap || 0, sun: c.sun || 0 }));
+  }
+  const canAfford = (color, cost) => {
+    const r = GAME.res[color] || {};
+    return (r.coin || 0) >= cost.coin && (r.zap || 0) >= cost.zap && (r.sun || 0) >= cost.sun;
+  };
+  const costLabel = (c) => [c.coin && `${c.coin}🪙`, c.zap && `${c.zap}⚡`, c.sun && `${c.sun}☀`]
+    .filter(Boolean).join(' + ') || 'free';
+  // Refill any empty market-hero display slot from the pool (with replacement) — keeps 3 showing.
+  function restockMarket() {
+    const pool = GAME.marketPool || []; if (!pool.length) return;
+    for (const slot of slotsByRole('market-hero')) {
+      if (slot.occupants.length) continue;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const c = addToken(pick, 22, 'card');
+      c.userData.face = pick; c.userData.cardKind = 'hero';
+      placeOnSlot(c, slot);
+    }
+  }
+  // Overlay payload for a clicked market card: its face + affordable payment options.
+  function marketBuyInfo(cardId) {
+    const c = findCard(cardId); if (!c) return null;
+    const s = c.userData.slot; if (!s || s.role !== 'market-hero') return null;
+    const color = curPlayer(); if (!color) return null;
+    const options = heroCostOptions(c.userData.face).map((cost) => ({
+      cost, label: costLabel(cost), affordable: canAfford(color, cost),
+    }));
+    return { cardId, color, face: c.userData.face, options };
+  }
+  // Buy the clicked market card with payment option `idx`: deduct, then send to buyer's discard.
+  function buyMarketCard(cardId, idx) {
+    if (curPhase() !== 'Market') return;
+    const color = curPlayer(); if (!color) return;
+    const c = findCard(cardId); if (!c) return;
+    const s = c.userData.slot; if (!s || s.role !== 'market-hero') return;
+    const opts = heroCostOptions(c.userData.face);
+    const cost = opts[idx]; if (!cost || !canAfford(color, cost)) return;
+    if (cost.coin) adjustRes(color, 'coin', -cost.coin);
+    if (cost.zap) adjustRes(color, 'zap', -cost.zap);
+    if (cost.sun) adjustRes(color, 'sun', -cost.sun);
+    c.userData.owner = color; c.userData.cardKind = 'hero'; c.userData.zone = 'discard';
+    const disc = discardSlotOf(color);
+    if (disc) { placeOnSlot(c, disc); setCardFace(c, c.userData.face); }
+    notifyFlow();
+  }
+
   // Resolve event ▶: run the Cheer/Jeer window first (non-Colosseum), then rank heroes by
   // (dice + modifier) total with TIE-AWARE (competition) placing, hand out podium rewards
   // (1st = Colosseum ticket; 3rd = +1 VP), and open the waiting-decision walk for every
@@ -1686,8 +1760,19 @@
                face: ci.face, hasCard: ci.hasCard,
                dice: (m.userData.eventDice || []).slice(), required: requiredFor(m) };
     });
-    // roll gate: only relevant in Upkeep for the current player.
-    const rollGateOk = !(phase === 'Upkeep' && current) || !!GAME.cupRolled[current];
+    // roll gate: in Upkeep, rolling ENDS a player's turn (auto-advance), so the phase can't
+    // advance until EVERY seated player has rolled their cup.
+    const rollGateOk = phase !== 'Upkeep' || !live || GAME.order.every((c) => !!GAME.cupRolled[c]);
+
+    // Live event standings: every hero at the CURRENT event, ranked by total (dice + Cheer/Jeer
+    // adjustment) so players can watch the podium shift — especially while a modWait modal is open.
+    const eventRanks = (isEvent && eventKey !== null)
+      ? minisAtEvent(eventKey)
+          .map((m) => { const ci = miniCardInfo(m);
+            return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
+                     total: heroTotal(m), diced: (m.userData.eventDice || []).length >= requiredFor(m) }; })
+          .sort((a, b) => b.total - a.total)
+      : [];
 
     // guided event-walk snapshot for the UI
     const parts = isEvent && eventKey !== null ? eventParticipants(eventKey) : [];
@@ -1718,7 +1803,7 @@
       cupRolled: { ...GAME.cupRolled },
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
-      eventWalk, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
+      eventWalk, eventRanks, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
@@ -1742,9 +1827,12 @@
     }
     frameBox(minX, maxX, minZ, maxZ, 0.85);
   }
+  const marketMesh = () => boardMeshes.find((b) => b.userData.boardKey === 'market');
+  function focusMarket() { const m = marketMesh(); if (m) focusBoard(m); else frameTable(true); }
   const focusCurrent = () => {
     const c = curPlayer(); if (!c) return;
-    focusPlayer(c);   // per-player phases (incl. Blind Placement) frame just the active board
+    if (curPhase() === 'Market') { focusMarket(); return; }   // Market shops the shared display
+    focusPlayer(c);   // other per-player phases (incl. Blind Placement) frame just the active board
   };
 
   // Called after any phase change. On forward entry to Upkeep, everyone simultaneously
@@ -1759,7 +1847,7 @@
     }
     // Leaving events for the Market: every mini that competed (or sat at the barracks) returns
     // home and its hero card is discarded — unless it's waiting for the Colosseum (kept locked).
-    if (curPhase() === 'Market' && forward) { returnPlayedMinisHome(); sweepFreeCards(); }
+    if (curPhase() === 'Market' && forward) { returnPlayedMinisHome(); sweepFreeCards(); restockMarket(); }
     const phase = curPhase();
     if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
       // on forward entry to the Colosseum, seat every committed (waiting) mini into the arena
@@ -1782,6 +1870,7 @@
     const n = GAME.order.length;
     GAME.turnIndex = (GAME.turnIndex + dir + n) % n;
     activeColorName = curPlayer();
+    if (curPhase() === 'Market') restockMarket();   // refresh the shop for the next shopper
     focusCurrent();
     notifyFlow();
   }
@@ -2040,12 +2129,16 @@
     const era = slotsByRole('era-start')[0];      // round tracker on the era start
     if (era) placeOnSlot(addRound(), era);
 
-    // market: 3 revealed heroes (random from the pool) + a face-down draw pile
+    // market: 3 revealed heroes (random from the pool) + a face-down draw pile.
+    // GAME.marketPool feeds restock (with replacement) as the display is bought down.
+    GAME.marketPool = heroPool.slice();
     const pool = heroPool.slice();
     for (const slot of slotsByRole('market-hero')) {
       if (!pool.length) break;
       const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-      placeOnSlot(addToken(pick, 22, 'card'), slot);
+      const c = addToken(pick, 22, 'card');
+      c.userData.face = pick; c.userData.cardKind = 'hero';
+      placeOnSlot(c, slot);
     }
     const deck = slotsByRole('market-deck')[0];
     if (deck) dealPile('BackofCards.png', 3, deck.x, deck.z, 22);
@@ -2060,6 +2153,7 @@
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
     onMiniPlace: (cb) => { miniPlaceCb = cb; }, sendMiniTo,
+    onMarketBuy: (cb) => { marketBuyCb = cb; }, marketBuyInfo, buyMarketCard,
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,

@@ -127,6 +127,11 @@
           <div id="mpHead"></div>
           <div id="mpBtns"></div>   <!-- event/barracks buttons built per-mini in JS_UI -->
         </div>
+        <div id="marketBuy" hidden>
+          <button id="marketBuyClose" title="Close">✕</button>
+          <div id="mbHead"></div>
+          <div id="mbBtns"></div>   <!-- payment-option buttons built per-card in JS_UI -->
+        </div>
       </div>
 
       <!-- RIGHT: overall game status (all players) -->
@@ -142,6 +147,7 @@
               <button id="resolveEvent" title="Score this event and hand out podium rewards" hidden>Resolve event ▶</button>
             </div>
           </div>
+          <div id="eventRankBox" hidden></div>
           <div id="podiumBox" hidden></div>
           <div class="flowbtns">
             <button id="prevPhase" title="Step back a phase">◂ Back</button>
