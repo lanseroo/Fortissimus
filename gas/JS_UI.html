@@ -117,7 +117,7 @@
   showColumns.addEventListener('change', () => PT.setColumnsVisible(showColumns.checked));
 
   // ---- game flow HUD (round / phase / turn order) ----
-  const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800' };
+  const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800', Rome: '#9a9a9a' };
   const flowLine = document.getElementById('flowLine');
   const flowOrder = document.getElementById('flowOrder');
   const flowRes = document.getElementById('flowRes');
@@ -351,6 +351,10 @@
         return '<div class="' + cls + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
           + c + ' ' + coin + ' ⚡' + r.zap + ' ☀' + r.sun + '</div>';
       }).join('');
+      if (f.rome) {
+        flowRes.innerHTML += '<div class="resrow" style="color:' + FLOW_COLORS.Rome + '">'
+          + '🏛 Rome chariot — Act ' + f.rome.act + ' · lap ' + f.rome.laps + ' · step ' + f.rome.chariotPos + '</div>';
+      }
     } else {
       flowRes.innerHTML = '';
     }

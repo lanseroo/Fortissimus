@@ -96,7 +96,7 @@
     // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
       (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, ...(i === 0 ? { role: 'era-start' } : {}) })),
-    ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4),  // outer lane (16) — chariots race
+    ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4).map((s) => ({ ...s, lane: 'outer' })),  // outer lane (16) — Rome's black chariot races
     ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4).map((s) => ({ ...s, lane: 'inner' })),   // inner lane (24) — on-foot markers race here
   ];
 
@@ -888,6 +888,7 @@
 
   // The hero card a mini is tied to = the card in the same-color, same-symbol slot.
   function miniCardInfo(mini) {
+    if (mini.isRome) return { color: 'Rome', sym: null, symImg: null, face: null, hasCard: false };
     const color = mini.userData.color || null, sym = mini.userData.sym ?? null;
     const slot = (sym !== null) && SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
     const card = slot && slot.occupants[slot.occupants.length - 1];
@@ -1078,7 +1079,11 @@
   // banks a lap on the 0-6 bar. Standings = laps, then distance into the lap.
   const LAP_MAX = 6;                  // the center 0-6 lap bar holds 7 rungs (0..6)
   let RACE_LANE = [];                 // inner-lane slots ordered in racing direction (start/finish first)
-  function initRace() { for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0 }; }
+  let OUTER_LANE = [];                // outer-lane slots (Rome's black chariot) in racing direction
+  function initRace() {
+    for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0 };
+    GAME.rome = { chariotPos: 0, laps: 0 };   // §14.E black-chariot pressure clock (penance deferred)
+  }
   // Order the inner-lane slots into a racing sequence: clockwise from the bottom-
   // center start/finish line, moving right first (per the board's arrow). Rotate so
   // index 0 is the first slot just past the line, so pos wrapping = a completed lap.
@@ -1120,6 +1125,52 @@
     if (n > 0) { let guard = 0; while (occupiedByOther(st.pos) && guard++ < L) stepFwd(); }
     placeOnTrackOrd(color, 'lap', st.laps);
     placeOnSlot(m, RACE_LANE[st.pos]);
+    notifyFlow();
+  }
+
+  // ---- Rome's black chariot on the OUTER lane (§14.E pressure clock) ----
+  // Same clockwise-from-bottom-right ordering as the inner lane, but over the
+  // 'outer' slots. Advances +2 each event Rome wins; laps bank on wrap. Penance
+  // (laps -> -3 VP) is deferred.
+  function buildOuterLane() {
+    const lane = SLOTS.filter((s) => s.lane === 'outer');
+    if (!lane.length) { OUTER_LANE = []; return; }
+    const cx = lane.reduce((a, s) => a + s.x, 0) / lane.length;
+    const cz = lane.reduce((a, s) => a + s.z, 0) / lane.length;
+    lane.sort((a, b) => Math.atan2(b.z - cz, b.x - cx) - Math.atan2(a.z - cz, a.x - cx));
+    let k = 0, bestDx = Infinity;
+    lane.forEach((s, i) => { if (s.z > cz && s.x > cx && (s.x - cx) < bestDx) { bestDx = s.x - cx; k = i; } });
+    OUTER_LANE = lane.slice(k).concat(lane.slice(0, k));
+  }
+  // Black disc with a red rim — the Roman chariot marker.
+  function addRomeChariot() {
+    const g = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(2, 32),
+      new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true })
+    );
+    disc.rotation.x = -Math.PI / 2; disc.renderOrder = 6;
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(2, 2.4, 32),
+      new THREE.MeshBasicMaterial({ color: 0xb03030, side: THREE.DoubleSide, transparent: true })
+    );
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.01; rim.renderOrder = 7;
+    g.add(disc); g.add(rim);
+    const [x, z] = spawnXZ();
+    g.position.set(x, MARKER_Y, z);
+    g.userData.baseY = MARKER_Y;
+    g.userData.rome = true;
+    return registerPiece(g, 'marker');
+  }
+  const romeChariotOf = () =>
+    pieces.find((p) => p.userData.type === 'marker' && p.userData.rome);
+  function advanceRomeChariot(n = 2) {
+    const st = GAME.rome; if (!st) return;
+    if (!OUTER_LANE.length) return;
+    const L = OUTER_LANE.length;
+    for (let s = n; s > 0; s--) { st.chariotPos++; if (st.chariotPos >= L) { st.chariotPos = 0; st.laps++; } }
+    const m = romeChariotOf();
+    if (m) placeOnSlot(m, OUTER_LANE[st.chariotPos]);
     notifyFlow();
   }
 
@@ -1183,6 +1234,7 @@
     'WrestlingEvent.png': {
       name: 'Wrestling', dir: 'max', dice: 2, rerolls: () => 0,
       objective: 'furthest from 7 wins (Str above, Speed below)',
+      rome: [4, 5, 6],                               // CPU Rome's fixed score by Act (grey 1/2/3)
       score: (sum, st) => sum > 7 ? (sum - 7) + st.str : sum < 7 ? (7 - sum) + st.speed : 0,
       // sponsor keyed to score (dist-from-7 + stat); ≥4/5/6/7. House-added (no draft ladder).
       sponsor: (v) => v >= 7 ? { coin: 1, zap: 1, sun: 2 } : v >= 6 ? { zap: 2, sun: 1 }
@@ -1191,6 +1243,7 @@
     'DiscusEvent.png': {
       name: 'Discus', dir: 'max', dice: 2, rerolls: (st) => st.speed,
       objective: 'sum + Strength, highest wins; reroll up to Speed times',
+      rome: [10, 11, 12],                            // CPU Rome's fixed score by Act (grey 1/2/3)
       score: (sum, st) => sum + st.str,
       // sponsor keyed to score; 10/11/12/13 → ⚡ / ☀⚡ / ☀☀⚡ / ☀☀☀⚡.
       sponsor: (v) => v >= 13 ? { zap: 1, sun: 3 } : v >= 12 ? { zap: 1, sun: 2 }
@@ -1199,6 +1252,7 @@
     'SprintEvent.png': {
       name: 'Sprint', dir: 'min', dice: 2, rerolls: (st) => st.str,
       objective: 'sum − Speed, LOWEST wins (can go negative); reroll up to Strength times',
+      rome: [4, 3, 2],                               // CPU Rome by Act (grey 1/2/3); lower = harder
       score: (sum, st) => sum - st.speed,            // no floor — Speed/Jeer can push it negative
       // sponsor keyed to score (lower = better); ≤1/2/3/4/5 → ⚡⚡⚡☀☀ … ⚡, ≥6 nothing.
       // ≤1 (beating the best rung) still earns the TOP reward rather than falling off the ladder.
@@ -1209,6 +1263,7 @@
     'LongJumpEvent.png': {
       name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
       objective: 'approach 2d(+1)+Speed must be ≤13 (or FOUL), + jump 2d+Str; highest wins',
+      rome: [15, 18, 20],                            // CPU Rome's fixed score by Act (grey 1/2/3)
       // sponsor keyed to final score; 15/18/20/23 → 1/3/5/7 VP (VP = race steps here).
       sponsor: (v) => v >= 23 ? { vp: 7 } : v >= 20 ? { vp: 5 } : v >= 18 ? { vp: 3 }
                     : v >= 15 ? { vp: 1 } : null,
@@ -1216,6 +1271,7 @@
     'HighJumpEvent.png': {
       name: 'High Jump', dir: 'max', multiRound: true, rerolls: (st) => st.str,
       objective: 'clear the bar (2d + Speed ≥ bar) each round; most rounds survived wins',
+      rome: [1, 2, 3],                               // CPU Rome's fixed rounds-survived by Act (grey 1/2/3)
       rounds: [
         { dice: 2, bar: 9,  label: 'bar 9'  },
         { dice: 2, bar: 10, label: 'bar 10' },
@@ -1231,11 +1287,12 @@
     'ArcheryEvent.png': {
       name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0,
       objective: 'land in the window (Target−Str … Target+Speed) each round; most rounds survived wins',
+      rome: [1, 2, 3],                               // CPU Rome's fixed rounds-survived by Act (grey 1/2/3)
       rounds: [
         { dice: 2, target: 7,  label: 'T7'  },
         { dice: 3, target: 10, label: 'T10' },
         { dice: 4, target: 14, label: 'T14' },
-        { dice: 5, target: 18, label: 'T18' },
+        { dice: 5, target: 17, label: 'T17' },
       ],
       passes: (sum, st, round) => sum >= (round.target - st.str) && sum <= (round.target + st.speed),
       roundValue: (sum) => sum,
@@ -1316,10 +1373,29 @@
     const s = mini.userData.slot; if (!s || !s.event) return null;
     return EVENT_RULES[eventFiles[eventSlotIndex(s.bx)]] || null;
   };
+  // ---- CPU Rome: a virtual competitor at every contested event (rules-draft §14.A) ----
+  // Rome rolls nothing; its result is the grey 1/2/3 icon printed on the board, picked by the
+  // current Act (I=R1-3, II=R4-5, III=R6). A single-shot event uses the printed score; a
+  // multi-round event uses a fixed rounds-survived count. Rome takes a real podium slot (shoving
+  // the nations down) but DISCARDS every reward it would win; each event it wins advances its
+  // black chariot. `romeFor(key)` returns a mini-shaped object flagged `isRome`, or null when
+  // Rome doesn't compete (Colosseum / rules without a `rome` table).
+  const romeAct = () => (GAME.round <= 3 ? 0 : GAME.round <= 5 ? 1 : 2);
+  function romeFor(key) {
+    const rules = rulesForKey(key);
+    if (!rules || !Array.isArray(rules.rome)) return null;
+    const v = rules.rome[romeAct()];
+    return { isRome: true, userData: {
+      color: 'Rome', id: 'rome:' + key, sym: null,
+      romeScore: v, roundsSurvived: rules.multiRound ? v : 0,
+      eliminated: false, eventDice: [], diceAdj: 0,
+    } };
+  }
   // A single-shot event score for a mini: { score, foul }. Multi-round events score by rounds
   // survived (tracked on the mini); Long Jump folds an approach (may foul) + a jump.
   function eventScore(mini, key) {
     const rules = rulesForKey(key);
+    if (mini.isRome) return { score: (rules && rules.multiRound) ? (mini.userData.roundsSurvived || 0) : mini.userData.romeScore, foul: false };
     const st = heroStats(mini);
     const dice = mini.userData.eventDice || [];
     const adj = mini.userData.diceAdj || 0;
@@ -1339,6 +1415,7 @@
   // current round's value (sum±) for a multi-round event mid-round instead of rounds-survived.
   function eventDisplay(mini, key, live) {
     const rules = rulesForKey(key);
+    if (mini.isRome) return (rules && rules.multiRound) ? ((mini.userData.roundsSurvived || 0) + 'R') : String(mini.userData.romeScore);
     if (rules && rules.multiRound) {
       if (live && isAlive(mini)) return String(rules.roundValue(heroTotal(mini), heroStats(mini)));
       return (mini.userData.roundsSurvived || 0) + 'R';
@@ -1811,7 +1888,9 @@
   function scoreEvent() {
     const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
     const disp = (m) => eventDisplay(m, k);                       // per-event score / FOUL / "nR"
-    const ranked = minisAtEvent(k).slice().sort(eventCompare(k)); // §5 win-direction & elimination
+    const rome = romeFor(k);                                      // CPU Rome competitor (null = none)
+    const ranked = minisAtEvent(k).concat(rome ? [rome] : [])
+      .sort(eventCompare(k));                                     // §5 win-direction & elimination
 
     // Colosseum in Chunk A: no fight. Record standings by dice total (start position) and
     // leave the fighters seated & locked. Combat + Elysium/Tartarus routing = Chunk B.
@@ -1838,6 +1917,11 @@
     GAME.colWait = { key: k, label: labelForEvent(k), payQueue: [], releaseQueue: [] };
     const rows = ranked.map((m, i) => {
       const ci = miniCardInfo(m), pl = place[i];
+      // Rome takes the slot (shoving nations down) but DISCARDS every reward it would win.
+      if (m.isRome) {
+        return { color: 'Rome', sym: null, symImg: null, face: null,
+                 total: disp(m), place: pl + 1, reward: '🏛 discarded', sponsor: '' };
+      }
       // Capture the final score + sponsor BEFORE any reward mutates the mini — grantTicket()
       // clears eventDice (sendToWaiting), which would otherwise collapse the recomputed score.
       const total = disp(m);
@@ -1850,7 +1934,10 @@
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, total, place: pl + 1, reward, sponsor: fmtSponsor(sw) };
     });
-    GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
+    // Rome winning (1st, incl. a tie for 1st) pushes its black chariot forward (§14.E, +2/win).
+    if (rome && place[ranked.indexOf(rome)] === 0) advanceRomeChariot(2);
+    // Rome never queues a waiting-for-Colosseum decision.
+    GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0 && !m.isRome).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
 
     if (!colWaitStep()) finishEventResolution(); else notifyFlow();
@@ -2124,9 +2211,13 @@
     // modal open. `total` is a display string (Σ handled in the UI); multi-round shows the live
     // round value.
     const curRules = eventKey !== null ? rulesForKey(eventKey) : null;
+    const romeRank = (isEvent && eventKey !== null) ? romeFor(eventKey) : null;
     const eventRanks = (isEvent && eventKey !== null)
-      ? minisAtEvent(eventKey).slice().sort(eventCompare(eventKey))
-          .map((m) => { const ci = miniCardInfo(m), sc = eventScore(m, eventKey);
+      ? minisAtEvent(eventKey).concat(romeRank ? [romeRank] : []).sort(eventCompare(eventKey))
+          .map((m) => {
+            if (m.isRome) return { color: 'Rome', sym: null, symImg: null,
+                     total: eventDisplay(m, eventKey, true), diced: true, eliminated: false, foul: false };
+            const ci = miniCardInfo(m), sc = eventScore(m, eventKey);
             return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                      total: eventDisplay(m, eventKey, true),
                      diced: (m.userData.eventDice || []).length >= requiredFor(m),
@@ -2170,6 +2261,7 @@
       colWait: GAME.colWait ? { key: GAME.colWait.key, label: GAME.colWait.label, step: colWaitStep() } : null,
       modWait: GAME.modWait ? { key: GAME.modWait.key, step: modWaitStep() } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
+      rome: GAME.rome ? { chariotPos: GAME.rome.chariotPos, laps: GAME.rome.laps, act: romeAct() + 1 } : null,
       cup: JSON.parse(JSON.stringify(GAME.cup)),
       cupRolled: { ...GAME.cupRolled },
       rollGateOk,
@@ -2497,6 +2589,9 @@
     if (RACE_LANE.length) {
       for (const color of ALL_COLORS) placeOnSlot(addMarker(color), RACE_LANE[0]);
     }
+    // Rome's black chariot at the start/finish line of the outer lane
+    buildOuterLane();
+    if (OUTER_LANE.length) placeOnSlot(addRomeChariot(), OUTER_LANE[0]);
     const era = slotsByRole('era-start')[0];      // round tracker on the era start
     if (era) placeOnSlot(addRound(), era);
 
