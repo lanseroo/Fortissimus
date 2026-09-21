@@ -1303,7 +1303,8 @@
       const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
       const approach = dice.slice(0, appN).reduce((a, b) => a + b, 0) + st.speed;
       if (approach > 13) return { score: 0, foul: true };                 // over-run → FOUL (out)
-      const jump = dice.slice(appN).reduce((a, b) => a + b, 0) + st.str;
+      const jd = dice.slice(appN);                                        // jump dice (empty mid-approach)
+      const jump = jd.length ? jd.reduce((a, b) => a + b, 0) + st.str : 0; // +Str only once the jump is taken
       return { score: approach + jump + adj, foul: false };
     }
     return { score: rules.score(dice.reduce((a, b) => a + b, 0) + adj, st), foul: false };
