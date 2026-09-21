@@ -785,6 +785,8 @@
     downPieceObj = hit ? pieceFromHit(hit.object) : null;
     if (hit) {
       const p = pieceFromHit(hit.object);
+      // Waiting/Colosseum minis are locked: no select/drag (but a click still inspects the card).
+      if (p.userData.locked) return;
       select(p);
       dragging = true;
       controls.enabled = false;
@@ -1018,7 +1020,7 @@
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
-                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null };
+                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1248,24 +1250,161 @@
     notifyFlow();
   }
 
-  // Resolve event ▶: rank heroes at the event by dice total, hand out podium rewards
-  // (race steps), record the summary, then advance to the next non-empty event.
+  // ---- Colosseum-ticket / "waiting for Colosseum" subsystem (Chunk A) ----
+  // A "waiting" mini is committed to the next Colosseum: it sits on top of its own hero
+  // card (visual "unavailable" cue) and is locked until the Colosseum seats it. Max 3/player.
+  const TICKET_FEE = 3;                                    // 🪙 to send a losing mini to waiting
+  const WAIT_CAP   = 3;                                    // max waiting minis per player
+  const waitingMinisOf = (color) => pieces.filter((p) =>
+    p.userData.type === 'mini' && p.userData.color === color && p.userData.waiting);
+  const waitingCount = (color) => waitingMinisOf(color).length;
+  const cardSlotOf = (mini) => {
+    const color = mini.userData.color, sym = mini.userData.sym ?? null;
+    return sym === null ? null : (SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym) || null);
+  };
+  const homeCircleOf = (mini) => slotsByRole('hero-market', mini.userData.color).find((s) => s.sym === mini.userData.sym) || null;
+  const discardSlotOf = (color) => slotsByRole('discard', color)[0] || null;
+
+  // Commit a mini to the Colosseum: seat it on top of its own hero card + lock it.
+  function sendToWaiting(mini) {
+    mini.userData.waiting = true;
+    mini.userData.locked = true;
+    mini.userData.eventDice = [];
+    if (mini.userData.diceGroup) renderHeroDice3D(mini);
+    const cs = cardSlotOf(mini);
+    if (cs) placeOnSlot(mini, cs);                          // lands on top of its card
+  }
+  // Send a losing mini home + discard its tied hero card (frees the sym for a new hero).
+  function sendHomeDiscard(mini) {
+    const cs = cardSlotOf(mini);
+    const card = cs && cs.occupants.slice().reverse().find((o) => o !== mini && o.userData.type === 'card');
+    const disc = discardSlotOf(mini.userData.color);
+    if (card && disc) {
+      placeOnSlot(card, disc);
+      card.userData.zone = 'discard';
+      setCardFace(card, card.userData.face);               // face-up on the pile
+    }
+    mini.userData.waiting = false;
+    mini.userData.locked = false;
+    mini.userData.eventDice = [];
+    if (mini.userData.diceGroup) renderHeroDice3D(mini);
+    const hc = homeCircleOf(mini);
+    if (hc) placeOnSlot(mini, hc);
+  }
+  // Grant a mini a Colosseum ticket → to waiting, unless already at the 3-cap (then defer:
+  // the owner must release one waiting mini to make room, via the modal).
+  function grantTicket(mini) {
+    const color = mini.userData.color;
+    if (waitingCount(color) < WAIT_CAP) sendToWaiting(mini);
+    else GAME.colWait.releaseQueue.push({ color, seatMiniId: mini.userData.id });
+  }
+
+  // The current modal step for the waiting-decision walk, or null when the queue is drained.
+  function colWaitStep() {
+    const cw = GAME.colWait; if (!cw) return null;
+    if (cw.releaseQueue.length) {
+      const { color } = cw.releaseQueue[0];
+      const options = waitingMinisOf(color).map((m) => {
+        const ci = miniCardInfo(m);
+        return { miniId: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg, face: ci.face };
+      });
+      return { kind: 'release', color, options };
+    }
+    if (cw.payQueue.length) {
+      const m = findMini(cw.payQueue[0]);
+      if (!m) { cw.payQueue.shift(); return colWaitStep(); }
+      const ci = miniCardInfo(m), color = m.userData.color;
+      return { kind: 'pay', miniId: m.userData.id, color, sym: m.userData.sym ?? null,
+               symImg: ci.symImg, face: ci.face, fee: TICKET_FEE,
+               canAfford: (GAME.res[color]?.coin || 0) >= TICKET_FEE };
+    }
+    return null;
+  }
+  const advanceColWait = () => { if (!colWaitStep()) finishEventResolution(); else notifyFlow(); };
+  // Pay 3🪙 to send this losing mini to waiting (may trigger a release step if at cap).
+  function colWaitPay(miniId) {
+    const cw = GAME.colWait; if (!cw || cw.releaseQueue.length || cw.payQueue[0] !== miniId) return;
+    const m = findMini(miniId); if (!m) return;
+    const color = m.userData.color;
+    if ((GAME.res[color]?.coin || 0) < TICKET_FEE) return;
+    adjustRes(color, 'coin', -TICKET_FEE);
+    cw.payQueue.shift();
+    grantTicket(m);
+    advanceColWait();
+  }
+  // Decline: send this mini home + discard its card.
+  function colWaitSkip(miniId) {
+    const cw = GAME.colWait; if (!cw || cw.releaseQueue.length || cw.payQueue[0] !== miniId) return;
+    const m = findMini(miniId); if (!m) return;
+    cw.payQueue.shift();
+    sendHomeDiscard(m);
+    advanceColWait();
+  }
+  // At the 3-cap: release the chosen waiting mini (card discarded, home), seat the pending one.
+  function colWaitRelease(miniId) {
+    const cw = GAME.colWait; if (!cw || !cw.releaseQueue.length) return;
+    const { color, seatMiniId } = cw.releaseQueue[0];
+    const rel = findMini(miniId); if (!rel || rel.userData.color !== color || !rel.userData.waiting) return;
+    cw.releaseQueue.shift();
+    sendHomeDiscard(rel);                                   // frees a waiting slot
+    const seat = findMini(seatMiniId);
+    if (seat) sendToWaiting(seat);                          // now under cap
+    advanceColWait();
+  }
+
+  // Resolve event ▶: rank heroes by dice total with TIE-AWARE (competition) placing, hand out
+  // podium rewards (1st = Colosseum ticket; 3rd = +1 VP), then open the waiting-decision walk
+  // for every non-1st participant before advancing. Colosseum: seat-only (no fight in Chunk A).
   function resolveEvent() {
     const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
-    const file = eventFileOf(k);
-    const rewards = PODIUM_REWARDS[file] ?? PODIUM_DEFAULT;
     const oi = (c) => GAME.order.indexOf(c);
     const total = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0);
     const ranked = minisAtEvent(k).slice().sort((a, b) =>
       total(b) - total(a) || oi(a.userData.color) - oi(b.userData.color));
-    const rows = ranked.map((m, place) => {
-      const ci = miniCardInfo(m);
-      const reward = rewards[place] || 0;
-      if (reward) advanceRace(m.userData.color, reward);            // podium = VP (race steps)
+
+    // Colosseum in Chunk A: no fight. Record standings by dice total (start position) and
+    // leave the fighters seated & locked. Combat + Elysium/Tartarus routing = Chunk B.
+    if (k === 'ColosseumBoard.png') {
+      const rows = ranked.map((m, i) => {
+        const ci = miniCardInfo(m);
+        return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
+                 face: ci.face, total: total(m), place: i + 1, reward: '⚔ arena' };
+      });
+      GAME.lastResolution = { label: labelForEvent(k), rows };
+      finishEventResolution();
+      return;
+    }
+
+    // Competition ranking: equal totals share a place; the next distinct total's place is its
+    // sorted index → tie for 1st ⇒ [0,0,2,…] (both take 1st's reward, 2nd vacated, next is 3rd).
+    const place = ranked.map((m, i) =>
+      (i > 0 && total(ranked[i]) === total(ranked[i - 1])) ? undefined : i);
+    for (let i = 1; i < place.length; i++) if (place[i] === undefined) place[i] = place[i - 1];
+
+    // Open the waiting-decision flow up front so grantTicket() can defer to releaseQueue at cap.
+    // Strip→column mapping (for Chunk B): slot 0 left→Bacchus(Col2), 1 center→Mercury(Col3),
+    // 2 right→Fortuna(Col1). income+1 (1st) and column+1 (1st & 2nd) are Chunk B.
+    GAME.colWait = { key: k, label: labelForEvent(k), payQueue: [], releaseQueue: [] };
+    const rows = ranked.map((m, i) => {
+      const ci = miniCardInfo(m), pl = place[i];
+      let reward = '—';
+      if (pl === 0)      { grantTicket(m); reward = '🎟 ticket'; }
+      else if (pl === 2) { advanceRace(m.userData.color, 1); reward = '+1 VP 🏁'; }
+      // pl === 1 (2nd): column +1 only → Chunk B (nothing automated in Chunk A).
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total: total(m), place: place + 1, reward };
+               face: ci.face, total: total(m), place: pl + 1, reward };
     });
+    GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), rows };
+
+    if (!colWaitStep()) finishEventResolution(); else notifyFlow();
+  }
+
+  // Tail of an event resolution (shared by the direct path and the modal walk): clear the
+  // decision, mark the event resolved, and advance the guided walk to the next event.
+  function finishEventResolution() {
+    GAME.colWait = null;
+    const k = curEventKey();
     GAME.resolved.push(k);
     GAME.eventIndex++;                                              // next non-empty event
     GAME.evtTurnIndex = 0;
@@ -1274,6 +1413,28 @@
     if (nk !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(nk)) focusBoard(eventBoardMesh(nk)); }
     else { frameTable(true); }
     notifyFlow();
+  }
+
+  // Arena fighter stations on the Colosseum board (the center gladiator slot is the largest r).
+  const arenaStations = () => SLOTS.filter((s) =>
+    s.boardKey === 'ColosseumBoard.png' && (s.accepts || []).includes('mini'));
+  // On entering the Colosseum: auto-seat every waiting mini onto a free fighter station so it
+  // can earn its 2 dice (start position). Chunk A stops here — no fight, no release/discard.
+  function seatWaitingIntoArena() {
+    const stations = arenaStations();
+    const fighters = stations.filter((s) => s.r < 8);              // drop the center gladiator slot
+    const pool = (fighters.length ? fighters : stations).slice();
+    let i = 0;
+    for (const m of pieces) {
+      if (m.userData.type !== 'mini' || !m.userData.waiting) continue;
+      if (m.userData.slot && m.userData.slot.boardKey === 'ColosseumBoard.png') continue; // already fighting
+      while (i < pool.length && pool[i].occupants.length) i++;
+      const slot = pool[i]; if (!slot) break;
+      placeOnSlot(m, slot);
+      m.userData.eventDice = [];
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+      i++;
+    }
   }
 
   // Short human label for an event key (active mini-game name, sans "Event.png").
@@ -1414,6 +1575,7 @@
       perPlayer, isEvent,
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
+      colWait: GAME.colWait ? { key: GAME.colWait.key, label: GAME.colWait.label, step: colWaitStep() } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
       cup: JSON.parse(JSON.stringify(GAME.cup)),
       cupRolled: { ...GAME.cupRolled },
@@ -1460,8 +1622,10 @@
     }
     const phase = curPhase();
     if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
+      // on forward entry to the Colosseum, seat every committed (waiting) mini into the arena
+      if (phase === 'Colosseum' && forward) seatWaitingIntoArena();
       // start (or restart, on ◂ Back) the guided event walk at the first non-empty event
-      GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
+      GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null; GAME.colWait = null;
       selectedHeroId = null;
       const k = curEventKey();
       if (k !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k)); }
@@ -1697,6 +1861,7 @@
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
     nextEventParticipant, resolveEvent,
+    colWaitPay, colWaitSkip, colWaitRelease,
     barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;

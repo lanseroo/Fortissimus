@@ -112,6 +112,9 @@
   const barracksLine = document.getElementById('barracksLine');
   const barRelic = document.getElementById('barRelic');
   const barChariot = document.getElementById('barChariot');
+  const colWait = document.getElementById('colWait');
+  const cwLine = document.getElementById('cwLine');
+  const cwBtns = document.getElementById('cwBtns');
   const standings = document.getElementById('standings');
 
   // ---- left player panel (current player's cup / economy / competition) ----
@@ -291,7 +294,7 @@
               + '<span class="ppl">' + row.place + '.</span>' + sym
               + '<span class="pwho">' + row.color + '</span>'
               + '<span class="ptot">Σ' + row.total + '</span>'
-              + '<span class="prew">' + (row.reward ? '+' + row.reward + ' 🏁' : '—') + '</span>'
+              + '<span class="prew">' + (row.reward && row.reward !== '—' ? row.reward : '—') + '</span>'
               + '</div>';
           }).join('');
     } else {
@@ -303,7 +306,7 @@
     if (f.barracks) {
       const b = f.barracks;
       const r = (f.res && f.res[b.color]) || { coin: 0, zap: 0, sun: 0 };
-      modalBackdrop.hidden = false;
+      barracks.hidden = false;
       barracksLine.textContent = b.color + ' → Barracks: +1 step · take a resource'
         + (b.picked ? ' ✓' : '');
       barracks.querySelectorAll('.bpick').forEach((btn) => { btn.disabled = b.picked; });
@@ -311,8 +314,35 @@
       barChariot.disabled = b.chariot || r.sun < 2;
       barracksLine.style.color = FLOW_COLORS[b.color] || '#ffd479';
     } else {
-      modalBackdrop.hidden = true;
+      barracks.hidden = true;
     }
+
+    // Colosseum-ticket / "waiting for Colosseum" decision walk (center modal, reuses backdrop).
+    const cw = f.colWait && f.colWait.step ? f.colWait : null;
+    if (cw) {
+      const s = cw.step, col = FLOW_COLORS[s.color] || '#ffd479';
+      colWait.hidden = false;
+      cwLine.style.color = col;
+      const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
+      if (s.kind === 'pay') {
+        cwLine.innerHTML = s.color + ' — ' + cw.label + ': ' + sym(s.symImg)
+          + ' hero lost. Pay ' + s.fee + '🪙 to send it to the Colosseum?';
+        cwBtns.innerHTML =
+          '<button class="cwbtn" data-action="pay" data-id="' + s.miniId + '"'
+            + (s.canAfford ? '' : ' disabled') + '>Pay ' + s.fee + '🪙 → Colosseum</button>'
+          + '<button class="cwbtn" data-action="skip" data-id="' + s.miniId + '">Send home (discard card)</button>';
+      } else { // release
+        cwLine.innerHTML = s.color + ' at ' + s.options.length + '-mini Colosseum cap — '
+          + 'release one waiting hero to make room:';
+        cwBtns.innerHTML = s.options.map((o) =>
+          '<button class="cwbtn" data-action="release" data-id="' + o.miniId + '">'
+            + sym(o.symImg) + 'Release</button>').join('');
+      }
+    } else {
+      colWait.hidden = true;
+    }
+
+    modalBackdrop.hidden = !(f.barracks || cw);
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
@@ -424,4 +454,13 @@
   barRelic.addEventListener('click', () => PT.barracksMove('relic'));
   barChariot.addEventListener('click', () => PT.barracksMove('chariot'));
   document.getElementById('barDone').addEventListener('click', () => PT.barracksDone());
+
+  // colWait modal: buttons are rebuilt per step, so delegate by data-action/data-id.
+  cwBtns.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]'); if (!btn || btn.disabled) return;
+    const id = Number(btn.dataset.id);
+    if (btn.dataset.action === 'pay') PT.colWaitPay(id);
+    else if (btn.dataset.action === 'skip') PT.colWaitSkip(id);
+    else if (btn.dataset.action === 'release') PT.colWaitRelease(id);
+  });
 </script>
