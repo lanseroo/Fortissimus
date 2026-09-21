@@ -738,6 +738,7 @@
   let selected = null, dragging = false;
   let selectionBox = null;
   let downX = 0, downY = 0, downPiece = false;   // click-vs-drag detection
+  let dragMoved = false;                          // did the pointer actually move a piece this drag?
   let downPieceObj = null;                        // the piece pressed (for click-to-inspect)
   let miniClickCb = null;                         // UI hook: mini clicked -> show its tied hero card
   let miniPlaceCb = null;                          // UI hook: own mini clicked in Blind Placement -> placement menu
@@ -775,6 +776,7 @@
   renderer.domElement.addEventListener('pointerdown', (e) => {
     setNDC(e);
     downX = e.clientX; downY = e.clientY;
+    dragMoved = false;                        // reset per press; pointermove flips it true
     camTween = null;                          // any interaction cancels a camera flight
     raycaster.setFromCamera(ndc, camera);
     // Only pieces are selectable; boards are not in `pieces`, so they're inert.
@@ -806,6 +808,7 @@
 
   renderer.domElement.addEventListener('pointermove', (e) => {
     if (!dragging || !selected) return;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) dragMoved = true;
     setNDC(e);
     raycaster.setFromCamera(ndc, camera);
     if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
@@ -820,7 +823,10 @@
   // leave the piece exactly where it was dropped (free-placement fallback).
   const endDrag = () => {
     let committedThisDrag = false;               // Blind Placement: a fresh mini commit ends the turn
-    if (dragging && selected) {
+    // A pure click (no movement) must never re-snap or touch fees — the click handler below
+    // opens the placement/inspect menu instead. Only a real drag runs the slot/fee logic, or
+    // clicking a committed mini would refund+recharge its event fee and leak coins.
+    if (dragging && selected && dragMoved) {
       const prevSlot = selected.userData.slot;   // where it sat before this drag (for barracks re-drop guard)
       // leaving an event slot it paid into? refund the fee it was charged.
       if (selected.userData.eventFee) {
