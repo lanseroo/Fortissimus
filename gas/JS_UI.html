@@ -87,7 +87,21 @@
   document.getElementById('reroll').addEventListener('click', () => PT.reroll());
 
   // ---- view / game ----
-  document.getElementById('initGame').addEventListener('click', () => PT.initGame(HEROES.map((h) => h[0])));
+  // Deal 3 mini-games into the active-event slots (and sync the dropdowns). For now a fixed
+  // trio so all six events are easy to exercise across two New games; swap for a shuffle of
+  // EVENTS.map(e => e[0]).slice(0, 3) once random deals are wanted.
+  const NEW_GAME_EVENTS = ['ArcheryEvent.png', 'HighJumpEvent.png', 'WrestlingEvent.png'];
+  function dealEvents(files) {
+    files.forEach((file, i) => {
+      const sel = document.getElementById('eventSlot' + i);
+      if (sel) sel.value = file;
+      PT.setEventSlot(i, file);
+    });
+  }
+  document.getElementById('initGame').addEventListener('click', () => {
+    PT.initGame(HEROES.map((h) => h[0]));
+    dealEvents(NEW_GAME_EVENTS);
+  });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
   const showSlots = document.getElementById('showSlots');
