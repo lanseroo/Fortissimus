@@ -1591,10 +1591,10 @@
         .sort((a, b) => (a.userData.slot.ord ?? 0) - (b.userData.slot.ord ?? 0));
       for (const c of cards) {
         const kind = cardKindOf(c);
-        const hasTarget = kind === 'cheer'
-          ? atEvent.some((m) => m.userData.color === color)   // Cheer only your own heroes
-          : atEvent.length > 0;                               // Jeer any hero at the event
-        if (hasTarget) q.push({ cardId: c.userData.id, color, kind });
+        // Both Cheer and Jeer require the holder to be COMPETING here (a hero of their own at
+        // this event). Cheer then targets only their own heroes; Jeer targets any hero.
+        const competing = atEvent.some((m) => m.userData.color === color);
+        if (competing) q.push({ cardId: c.userData.id, color, kind });
       }
     }
     return q;
@@ -1832,14 +1832,17 @@
     GAME.colWait = { key: k, label: labelForEvent(k), payQueue: [], releaseQueue: [] };
     const rows = ranked.map((m, i) => {
       const ci = miniCardInfo(m), pl = place[i];
+      // Capture the final score + sponsor BEFORE any reward mutates the mini — grantTicket()
+      // clears eventDice (sendToWaiting), which would otherwise collapse the recomputed score.
+      const total = disp(m);
+      const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
       let reward = '—';
       if (pl === 0)      { grantTicket(m); reward = '🎟 ticket'; }
       else if (pl === 2) { advanceRace(m.userData.color, 1); reward = '+1 VP 🏁'; }
       // pl === 1 (2nd): column +1 only → Chunk B (nothing automated in Chunk A).
-      const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
       grantSponsorReward(m, sw);
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total: disp(m), place: pl + 1, reward, sponsor: fmtSponsor(sw) };
+               face: ci.face, total, place: pl + 1, reward, sponsor: fmtSponsor(sw) };
     });
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
