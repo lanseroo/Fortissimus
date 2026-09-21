@@ -1048,7 +1048,7 @@
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
                  eventIndex: 0, evtTurnIndex: 0, eventRound: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
-                 eventKeys: [], pendingTurnEnd: false, marketPool: [] };
+                 summaryOpen: false, eventKeys: [], pendingTurnEnd: false, marketPool: [] };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1765,7 +1765,7 @@
         return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                  face: ci.face, total: disp(m), place: i + 1, reward: '⚔ arena' };
       });
-      GAME.lastResolution = { label: labelForEvent(k), rows };
+      GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
       finishEventResolution();
       return;
     }
@@ -1790,16 +1790,24 @@
                face: ci.face, total: disp(m), place: pl + 1, reward };
     });
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
-    GAME.lastResolution = { label: labelForEvent(k), rows };
+    GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
 
     if (!colWaitStep()) finishEventResolution(); else notifyFlow();
   }
 
-  // Tail of an event resolution (shared by the direct path and the modal walk): clear the
-  // decision, mark the event resolved, and advance the guided walk to the next event.
+  // Tail of an event resolution (shared by the direct path and the modal walk): clear any open
+  // decision and PAUSE on a results modal. The guided walk advances only when the player dismisses
+  // that modal (dismissEventSummary), so the placements/rewards are seen before moving on.
   function finishEventResolution() {
     GAME.colWait = null;
     GAME.modWait = null;
+    GAME.summaryOpen = true;
+    notifyFlow();
+  }
+  // Dismiss the results modal → mark the event resolved and advance to the next event.
+  function dismissEventSummary() {
+    if (!GAME.summaryOpen) return;
+    GAME.summaryOpen = false;
     const k = curEventKey();
     GAME.resolved.push(k);
     GAME.eventIndex++;                                              // next non-empty event
@@ -2021,16 +2029,30 @@
         const approachDone = app.length >= appN;
         const fouled = approachDone && app.reduce((a, b) => a + b, 0) + heroStats(m).speed > 13;
         const stage = m.userData.ljStage === 'jump' ? 'jump' : 'approach';
-        lj = { appN, approachDone, fouled, stage, canJump: approachDone && !fouled && stage !== 'jump' };
+        const appSum = app.reduce((a, b) => a + b, 0) + heroStats(m).speed;   // approach total (≤13)
+        lj = { appN, approachDone, fouled, stage, appSum, jumpSum: (m.userData.eventDice || []).slice(appN).reduce((a, b) => a + b, 0),
+               canJump: approachDone && !fouled && stage !== 'jump' };
+      }
+      // Multi-round live status: this round's value, whether it currently passes, and the
+      // bar (High Jump) or acceptable window lo–hi (Archery) so the panel can guide the player.
+      let round = null;
+      if (heroesRules && heroesRules.multiRound && !m.userData.eliminated) {
+        const rd = heroesRules.rounds[GAME.eventRound] || heroesRules.rounds[heroesRules.rounds.length - 1];
+        const st = heroStats(m), tot = heroTotal(m);
+        round = { value: heroesRules.roundValue(tot, st), ok: heroesRules.passes(tot, st, rd),
+                  bar: rd.bar != null ? rd.bar : null,
+                  lo: rd.target != null ? rd.target - st.str : null,
+                  hi: rd.target != null ? rd.target + st.speed : null };
       }
       return { id: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, hasCard: ci.hasCard,
                dice: (m.userData.eventDice || []).slice(), required: requiredFor(m),
                cap: eventKey !== null ? assignCap(m) : 0,
+               sum: (m.userData.eventDice || []).reduce((a, b) => a + b, 0),
                score: sc.score, foul: sc.foul,
                scoreText: eventKey !== null ? eventDisplay(m, eventKey, true) : '',
                eliminated: !!m.userData.eliminated, roundsSurvived: m.userData.roundsSurvived || 0,
-               rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra, lj };
+               rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra, lj, round };
     });
     // roll gate: in Upkeep, rolling ENDS a player's turn (auto-advance), so the phase can't
     // advance until EVERY seated player has rolled their cup.
@@ -2092,6 +2114,8 @@
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
       eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
+      summaryOpen: !!GAME.summaryOpen,
+      summaryLast: !!GAME.summaryOpen && (GAME.eventIndex + 1) >= GAME.eventKeys.length,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
@@ -2143,7 +2167,7 @@
       // freeze the walk order for this phase (see curEventKey), then start at the first event
       GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
       GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
-      GAME.colWait = null; GAME.modWait = null;
+      GAME.colWait = null; GAME.modWait = null; GAME.summaryOpen = false;
       selectedHeroId = null;
       enterEventKey(curEventKey());                                // first event (multi-round → round 0)
     } else if (isPerPlayer()) { activeColorName = curPlayer(); focusCurrent(); }
@@ -2444,7 +2468,7 @@
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
     rerollHeroDie, toggleLongJumpExtra, commitLongJump,
-    nextEventParticipant, resolveEvent,
+    nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
     barracksPick, barracksMove, barracksDone, advanceRace,

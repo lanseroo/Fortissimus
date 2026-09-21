@@ -134,6 +134,11 @@
   const mwLine = document.getElementById('mwLine');
   const mwTargets = document.getElementById('mwTargets');
   const mwPass = document.getElementById('mwPass');
+  const eventSummary = document.getElementById('eventSummary');
+  const esHead = document.getElementById('esHead');
+  const esObj = document.getElementById('esObj');
+  const esRows = document.getElementById('esRows');
+  const esNext = document.getElementById('esNext');
   const standings = document.getElementById('standings');
 
   // ---- left player panel (current player's cup / economy / competition) ----
@@ -235,6 +240,21 @@
             const topRow = '<div class="hero-top">' + chip + '<span class="hero-lbl">' + label + '</span>'
               + '<span class="hero-cnt' + (full ? ' ok' : '') + '">' + have + '/' + need + '</span></div>';
 
+            // live running total + (for the two multi-round events) the target the roll must hit
+            let liveTag = '';
+            if (h.round) {
+              if (h.round.lo != null) {          // Archery — score is the raw sum; window is stat-adjusted
+                liveTag = '<span class="hsum' + (have && h.round.ok ? ' ok' : '') + '">'
+                  + (have ? 'Σ ' + h.sum + ' · ' : '') + 'window ' + h.round.lo + '–' + h.round.hi + '</span>';
+              } else if (h.round.bar != null) {  // High Jump — roll + Speed must clear the bar
+                liveTag = '<span class="hsum' + (have && h.round.ok ? ' ok' : '') + '">'
+                  + (have ? 'Σ+Spd ' + h.round.value + ' · ' : '') + 'clear ' + h.round.bar + '</span>';
+              }
+            } else if (have > 0) {
+              liveTag = '<span class="hsum">Σ ' + h.sum + '</span>';
+            }
+            const liveRow = liveTag ? '<div class="hero-live">' + liveTag + '</div>' : '';
+
             // ---- Long Jump: approach (2 +opt) vs jump (2) split; player commits the jump ----
             if (h.lj) {
               const { appN, stage, fouled, canJump } = h.lj;
@@ -251,8 +271,11 @@
                   : (canJump
                       ? '<button class="hero-jump" data-id="' + h.id + '" title="Commit the approach and take your jump">Jump ▶</button>'
                       : '<span class="lj-hint">roll the approach first</span>');
+              const appTag = appHave
+                ? '<span class="hsum' + (fouled ? ' foul' : (h.lj.appSum <= 13 ? ' ok' : '')) + '">Σ+Spd ' + h.lj.appSum + '/13</span>'
+                : '';
               return '<div class="hero' + (sel ? ' sel' : '') + '" data-id="' + h.id + '">' + topRow
-                + '<div class="lj-grp"><span class="lj-lbl">Approach · +Speed, ≤13</span>'
+                + '<div class="lj-grp"><span class="lj-lbl">Approach · +Speed, ≤13</span>' + appTag
                 +   '<div class="hero-dice">' + appDice + '</div>' + ljToggle + '</div>'
                 + '<div class="lj-grp' + (stage === 'jump' || fouled ? '' : ' locked') + '">'
                 +   '<span class="lj-lbl">Jump · +Str</span>' + jumpBody + '</div>'
@@ -263,6 +286,7 @@
             const dice = h.dice.map((v, i) => dieCell(v, i)).join('') + blanks(need - have);
             return '<div class="hero' + (sel ? ' sel' : '') + '" data-id="' + h.id + '">' + topRow
               + '<div class="hero-dice">' + dice + '</div>'
+              + liveRow
               + (scoreTag ? '<div class="hero-score">' + scoreTag + '</div>' : '')
               + acts + '</div></div>';
           }).join('')
@@ -473,7 +497,31 @@
       modWait.hidden = true;
     }
 
-    modalBackdrop.hidden = !(f.barracks || cw || mw);
+    // post-resolution recap (center modal): what the just-resolved event did + who won what,
+    // shown before the guided walk moves on to the next event/phase.
+    const summ = (f.summaryOpen && f.lastResolution) ? f.lastResolution : null;
+    if (summ) {
+      eventSummary.hidden = false;
+      esHead.innerHTML = '🏆 ' + summ.label + ' — results';
+      esObj.textContent = summ.objective || '';
+      esObj.hidden = !summ.objective;
+      const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
+      esRows.innerHTML = summ.rows.map((row) => {
+        const col = FLOW_COLORS[row.color] || '#ccc';
+        const rew = (row.reward && row.reward !== '—') ? row.reward : '—';
+        return '<div class="esrow" style="color:' + col + '">'
+          + '<span class="ppl">' + row.place + '.</span>' + sym(row.symImg)
+          + '<span class="pwho">' + row.color + '</span>'
+          + '<span class="ptot">' + fmtTotal(row.total) + '</span>'
+          + '<span class="prew' + (rew === '—' ? ' none' : '') + '">' + rew + '</span>'
+          + '</div>';
+      }).join('');
+      esNext.textContent = f.summaryLast ? 'Finish events ▶' : 'Next event ▶';
+    } else {
+      eventSummary.hidden = true;
+    }
+
+    modalBackdrop.hidden = !(f.barracks || cw || mw || summ);
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
@@ -663,4 +711,7 @@
     PT.modWaitUse(Number(btn.dataset.card), Number(btn.dataset.id), Number(btn.dataset.dir));
   });
   mwPass.addEventListener('click', () => PT.modWaitPass(Number(mwPass.dataset.card)));
+
+  // event summary modal: dismiss it to advance the guided walk to the next event/phase.
+  esNext.addEventListener('click', () => PT.dismissEventSummary());
 </script>

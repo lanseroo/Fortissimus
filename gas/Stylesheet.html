@@ -339,6 +339,32 @@
            background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
   .mwbtn:hover { background: #3a3d42; }
 
+  /* event summary (post-resolution recap) */
+  #modalBox #eventSummary { margin: 0; padding: 0; border: 0; }
+  #modalBox #eventSummary[hidden] { display: none; }
+  #esHead { font-size: 0.98rem; font-weight: 700; color: #ffd479; margin-bottom: 6px; }
+  .es-obj { font-size: 0.82rem; color: #b6bcc4; margin-bottom: 10px; line-height: 1.35; }
+  .es-obj[hidden] { display: none; }
+  #esRows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .esrow { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; padding: 3px 0;
+           border-bottom: 1px solid #2a2d31; }
+  .esrow:last-child { border-bottom: 0; }
+  .esrow .psym { width: 15px; height: 15px; flex: 0 0 auto; }
+  .esrow .ppl { width: 16px; text-align: right; opacity: 0.85; }
+  .esrow .pwho { flex: 1 1 auto; }
+  .esrow .ptot { opacity: 0.85; }
+  .esrow .prew { min-width: 46px; text-align: right; font-weight: 700; color: #ffd479; }
+  .esrow .prew.none { color: #6f757d; font-weight: 400; }
+  #esNext { width: 100%; padding: 8px; border-radius: 7px; border: 1px solid #3a3d42;
+            background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
+  #esNext:hover { background: #3a3d42; }
+
+  /* live running-total / target-window chip in a hero row */
+  .hero-live { font-size: 0.72rem; margin: -2px 0 6px; }
+  .hsum { color: #b6bcc4; font-weight: 600; }
+  .hsum.ok { color: #8fe0a0; }
+  .hsum.foul { color: #ff8f8f; }
+
   /* ------------------------------------------------------------- VP panel */
   #vpPanel {
     flex: 0 0 220px;
