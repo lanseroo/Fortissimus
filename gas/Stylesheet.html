@@ -261,6 +261,27 @@
   }
   .hero-acts button:hover:not(:disabled) { background: #3a3d42; }
   .hero-acts button:disabled { opacity: 0.4; cursor: default; }
+  /* free-reroll die control (per-event §5 allowance), distinct from the ☀ ±1 bumps */
+  .diereroll {
+    width: 18px; height: 18px; line-height: 1; padding: 0; border-radius: 4px;
+    border: 1px solid #4a6da0; background: #223247; color: #9fd2ff; cursor: pointer; font-size: 0.72rem;
+  }
+  .diereroll:hover { background: #2c4160; }
+  /* per-event computed score / foul / reroll hint under a hero's dice */
+  .hero-score { font-size: 0.74rem; margin: -2px 0 6px; }
+  .hero-score .hscore { color: #9fd2ff; font-weight: 600; }
+  .hero-score .hfoul  { color: #ff8f8f; font-weight: 700; letter-spacing: 0.03em; }
+  .hero-score .hreroll { color: #7fb0e0; }
+  /* Long Jump optional-approach toggle */
+  .hero-lj {
+    flex: 1 1 auto; padding: 5px 6px; border-radius: 4px;
+    border: 1px solid #4a6da0; background: #223247; color: #9fd2ff; cursor: pointer; font-size: 0.76rem;
+  }
+  .hero-lj.on { background: #2c4160; border-color: #6f9fd6; color: #cfe6ff; }
+  .hero-lj:disabled { opacity: 0.4; cursor: default; }
+  /* eliminated (OUT) multi-round hero row */
+  .hero.out { opacity: 0.55; border-style: dashed; }
+  .hero-cnt.out { color: #ff8f8f; font-weight: 700; }
 
   /* ------------------------------------------------------------- center modal */
   #modalBackdrop {
@@ -422,6 +443,8 @@
   .podrow .pwho { flex: 1 1 auto; }
   .podrow .ptot { opacity: 0.85; }
   .podrow .prew { min-width: 42px; text-align: right; font-weight: 600; }
+  .podrow.out { opacity: 0.5; }
+  .podrow.out .ptot { color: #ff8f8f; }
 
   /* barracks reward panel */
   #barracks {

@@ -185,38 +185,61 @@
     compete.hidden = !isEvent;
     if (isEvent) {
       const heroes = f.heroes || [];
+      const meta = f.eventMeta;
       heroList.innerHTML = heroes.length
         ? heroes.map((h) => {
             const sel = h.id === f.selectedHeroId;
             const have = h.dice.length, need = h.required;
             const label = h.face ? labelForFace(h.face) : 'Inactive';
             const chip = h.symImg ? '<img class="hsym" src="' + window.ASSET_BASE + h.symImg + '" alt="">' : '';
+            // eliminated multi-round heroes are OUT — no controls, show how far they got.
+            if (h.eliminated) {
+              return '<div class="hero out" data-id="' + h.id + '">'
+                + '<div class="hero-top">' + chip + '<span class="hero-lbl">' + label + '</span>'
+                + '<span class="hero-cnt out">OUT · ' + h.roundsSurvived + 'R</span></div></div>';
+            }
+            const canReroll = h.rerollsLeft > 0;
             const dice = h.dice.map((v, i) =>
               '<span class="hdie">'
               + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="-1" title="−1 (−1☀)"' + (r.sun < 1 || v <= 1 ? ' disabled' : '') + '>–</button>'
               + '<span class="die" style="color:' + col + '">' + DICE_GLYPH(v) + '</span>'
               + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="1" title="+1 (−1☀)"' + (r.sun < 1 || v >= 6 ? ' disabled' : '') + '>+</button>'
+              + (canReroll ? '<button class="diereroll" data-id="' + h.id + '" data-idx="' + i + '" title="Free reroll (' + h.rerollsLeft + ' left)">↻</button>' : '')
               + '</span>').join('');
             const empties = Array.from({ length: Math.max(0, need - have) }, () => '<span class="die blank"></span>').join('');
             const full = have >= need;
+            const scoreTag = full
+              ? (h.scoreText === 'FOUL'
+                  ? '<span class="hfoul">FOUL</span>'
+                  : '<span class="hscore">' + (meta && meta.multiRound ? 'Roll ' : 'Score ') + h.scoreText + '</span>')
+              : (canReroll ? '<span class="hreroll">↻ ' + h.rerollsLeft + ' reroll' + (h.rerollsLeft > 1 ? 's' : '') + '</span>' : '');
+            const lj = (meta && meta.longJump)
+              ? '<button class="hero-lj' + (h.ljExtra ? ' on' : '') + '" data-id="' + h.id + '"' + (have ? ' disabled' : '') + ' title="Optional +1 approach die (before dicing)">' + (h.ljExtra ? '✓ +1 approach' : '+1 approach') + '</button>'
+              : '';
             return '<div class="hero' + (sel ? ' sel' : '') + '" data-id="' + h.id + '">'
               + '<div class="hero-top">' + chip + '<span class="hero-lbl">' + label + '</span>'
               + '<span class="hero-cnt' + (full ? ' ok' : '') + '">' + have + '/' + need + '</span></div>'
               + '<div class="hero-dice">' + dice + empties + '</div>'
+              + (scoreTag ? '<div class="hero-score">' + scoreTag + '</div>' : '')
               + '<div class="hero-acts">'
               + '<button class="hero-roll" data-id="' + h.id + '"' + (full ? ' disabled' : '') + '>Roll die</button>'
               + '<button class="hero-clear" data-id="' + h.id + '"' + (have ? '' : ' disabled') + '>Clear</button>'
+              + lj
               + '</div></div>';
           }).join('')
         : '<span class="ppmini">' + owner + ' has no heroes at this event.</span>';
       const w = f.eventWalk;
-      competeHint.textContent = !w || !w.active
+      const obj = (meta && meta.name) ? (meta.objective ? meta.name + ' — ' + meta.objective : meta.name) : '';
+      const roundStr = (meta && meta.multiRound)
+        ? ' · Round ' + (meta.round + 1) + '/' + meta.roundCount + (meta.roundLabel ? ' (' + meta.roundLabel + ')' : '') : '';
+      const action = !w || !w.active
         ? 'All events resolved — advance when ready.'
         : w.everyoneFull
-          ? 'Everyone’s diced — resolve the event ▶'
+          ? (meta && meta.multiRound ? 'resolve the round ▶' : 'resolve the event ▶')
           : f.eventGateOk
-            ? owner + ' is done — pass to the next player ▶'
-            : 'Dice every one of ' + owner + '’s heroes at this event.';
+            ? owner + ' done — next player ▶'
+            : 'dice every one of ' + owner + '’s heroes here';
+      competeHint.textContent = (obj ? obj + roundStr + ' · ' : '') + action;
     }
   }
 
@@ -224,6 +247,14 @@
   function reflectSwatch(color) {
     document.querySelectorAll('#toolbar .sw').forEach((s) =>
       s.classList.toggle('active', s.dataset.color === color));
+  }
+
+  // Format an event-result value for the standings/podium: FOUL and "nR" (rounds survived) pass
+  // through as-is; a plain score gets a Σ prefix.
+  function fmtTotal(t) {
+    const s = String(t);
+    if (s === 'FOUL' || /R$/.test(s)) return s;
+    return 'Σ' + s;
   }
 
   function renderFlow(f) {
@@ -259,17 +290,24 @@
     if (f.started && !f.over && f.isEvent && w && w.active && f.current) {
       // guided event execution: walk players (turn order) with heroes at the current event.
       turnbar.hidden = false;
-      const evLabel = w.label + ' (' + (w.index + 1) + '/' + w.count + ')';
+      const meta = f.eventMeta;
+      const isMulti = !!(meta && meta.multiRound);
+      const roundStr = isMulti
+        ? ' · Round ' + (meta.round + 1) + '/' + meta.roundCount + (meta.roundLabel ? ' (' + meta.roundLabel + ')' : '') : '';
+      const evLabel = w.label + ' (' + (w.index + 1) + '/' + w.count + ')' + roundStr;
+      const resolveWord = isMulti ? 'Resolve the round ▶' : 'Resolve the event ▶';
       turnLine.textContent = w.everyoneFull
-        ? evLabel + ' — everyone’s diced. Resolve the event ▶'
+        ? evLabel + ' — everyone’s diced. ' + resolveWord
         : evLabel + ' — ' + f.current + '’s turn: dice your hero(es) here';
       // Next player ▶: only when this player has finished AND isn't the last participant.
       nextPlayerBtn.hidden = false;
       nextPlayerBtn.disabled = !w.currentFull || w.isLastParticipant;
-      nextPlayerBtn.title = w.isLastParticipant ? 'Last player — resolve the event' : 'Pass to the next player at this event';
-      // Resolve event ▶: only when every participant at this event is fully diced.
+      nextPlayerBtn.title = w.isLastParticipant ? 'Last player — resolve' : 'Pass to the next player at this event';
+      // Resolve ▶: only when every participant is fully diced. On a non-final multi-round it
+      // resolves just this round; on the last round (or a single-shot event) it resolves the event.
       resolveEventBtn.hidden = false;
       resolveEventBtn.disabled = !w.everyoneFull;
+      resolveEventBtn.textContent = (isMulti && meta.round < meta.roundCount - 1) ? 'Resolve round ▶' : 'Resolve event ▶';
       reflectSwatch(f.current);
     } else if (f.started && !f.over && f.perPlayer && f.current) {
       turnbar.hidden = false;
@@ -301,7 +339,7 @@
             return '<div class="podrow" style="color:' + col + '">'
               + '<span class="ppl">' + row.place + '.</span>' + sym
               + '<span class="pwho">' + row.color + '</span>'
-              + '<span class="ptot">Σ' + row.total + '</span>'
+              + '<span class="ptot">' + fmtTotal(row.total) + '</span>'
               + '<span class="prew">' + (row.reward && row.reward !== '—' ? row.reward : '—') + '</span>'
               + '</div>';
           }).join('');
@@ -322,10 +360,11 @@
             if (prevTot === null || row.total !== prevTot) { place = i + 1; prevTot = row.total; }
             const col = FLOW_COLORS[row.color] || '#ccc';
             const sym = row.symImg ? '<img class="psym" src="' + window.ASSET_BASE + row.symImg + '" alt="">' : '';
-            return '<div class="podrow" style="color:' + col + '">'
+            const tot = row.eliminated ? 'OUT' : fmtTotal(row.total) + (row.diced ? '' : '…');
+            return '<div class="podrow' + (row.eliminated ? ' out' : '') + '" style="color:' + col + '">'
               + '<span class="ppl">' + place + '.</span>' + sym
               + '<span class="pwho">' + row.color + '</span>'
-              + '<span class="ptot">Σ' + row.total + (row.diced ? '' : '…') + '</span>'
+              + '<span class="ptot">' + tot + '</span>'
               + '</div>';
           }).join('');
     } else {
@@ -545,6 +584,10 @@
     const owner = ownerOf(curFlow);
     const bump = e.target.closest('.diebump');
     if (bump) { PT.bumpHeroDie(+bump.dataset.id, +bump.dataset.idx, +bump.dataset.dir); return; }
+    const rr = e.target.closest('.diereroll');
+    if (rr) { PT.rerollHeroDie(+rr.dataset.id, +rr.dataset.idx); return; }
+    const lj = e.target.closest('.hero-lj');
+    if (lj) { PT.toggleLongJumpExtra(+lj.dataset.id); return; }
     const roll = e.target.closest('.hero-roll');
     if (roll) { PT.selectHero(+roll.dataset.id); PT.rollRandomDie(owner); return; }
     const clr = e.target.closest('.hero-clear');

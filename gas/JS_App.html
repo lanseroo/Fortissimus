@@ -1043,7 +1043,7 @@
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
-                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
+                 eventIndex: 0, evtTurnIndex: 0, eventRound: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
                  eventKeys: [], pendingTurnEnd: false, marketPool: [] };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
@@ -1163,12 +1163,57 @@
   const COIN_PER_EXCHANGE = 2; // ⚡ or ☀ → this many 🪙 (Upkeep exchange)
   const DICE_PER_EVENT_DEFAULT = 2;   // required dice per competing hero (tunable, rules WIP)
   const COLOSSEUM_DICE = 2;           // required dice per Colosseum fighter (tunable)
-  const EVENT_DICE = {                 // per-event overrides keyed by active-event file
-    // 'SprintEvent.png': 1, 'WrestlingEvent.png': 3, ...  (fill in as rules land)
+  // ---- per-event objectives (rules-draft §5) --------------------------------------------------
+  // Each mini-game scores its own way. Single-shot events give a fixed number of dice and rank
+  // the field by `score` in a win-direction (`dir`). Long Jump splits its dice into an approach
+  // (may FOUL) + a jump. High Jump & Archery are MULTI-ROUND bar/window eliminations where the
+  // winner is whoever survives the MOST rounds. `rerolls(stats)` is the count of FREE rerolls a
+  // hero gets (Sun ±1 bumps are separate). Podium rewards are shared/unchanged (see scoreEvent).
+  const EVENT_RULES = {
+    'WrestlingEvent.png': {
+      name: 'Wrestling', dir: 'max', dice: 2, rerolls: () => 0,
+      objective: 'furthest from 7 wins (Str above, Speed below)',
+      score: (sum, st) => sum > 7 ? (sum - 7) + st.str : sum < 7 ? (7 - sum) + st.speed : 0,
+    },
+    'DiscusEvent.png': {
+      name: 'Discus', dir: 'max', dice: 2, rerolls: (st) => st.speed,
+      objective: 'sum + Strength, highest wins; reroll up to Speed times',
+      score: (sum, st) => sum + st.str,
+    },
+    'SprintEvent.png': {
+      name: 'Sprint', dir: 'min', dice: 2, rerolls: (st) => st.str,
+      objective: 'sum − Speed (min 1), LOWEST wins; reroll up to Strength times',
+      score: (sum, st) => Math.max(1, sum - st.speed),
+    },
+    'LongJumpEvent.png': {
+      name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
+      objective: 'approach 2d(+1)+Speed must be ≤13 (or FOUL), + jump 2d+Str; highest wins',
+    },
+    'HighJumpEvent.png': {
+      name: 'High Jump', dir: 'max', multiRound: true, rerolls: (st) => st.str,
+      objective: 'clear the bar (2d + Speed ≥ bar) each round; most rounds survived wins',
+      rounds: [
+        { dice: 2, bar: 9,  label: 'bar 9'  },
+        { dice: 2, bar: 10, label: 'bar 10' },
+        { dice: 2, bar: 11, label: 'bar 11' },
+        { dice: 2, bar: 13, label: 'bar 13' },
+      ],
+      passes: (sum, st, round) => (sum + st.speed) >= round.bar,
+      roundValue: (sum, st) => sum + st.speed,
+    },
+    'ArcheryEvent.png': {
+      name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0,
+      objective: 'land in the window (Target−Str … Target+Speed) each round; most rounds survived wins',
+      rounds: [
+        { dice: 2, target: 7,  label: 'T7'  },
+        { dice: 3, target: 10, label: 'T10' },
+        { dice: 4, target: 14, label: 'T14' },
+        { dice: 5, target: 18, label: 'T18' },
+      ],
+      passes: (sum, st, round) => sum >= (round.target - st.str) && sum <= (round.target + st.speed),
+      roundValue: (sum) => sum,
+    },
   };
-  // Podium rewards = race steps (the game's VP) for 1st / 2nd / 3rd place at an event; 0 beyond.
-  const PODIUM_DEFAULT = [3, 2, 1];   // tunable guess (rules WIP)
-  const PODIUM_REWARDS = {};          // per-event overrides keyed by active-event file (or 'ColosseumBoard.png')
   // Active mini-game file in each of the 3 event slots (0-2), seeded from LAYOUT and kept
   // in sync by setEventSlot — used to look up a competing hero's required dice count.
   const eventFiles = (() => {
@@ -1219,18 +1264,107 @@
   const findMini = (id) => pieces.find((p) => p.userData.type === 'mini' && p.userData.id === id) || null;
   const findCard = (id) => pieces.find((p) => p.userData.type === 'card' && p.userData.id === id) || null;
   const selectedMini = () => findMini(selectedHeroId);
-  // A hero's competition score: its assigned dice plus any Cheer/Jeer adjustment applied this event.
+  // A hero's raw dice total (+ Cheer/Jeer adjustment). Used only for the Colosseum (flat) and as
+  // the raw input to per-event scoring; competition standing goes through eventScore/eventCompare.
   const heroTotal = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0) + (m.userData.diceAdj || 0);
 
   // Which slot index (0-2) an event-grid mini's strip maps to → its active mini-game.
   // Strips sit at board x -125/0/125 = active event slots 0/1/2 (same columns).
   const eventSlotIndex = (bx) => (bx < 0 ? 0 : bx > 0 ? 2 : 1);
-  // Dice a competing mini needs for its current event (Colosseum or an active mini-game).
+
+  // ---- per-event scoring engine (rules-draft §5) ----
+  // Stats from the mini's tied hero card face: `S_P_Hero.png` → Str S / Speed P; Plebe/none → 1/1.
+  function heroStats(mini) {
+    const m = /^(\d)_(\d)_Hero/.exec(miniCardInfo(mini).face || '');
+    return m ? { str: +m[1], speed: +m[2] } : { str: 1, speed: 1 };
+  }
+  const isAlive = (m) => !m.userData.eliminated;
+  // The §5 rules entry behind a mini / an event key (null for Colosseum or no special rule).
+  const rulesForKey = (key) => (key === null || key === undefined || key === 'ColosseumBoard.png')
+    ? null : (EVENT_RULES[eventFiles[key]] || null);
+  const rulesFor = (mini) => {
+    const s = mini.userData.slot; if (!s || !s.event) return null;
+    return EVENT_RULES[eventFiles[eventSlotIndex(s.bx)]] || null;
+  };
+  // A single-shot event score for a mini: { score, foul }. Multi-round events score by rounds
+  // survived (tracked on the mini); Long Jump folds an approach (may foul) + a jump.
+  function eventScore(mini, key) {
+    const rules = rulesForKey(key);
+    const st = heroStats(mini);
+    const dice = mini.userData.eventDice || [];
+    const adj = mini.userData.diceAdj || 0;
+    if (!rules) return { score: dice.reduce((a, b) => a + b, 0) + adj, foul: false };
+    if (rules.multiRound) return { score: mini.userData.roundsSurvived || 0, foul: !!mini.userData.eliminated };
+    if (rules.longJump) {
+      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
+      const approach = dice.slice(0, appN).reduce((a, b) => a + b, 0) + st.speed;
+      if (approach > 13) return { score: 0, foul: true };                 // over-run → FOUL (out)
+      const jump = dice.slice(appN).reduce((a, b) => a + b, 0) + st.str;
+      return { score: approach + jump + adj, foul: false };
+    }
+    return { score: rules.score(dice.reduce((a, b) => a + b, 0) + adj, st), foul: false };
+  }
+  // Display string for the standings/podium/modal: score, FOUL, or "nR" rounds. `live` shows the
+  // current round's value (sum±) for a multi-round event mid-round instead of rounds-survived.
+  function eventDisplay(mini, key, live) {
+    const rules = rulesForKey(key);
+    if (rules && rules.multiRound) {
+      if (live && isAlive(mini)) return String(rules.roundValue(heroTotal(mini), heroStats(mini)));
+      return (mini.userData.roundsSurvived || 0) + 'R';
+    }
+    const s = eventScore(mini, key);
+    return s.foul ? 'FOUL' : String(s.score);
+  }
+  // Ranking comparator for an event key: multi-round by rounds survived; single-shot by score in
+  // the win-direction with FOULs sorted last; ties broken by turn order.
+  function eventCompare(key) {
+    const rules = rulesForKey(key);
+    const oi = (c) => GAME.order.indexOf(c);
+    if (rules && rules.multiRound) {
+      return (a, b) => (b.userData.roundsSurvived || 0) - (a.userData.roundsSurvived || 0)
+        || oi(a.userData.color) - oi(b.userData.color);
+    }
+    const dir = rules ? rules.dir : 'max';
+    return (a, b) => {
+      const sa = eventScore(a, key), sb = eventScore(b, key);
+      if (sa.foul !== sb.foul) return sa.foul ? 1 : -1;                   // fouls last
+      const d = dir === 'min' ? sa.score - sb.score : sb.score - sa.score;
+      return d || oi(a.userData.color) - oi(b.userData.color);
+    };
+  }
+  // Do two heroes share a place at this event? (equal standing for the tie-aware podium.)
+  function eventTied(a, b, key) {
+    const rules = rulesForKey(key);
+    if (rules && rules.multiRound) return (a.userData.roundsSurvived || 0) === (b.userData.roundsSurvived || 0);
+    const sa = eventScore(a, key), sb = eventScore(b, key);
+    return sa.foul === sb.foul && sa.score === sb.score;
+  }
+
+  // Dice a competing mini needs for its current event. Multi-round → the CURRENT round's count
+  // (0 once eliminated). Long Jump → approach (2 +opt) + jump (2), collapsing to just the approach
+  // once that approach already fouls (the jump is then irrelevant). Else the event's flat count.
   function requiredFor(mini) {
     const s = mini.userData.slot; if (!s) return 0;
     if (s.boardKey === 'ColosseumBoard.png') return COLOSSEUM_DICE;
-    if (s.event) return EVENT_DICE[eventFiles[eventSlotIndex(s.bx)]] ?? DICE_PER_EVENT_DEFAULT;
-    return DICE_PER_EVENT_DEFAULT;
+    if (!s.event) return DICE_PER_EVENT_DEFAULT;
+    const rules = EVENT_RULES[eventFiles[eventSlotIndex(s.bx)]];
+    if (!rules) return DICE_PER_EVENT_DEFAULT;
+    if (rules.multiRound) {
+      if (mini.userData.eliminated) return 0;
+      return (rules.rounds[GAME.eventRound] || rules.rounds[rules.rounds.length - 1]).dice;
+    }
+    if (rules.longJump) {
+      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
+      const app = (mini.userData.eventDice || []).slice(0, appN);
+      if (app.length >= appN && app.reduce((a, b) => a + b, 0) + heroStats(mini).speed > 13) return appN;
+      return appN + 2;
+    }
+    return rules.dice;
+  }
+  // Reset a hero's free-reroll allowance for its current event/round (Sun ±1 bumps are separate).
+  function seedRerolls(mini) {
+    const rules = rulesFor(mini);
+    mini.userData.rerollsLeft = (rules && rules.rerolls) ? rules.rerolls(heroStats(mini)) : 0;
   }
   // ---- guided event walk: step left→right through events, players in turn order ----
   // The ordered event "keys" the current phase walks: Colosseum = one arena; Resolution =
@@ -1254,9 +1388,16 @@
   }
   // All minis competing this phase (union across its events) — used to clear/validate.
   const competingMinis = () => eventOrder().flatMap(minisAtEvent);
-  // Players (in turn order) that own ≥1 mini at an event.
+  // Players (in turn order) that own ≥1 STILL-ALIVE mini at an event (eliminated multi-round
+  // heroes drop out of the walk; single-shot heroes are always alive).
   const eventParticipants = (key) =>
-    GAME.order.filter((c) => minisAtEvent(key).some((m) => m.userData.color === c));
+    GAME.order.filter((c) => minisAtEvent(key).some((m) => m.userData.color === c && isAlive(m)));
+  // Minis eligible to be Cheered/Jeered this event/round (alive-only for multi-round events).
+  const eventTargets = (key) => {
+    const rules = rulesForKey(key);
+    const all = minisAtEvent(key);
+    return (rules && rules.multiRound) ? all.filter(isAlive) : all;
+  };
   // Only events with someone competing take part in the walk (empties are skipped).
   const nonEmptyEvents = () => eventOrder().filter((k) => minisAtEvent(k).length);
   // The walk order is FROZEN at phase entry (GAME.eventKeys) — resolving a mini moves it off
@@ -1402,7 +1543,7 @@
   const cardKindOf = (c) => (c.userData.face === 'Cheer.png' ? 'cheer' : 'jeer');
   // Build the queue of hand modifier cards (turn order) whose owner has a valid target this event.
   function buildModWaitQueue(k) {
-    const atEvent = minisAtEvent(k);
+    const atEvent = eventTargets(k);
     if (!atEvent.length) return [];
     const q = [];
     for (const color of GAME.order) {
@@ -1426,17 +1567,20 @@
     const c = findCard(head.cardId);
     if (!c || !inHand(c) || c.userData.owner !== head.color) { mw.queue.shift(); return modWaitStep(); }
     const mag = head.kind === 'cheer' ? 2 : 1;
-    const targets = minisAtEvent(mw.key)
+    const targets = eventTargets(mw.key)
       .filter((m) => head.kind === 'jeer' || m.userData.color === head.color)
       .map((m) => { const ci = miniCardInfo(m);
         return { miniId: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null,
-                 symImg: ci.symImg, total: heroTotal(m) }; });
+                 symImg: ci.symImg, total: eventDisplay(m, mw.key, true) }; });
     if (!targets.length) { mw.queue.shift(); return modWaitStep(); }
     return { kind: head.kind, cardId: head.cardId, color: head.color, mag,
              label: labelForEvent(mw.key), targets };
   }
   const advanceModWait = () => {
-    if (!modWaitStep()) { GAME.modWait = null; scoreEvent(); } else notifyFlow();
+    if (modWaitStep()) { notifyFlow(); return; }
+    GAME.modWait = null;
+    const rules = rulesForKey(curEventKey());
+    if (rules && rules.multiRound) applyRound(); else scoreEvent();
   };
   // Spend the head card on one hero (dir = +1/-1); applies ±mag to its total, then discards.
   function modWaitUse(cardId, miniId, dir) {
@@ -1531,16 +1675,68 @@
       const queue = buildModWaitQueue(k);
       if (queue.length) { GAME.modWait = { key: k, queue }; notifyFlow(); return; }
     }
-    scoreEvent();
+    const rules = rulesForKey(k);
+    if (rules && rules.multiRound) applyRound(); else scoreEvent();
+  }
+
+  // ---- multi-round events (High Jump, Archery): bar/window elimination over several rounds ----
+  // Seat every mini at a multi-round event alive at round 0 with a fresh reroll allowance.
+  function initMultiRound(key) {
+    GAME.eventRound = 0;
+    for (const m of minisAtEvent(key)) {
+      m.userData.eliminated = false;
+      m.userData.roundsSurvived = 0;
+      m.userData.eventDice = [];
+      m.userData.diceAdj = 0;
+      seedRerolls(m);
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    }
+  }
+  // Resolve ONE round: survivors clear the bar/window (score++), the rest are eliminated (their
+  // rounds-survived freezes). If a further round remains AND anyone's still alive, advance the
+  // round (fresh dice + rerolls, walk restarts); otherwise fall through to final scoreEvent().
+  function applyRound() {
+    const k = curEventKey(), rules = rulesForKey(k);
+    if (!rules || !rules.multiRound) return;
+    const round = rules.rounds[GAME.eventRound];
+    for (const m of minisAtEvent(k).filter(isAlive)) {
+      if (rules.passes(heroTotal(m), heroStats(m), round)) m.userData.roundsSurvived = (m.userData.roundsSurvived || 0) + 1;
+      else m.userData.eliminated = true;
+    }
+    const survivors = minisAtEvent(k).filter(isAlive);
+    if (GAME.eventRound < rules.rounds.length - 1 && survivors.length) {
+      for (const m of minisAtEvent(k)) {                          // fresh dice for the next round
+        m.userData.eventDice = [];
+        m.userData.diceAdj = 0;
+        if (isAlive(m)) seedRerolls(m);
+        if (m.userData.diceGroup) renderHeroDice3D(m);
+      }
+      GAME.eventRound++;
+      GAME.evtTurnIndex = 0;
+      selectedHeroId = null;
+      activeColorName = curEventPlayer();
+      if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k));
+      notifyFlow();
+    } else {
+      scoreEvent();                                               // final ranking by rounds survived
+    }
+  }
+
+  // Land the guided walk on an event key: (re)seat a multi-round event at round 0, focus its
+  // board, and set the active color to its first participant. No-op focus for a null key.
+  function enterEventKey(k) {
+    if (k === null) { frameTable(true); return; }
+    const rules = rulesForKey(k);
+    if (rules && rules.multiRound) initMultiRound(k); else GAME.eventRound = 0;
+    activeColorName = curEventPlayer();
+    if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k));
   }
 
   // Score the current event: rank by total, apply podium rewards, open the waiting walk.
   function scoreEvent() {
     const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
-    const oi = (c) => GAME.order.indexOf(c);
-    const total = (m) => heroTotal(m);
-    const ranked = minisAtEvent(k).slice().sort((a, b) =>
-      total(b) - total(a) || oi(a.userData.color) - oi(b.userData.color));
+    const disp = (m) => eventDisplay(m, k);                       // per-event score / FOUL / "nR"
+    const ranked = minisAtEvent(k).slice().sort(eventCompare(k)); // §5 win-direction & elimination
 
     // Colosseum in Chunk A: no fight. Record standings by dice total (start position) and
     // leave the fighters seated & locked. Combat + Elysium/Tartarus routing = Chunk B.
@@ -1548,17 +1744,17 @@
       const rows = ranked.map((m, i) => {
         const ci = miniCardInfo(m);
         return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-                 face: ci.face, total: total(m), place: i + 1, reward: '⚔ arena' };
+                 face: ci.face, total: disp(m), place: i + 1, reward: '⚔ arena' };
       });
       GAME.lastResolution = { label: labelForEvent(k), rows };
       finishEventResolution();
       return;
     }
 
-    // Competition ranking: equal totals share a place; the next distinct total's place is its
+    // Competition ranking: equal standing shares a place; the next distinct result's place is its
     // sorted index → tie for 1st ⇒ [0,0,2,…] (both take 1st's reward, 2nd vacated, next is 3rd).
     const place = ranked.map((m, i) =>
-      (i > 0 && total(ranked[i]) === total(ranked[i - 1])) ? undefined : i);
+      (i > 0 && eventTied(ranked[i], ranked[i - 1], k)) ? undefined : i);
     for (let i = 1; i < place.length; i++) if (place[i] === undefined) place[i] = place[i - 1];
 
     // Open the waiting-decision flow up front so grantTicket() can defer to releaseQueue at cap.
@@ -1572,7 +1768,7 @@
       else if (pl === 2) { advanceRace(m.userData.color, 1); reward = '+1 VP 🏁'; }
       // pl === 1 (2nd): column +1 only → Chunk B (nothing automated in Chunk A).
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total: total(m), place: pl + 1, reward };
+               face: ci.face, total: disp(m), place: pl + 1, reward };
     });
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), rows };
@@ -1590,9 +1786,7 @@
     GAME.eventIndex++;                                              // next non-empty event
     GAME.evtTurnIndex = 0;
     selectedHeroId = null;
-    const nk = curEventKey();
-    if (nk !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(nk)) focusBoard(eventBoardMesh(nk)); }
-    else { frameTable(true); }
+    enterEventKey(curEventKey());                                 // next event (multi-round → round 0)
     notifyFlow();
   }
 
@@ -1675,7 +1869,12 @@
     mini.add(dg);
   }
   function clearAllHeroDice() {
-    for (const p of pieces) if (p.userData.type === 'mini') { p.userData.eventDice = []; p.userData.diceAdj = 0; if (p.userData.diceGroup) renderHeroDice3D(p); }
+    for (const p of pieces) if (p.userData.type === 'mini') {
+      p.userData.eventDice = []; p.userData.diceAdj = 0;
+      p.userData.eliminated = false; p.userData.roundsSurvived = 0;
+      p.userData.ljExtra = false; p.userData.rerollsLeft = 0;
+      if (p.userData.diceGroup) renderHeroDice3D(p);
+    }
   }
 
   function selectHero(id) { selectedHeroId = id; notifyFlow(); }
@@ -1685,6 +1884,7 @@
     const arr = GAME.cup[color]; if (!arr || idx < 0 || idx >= arr.length || arr[idx] === null) return;
     const m = selectedMini(); if (!m || m.userData.color !== color) return;
     if ((m.userData.eventDice || []).length >= requiredFor(m)) return;   // hero already full
+    if (!(m.userData.eventDice || []).length) seedRerolls(m);            // first die → fresh rerolls
     const v = arr.splice(idx, 1)[0];
     (m.userData.eventDice = m.userData.eventDice || []).push(v);
     renderHeroDice3D(m);
@@ -1695,8 +1895,29 @@
   function rollRandomDie(color) {
     const m = selectedMini(); if (!m || m.userData.color !== color) return;
     if ((m.userData.eventDice || []).length >= requiredFor(m)) return;
+    if (!(m.userData.eventDice || []).length) seedRerolls(m);            // first die → fresh rerolls
     (m.userData.eventDice = m.userData.eventDice || []).push(rollFace());
     renderHeroDice3D(m);
+    notifyFlow();
+  }
+
+  // Free reroll (§5 allowance): re-roll one of a hero's dice, spending a reroll (not a Sun).
+  function rerollHeroDie(heroId, idx) {
+    const m = findMini(heroId); if (!m) return;
+    const arr = m.userData.eventDice; if (!arr || idx < 0 || idx >= arr.length) return;
+    if ((m.userData.rerollsLeft || 0) <= 0) return;
+    arr[idx] = rollFace();
+    m.userData.rerollsLeft -= 1;
+    renderHeroDice3D(m);
+    notifyFlow();
+  }
+
+  // Long Jump: toggle the optional +1 approach die (only before this hero has been diced).
+  function toggleLongJumpExtra(heroId) {
+    const m = findMini(heroId); if (!m) return;
+    const rules = rulesFor(m); if (!rules || !rules.longJump) return;
+    if ((m.userData.eventDice || []).length) return;                     // locked once dicing starts
+    m.userData.ljExtra = !m.userData.ljExtra;
     notifyFlow();
   }
 
@@ -1756,23 +1977,44 @@
     if (selectedHeroId === null && ownerHeroes.length) selectedHeroId = ownerHeroes[0].userData.id;
     const heroes = ownerHeroes.map((m) => {
       const ci = miniCardInfo(m);
+      const sc = eventKey !== null ? eventScore(m, eventKey) : { score: 0, foul: false };
       return { id: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, hasCard: ci.hasCard,
-               dice: (m.userData.eventDice || []).slice(), required: requiredFor(m) };
+               dice: (m.userData.eventDice || []).slice(), required: requiredFor(m),
+               score: sc.score, foul: sc.foul,
+               scoreText: eventKey !== null ? eventDisplay(m, eventKey, true) : '',
+               eliminated: !!m.userData.eliminated, roundsSurvived: m.userData.roundsSurvived || 0,
+               rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra };
     });
     // roll gate: in Upkeep, rolling ENDS a player's turn (auto-advance), so the phase can't
     // advance until EVERY seated player has rolled their cup.
     const rollGateOk = phase !== 'Upkeep' || !live || GAME.order.every((c) => !!GAME.cupRolled[c]);
 
-    // Live event standings: every hero at the CURRENT event, ranked by total (dice + Cheer/Jeer
-    // adjustment) so players can watch the podium shift — especially while a modWait modal is open.
+    // Live event standings: every hero at the CURRENT event, ranked by the event's §5 rule (score
+    // / rounds survived, FOUL/OUT aware) so players can watch the podium shift — even with a modWait
+    // modal open. `total` is a display string (Σ handled in the UI); multi-round shows the live
+    // round value.
+    const curRules = eventKey !== null ? rulesForKey(eventKey) : null;
     const eventRanks = (isEvent && eventKey !== null)
-      ? minisAtEvent(eventKey)
-          .map((m) => { const ci = miniCardInfo(m);
+      ? minisAtEvent(eventKey).slice().sort(eventCompare(eventKey))
+          .map((m) => { const ci = miniCardInfo(m), sc = eventScore(m, eventKey);
             return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-                     total: heroTotal(m), diced: (m.userData.eventDice || []).length >= requiredFor(m) }; })
-          .sort((a, b) => b.total - a.total)
+                     total: eventDisplay(m, eventKey, true),
+                     diced: (m.userData.eventDice || []).length >= requiredFor(m),
+                     eliminated: !!m.userData.eliminated,
+                     foul: !(curRules && curRules.multiRound) && sc.foul }; })
       : [];
+    // Current-event meta for UI banners/hints (objective, win-direction, round progress).
+    const eventMeta = (isEvent && eventKey !== null) ? {
+      name: curRules ? curRules.name : (eventKey === 'ColosseumBoard.png' ? 'Colosseum' : null),
+      objective: curRules ? curRules.objective : null,
+      dir: curRules ? curRules.dir : 'max',
+      multiRound: !!(curRules && curRules.multiRound),
+      longJump: !!(curRules && curRules.longJump),
+      round: GAME.eventRound,
+      roundCount: (curRules && curRules.multiRound) ? curRules.rounds.length : 0,
+      roundLabel: (curRules && curRules.multiRound) ? (curRules.rounds[GAME.eventRound] || {}).label : null,
+    } : null;
 
     // guided event-walk snapshot for the UI
     const parts = isEvent && eventKey !== null ? eventParticipants(eventKey) : [];
@@ -1803,7 +2045,7 @@
       cupRolled: { ...GAME.cupRolled },
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
-      eventWalk, eventRanks, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
+      eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
@@ -1857,9 +2099,7 @@
       GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
       GAME.colWait = null; GAME.modWait = null;
       selectedHeroId = null;
-      const k = curEventKey();
-      if (k !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k)); }
-      else { frameTable(true); }
+      enterEventKey(curEventKey());                                // first event (multi-round → round 0)
     } else if (isPerPlayer()) { activeColorName = curPlayer(); focusCurrent(); }
     else { frameTable(true); }
   }
@@ -2157,6 +2397,7 @@
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
+    rerollHeroDie, toggleLongJumpExtra,
     nextEventParticipant, resolveEvent,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
