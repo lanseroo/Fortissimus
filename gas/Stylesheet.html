@@ -323,8 +323,27 @@
     cursor: pointer;
     font-size: 0.8rem;
   }
-  .turnbtns button:hover { background: #3a3d42; }
+  .turnbtns button:hover:not(:disabled) { background: #3a3d42; }
+  .turnbtns button:disabled { opacity: 0.4; cursor: default; }
   #nextPlayer { flex-basis: 100%; }
+  #resolveEvent { flex-basis: 100%; border-color: #6a5a2a; background: #3a331f; color: #ffd479; }
+  #resolveEvent:hover:not(:disabled) { background: #4a4026; }
+
+  /* podium readout (after an event resolves) */
+  #podiumBox {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid #3a3d42;
+    border-radius: 5px;
+    background: #17181c;
+  }
+  #podiumBox .pod-h { font-size: 0.78rem; color: #ffd479; margin-bottom: 5px; }
+  .podrow { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; padding: 2px 0; }
+  .podrow .psym { width: 14px; height: 14px; flex: 0 0 auto; }
+  .podrow .ppl { width: 16px; text-align: right; opacity: 0.85; }
+  .podrow .pwho { flex: 1 1 auto; }
+  .podrow .ptot { opacity: 0.85; }
+  .podrow .prew { min-width: 42px; text-align: right; font-weight: 600; }
 
   /* barracks reward panel */
   #barracks {

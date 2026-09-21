@@ -103,6 +103,8 @@
   const turnbar = document.getElementById('turnbar');
   const turnLine = document.getElementById('turnLine');
   const nextPlayerBtn = document.getElementById('nextPlayer');
+  const resolveEventBtn = document.getElementById('resolveEvent');
+  const podiumBox = document.getElementById('podiumBox');
   const prevBtn = document.getElementById('prevPhase');
   const nextBtn = document.getElementById('nextPhase');
   const modalBackdrop = document.getElementById('modalBackdrop');
@@ -198,10 +200,15 @@
               + '<button class="hero-clear" data-id="' + h.id + '"' + (have ? '' : ' disabled') + '>Clear</button>'
               + '</div></div>';
           }).join('')
-        : '<span class="ppmini">' + owner + ' has no minis at an event.</span>';
-      competeHint.textContent = f.eventGateOk
-        ? 'All heroes have their dice — advance when ready.'
-        : 'Every competing hero needs its full dice before the event can continue.';
+        : '<span class="ppmini">' + owner + ' has no heroes at this event.</span>';
+      const w = f.eventWalk;
+      competeHint.textContent = !w || !w.active
+        ? 'All events resolved — advance when ready.'
+        : w.everyoneFull
+          ? 'Everyone’s diced — resolve the event ▶'
+          : f.eventGateOk
+            ? owner + ' is done — pass to the next player ▶'
+            : 'Dice every one of ' + owner + '’s heroes at this event.';
     }
   }
 
@@ -239,9 +246,28 @@
       flowRes.innerHTML = '';
     }
 
-    // per-player turn bar (only during Upkeep & Blind Placement)
-    if (f.started && !f.over && f.perPlayer && f.current) {
+    // turn bar: per-player phases (Upkeep/Blind Placement/Market) OR the guided event walk.
+    const w = f.eventWalk;
+    if (f.started && !f.over && f.isEvent && w && w.active && f.current) {
+      // guided event execution: walk players (turn order) with heroes at the current event.
       turnbar.hidden = false;
+      const evLabel = w.label + ' (' + (w.index + 1) + '/' + w.count + ')';
+      turnLine.textContent = w.everyoneFull
+        ? evLabel + ' — everyone’s diced. Resolve the event ▶'
+        : evLabel + ' — ' + f.current + '’s turn: dice your hero(es) here';
+      // Next player ▶: only when this player has finished AND isn't the last participant.
+      nextPlayerBtn.hidden = false;
+      nextPlayerBtn.disabled = !w.currentFull || w.isLastParticipant;
+      nextPlayerBtn.title = w.isLastParticipant ? 'Last player — resolve the event' : 'Pass to the next player at this event';
+      // Resolve event ▶: only when every participant at this event is fully diced.
+      resolveEventBtn.hidden = false;
+      resolveEventBtn.disabled = !w.everyoneFull;
+      reflectSwatch(f.current);
+    } else if (f.started && !f.over && f.perPlayer && f.current) {
+      turnbar.hidden = false;
+      nextPlayerBtn.hidden = false; nextPlayerBtn.disabled = false;
+      nextPlayerBtn.title = 'Pass to the next player (loops)';
+      resolveEventBtn.hidden = true;
       const msg = f.phase === 'Upkeep'
         ? 'use the left panel to roll the cup (required), buy dice & exchange'
         : f.phase === 'Market'
@@ -251,6 +277,26 @@
       reflectSwatch(f.current);
     } else {
       turnbar.hidden = true;
+    }
+
+    // podium readout: the most recently resolved event's placements + rewards.
+    if (f.started && !f.over && f.isEvent && f.lastResolution) {
+      const lr = f.lastResolution;
+      podiumBox.hidden = false;
+      podiumBox.innerHTML = '<div class="pod-h">🏆 ' + lr.label + ' — podium</div>'
+        + lr.rows.map((row) => {
+            const col = FLOW_COLORS[row.color] || '#ccc';
+            const sym = row.symImg ? '<img class="psym" src="' + window.ASSET_BASE + row.symImg + '" alt="">' : '';
+            return '<div class="podrow" style="color:' + col + '">'
+              + '<span class="ppl">' + row.place + '.</span>' + sym
+              + '<span class="pwho">' + row.color + '</span>'
+              + '<span class="ptot">Σ' + row.total + '</span>'
+              + '<span class="prew">' + (row.reward ? '+' + row.reward + ' 🏁' : '—') + '</span>'
+              + '</div>';
+          }).join('');
+    } else {
+      podiumBox.hidden = true;
+      podiumBox.innerHTML = '';
     }
 
     // barracks reward panel (open while a mini is being seated to the barracks)
@@ -291,12 +337,12 @@
 
     prevBtn.disabled = !f.started || (f.round === 1 && f.phaseIndex === 0);
     // hard gates: can't leave Upkeep until the current player rolls their cup; can't leave
-    // an event until every competing hero (all colors) has its required dice.
+    // an event phase until every event has been walked through and resolved.
     const rollBlocked = f.started && !f.over && f.phase === 'Upkeep' && !f.rollGateOk;
-    const eventBlocked = f.started && !f.over && EVENT_PHASES.includes(f.phase) && !f.eventGateOk;
+    const eventBlocked = f.started && !f.over && f.isEvent && !(f.eventWalk && f.eventWalk.complete);
     nextBtn.disabled = !f.started || f.over || rollBlocked || eventBlocked;
     nextBtn.title = rollBlocked ? (f.current + ' must roll their cup first')
-      : eventBlocked ? 'Every competing hero needs its dice first'
+      : eventBlocked ? 'Resolve every event before advancing'
       : 'Advance to the next phase / round';
 
     renderPlayerPanel(f);
@@ -341,7 +387,9 @@
   renderFlow(PT.getFlow());
   nextBtn.addEventListener('click', () => PT.nextPhase());
   prevBtn.addEventListener('click', () => PT.prevPhase());
-  nextPlayerBtn.addEventListener('click', () => PT.nextPlayer());
+  nextPlayerBtn.addEventListener('click', () =>
+    (curFlow && curFlow.isEvent) ? PT.nextEventParticipant() : PT.nextPlayer());
+  resolveEventBtn.addEventListener('click', () => PT.resolveEvent());
 
   // left player panel — owner read at click time so buttons always act on the right player
   rollCupBtn.addEventListener('click', () => PT.rollCup(ownerOf(curFlow)));

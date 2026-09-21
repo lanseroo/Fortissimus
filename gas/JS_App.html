@@ -325,6 +325,7 @@
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(b.x, b.y || 0, b.z);
     mesh.userData.isBoard = true;                      // never added to pieces[]
+    mesh.userData.boardKey = b.file || (b.market ? 'market' : null);   // frame-by-key lookup
     scene.add(mesh);
     if (isMarket) {
       // subtle border so the plain plane reads as a "board"; build slots now
@@ -1016,7 +1017,8 @@
   const PHASES = ['Upkeep', 'Blind Placement', 'Resolution & Podiums', 'Market', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
-  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {} };
+  const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
+                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1133,6 +1135,9 @@
   const EVENT_DICE = {                 // per-event overrides keyed by active-event file
     // 'SprintEvent.png': 1, 'WrestlingEvent.png': 3, ...  (fill in as rules land)
   };
+  // Podium rewards = race steps (the game's VP) for 1st / 2nd / 3rd place at an event; 0 beyond.
+  const PODIUM_DEFAULT = [3, 2, 1];   // tunable guess (rules WIP)
+  const PODIUM_REWARDS = {};          // per-event overrides keyed by active-event file (or 'ColosseumBoard.png')
   // Active mini-game file in each of the 3 event slots (0-2), seeded from LAYOUT and kept
   // in sync by setEventSlot — used to look up a competing hero's required dice count.
   const eventFiles = (() => {
@@ -1190,21 +1195,98 @@
     if (s.event) return EVENT_DICE[eventFiles[eventSlotIndex(s.bx)]] ?? DICE_PER_EVENT_DEFAULT;
     return DICE_PER_EVENT_DEFAULT;
   }
-  // Minis currently competing: on an event grid during Resolution, in the arena in Colosseum.
-  function competingMinis() {
+  // ---- guided event walk: step left→right through events, players in turn order ----
+  // The ordered event "keys" the current phase walks: Colosseum = one arena; Resolution =
+  // slots 0/1/2 (left→right). Any other phase has no walk.
+  function eventOrder() {
     const phase = curPhase();
+    if (phase === 'Colosseum') return ['ColosseumBoard.png'];
+    if (phase === 'Resolution & Podiums') return [0, 1, 2];
+    return [];
+  }
+  // The active-event file behind an event key (for reward/dice lookups & labels).
+  const eventFileOf = (key) => (key === 'ColosseumBoard.png' ? key : eventFiles[key]);
+  // Competing minis scoped to ONE event key.
+  function minisAtEvent(key) {
     return pieces.filter((p) => {
       if (p.userData.type !== 'mini') return false;
       const s = p.userData.slot; if (!s) return false;
-      if (phase === 'Colosseum') return s.boardKey === 'ColosseumBoard.png';
-      if (phase === 'Resolution & Podiums') return s.event === true;
-      return false;
+      if (key === 'ColosseumBoard.png') return s.boardKey === 'ColosseumBoard.png';
+      return s.event === true && eventSlotIndex(s.bx) === key;
     });
   }
-  // Event can advance only when every competing mini (all colors) has its required dice.
+  // All minis competing this phase (union across its events) — used to clear/validate.
+  const competingMinis = () => eventOrder().flatMap(minisAtEvent);
+  // Players (in turn order) that own ≥1 mini at an event.
+  const eventParticipants = (key) =>
+    GAME.order.filter((c) => minisAtEvent(key).some((m) => m.userData.color === c));
+  // Only events with someone competing take part in the walk (empties are skipped).
+  const nonEmptyEvents = () => eventOrder().filter((k) => minisAtEvent(k).length);
+  const curEventKey = () => nonEmptyEvents()[GAME.eventIndex] ?? null;
+  const curEventPlayer = () => { const k = curEventKey(); return k === null ? null : (eventParticipants(k)[GAME.evtTurnIndex] ?? null); };
+  const eventBoardMesh = (key) => (key === 'ColosseumBoard.png'
+    ? boardMeshes.find((m) => m.userData.boardKey === 'ColosseumBoard.png')
+    : eventSlots[key]);
+  // A player is "full" at an event once all their minis there have their required dice.
+  const participantFull = (color, key) => key !== null && color !== null &&
+    minisAtEvent(key).filter((m) => m.userData.color === color)
+      .every((m) => (m.userData.eventDice || []).length >= requiredFor(m));
+  const eventEveryoneFull = (key) => key !== null &&
+    eventParticipants(key).every((c) => participantFull(c, key));
+  const eventWalkComplete = () => GAME.eventIndex >= nonEmptyEvents().length;
+
+  // Next player ▶ during an event phase: pass to the next participant at the current event
+  // once the current one has diced all their heroes. No-op on the last participant.
+  function nextEventParticipant() {
+    const k = curEventKey(); if (k === null) return;
+    if (!participantFull(curEventPlayer(), k)) return;               // gate: finish your heroes
+    if (GAME.evtTurnIndex >= eventParticipants(k).length - 1) return; // last — resolve instead
+    GAME.evtTurnIndex++;
+    activeColorName = curEventPlayer();
+    selectedHeroId = null;
+    if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k));
+    notifyFlow();
+  }
+
+  // Resolve event ▶: rank heroes at the event by dice total, hand out podium rewards
+  // (race steps), record the summary, then advance to the next non-empty event.
+  function resolveEvent() {
+    const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
+    const file = eventFileOf(k);
+    const rewards = PODIUM_REWARDS[file] ?? PODIUM_DEFAULT;
+    const oi = (c) => GAME.order.indexOf(c);
+    const total = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0);
+    const ranked = minisAtEvent(k).slice().sort((a, b) =>
+      total(b) - total(a) || oi(a.userData.color) - oi(b.userData.color));
+    const rows = ranked.map((m, place) => {
+      const ci = miniCardInfo(m);
+      const reward = rewards[place] || 0;
+      if (reward) advanceRace(m.userData.color, reward);            // podium = VP (race steps)
+      return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
+               face: ci.face, total: total(m), place: place + 1, reward };
+    });
+    GAME.lastResolution = { label: labelForEvent(k), rows };
+    GAME.resolved.push(k);
+    GAME.eventIndex++;                                              // next non-empty event
+    GAME.evtTurnIndex = 0;
+    selectedHeroId = null;
+    const nk = curEventKey();
+    if (nk !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(nk)) focusBoard(eventBoardMesh(nk)); }
+    else { frameTable(true); }
+    notifyFlow();
+  }
+
+  // Short human label for an event key (active mini-game name, sans "Event.png").
+  function labelForEvent(key) {
+    if (key === 'ColosseumBoard.png') return 'Colosseum';
+    const f = eventFiles[key] || '';
+    return f.replace(/Event\.png$|\.png$/,'').replace(/([a-z])([A-Z])/g, '$1 $2') || ('Event ' + (key + 1));
+  }
+
+  // Event can advance only when the CURRENT participant has diced all their heroes.
   function eventGateOk() {
-    const comp = competingMinis();
-    return comp.every((m) => (m.userData.eventDice || []).length >= requiredFor(m));
+    const k = curEventKey();
+    return k === null || participantFull(curEventPlayer(), k);
   }
 
   // Rebuild the small public row of dice sitting beside a mini on the table.
@@ -1282,13 +1364,22 @@
     const phases = phasesFor(GAME.round);
     const phase = phases[GAME.phaseIndex];
     const perPlayer = PER_PLAYER_PHASES.includes(phase);
-    const current = perPlayer && GAME.started && !GAME.over ? GAME.order[GAME.turnIndex] : null;
+    const isEvent = (phase === 'Resolution & Podiums' || phase === 'Colosseum');
+    const live = GAME.started && !GAME.over;
 
-    // panel owner: the current player in a per-player phase, else whoever's swatch is active.
+    // In an event phase the "current player" is the participant the guided walk is on;
+    // in a per-player phase it's the turn cursor; otherwise none.
+    const eventKey = live && isEvent ? curEventKey() : null;
+    const current = !live ? null
+      : isEvent ? curEventPlayer()
+      : perPlayer ? GAME.order[GAME.turnIndex] : null;
+
+    // panel owner: the current player (per-player or event walk), else whoever's swatch is active.
     const owner = current || activeColorName;
-    // validate/auto-pick the selected hero from the live set of competing minis.
-    const comp = GAME.started && !GAME.over ? competingMinis() : [];
-    const ownerHeroes = comp.filter((m) => m.userData.color === owner);
+    // heroes shown in the panel: in an event phase, only the owner's minis at the CURRENT event.
+    const ownerHeroes = !live ? []
+      : isEvent ? (eventKey === null ? [] : minisAtEvent(eventKey).filter((m) => m.userData.color === owner))
+      : [];
     // the selection always belongs to the panel owner (you play your dice onto your heroes)
     if (selectedHeroId !== null && !ownerHeroes.some((m) => m.userData.id === selectedHeroId)) selectedHeroId = null;
     if (selectedHeroId === null && ownerHeroes.length) selectedHeroId = ownerHeroes[0].userData.id;
@@ -1301,13 +1392,26 @@
     // roll gate: only relevant in Upkeep for the current player.
     const rollGateOk = !(phase === 'Upkeep' && current) || !!GAME.cupRolled[current];
 
+    // guided event-walk snapshot for the UI
+    const parts = isEvent && eventKey !== null ? eventParticipants(eventKey) : [];
+    const eventWalk = isEvent ? {
+      active: eventKey !== null,
+      key: eventKey, label: eventKey === null ? null : labelForEvent(eventKey),
+      index: GAME.eventIndex, count: nonEmptyEvents().length,
+      participants: parts.slice(), evtTurnIndex: GAME.evtTurnIndex,
+      isLastParticipant: eventKey !== null && GAME.evtTurnIndex >= parts.length - 1,
+      currentFull: eventKey !== null && participantFull(current, eventKey),
+      everyoneFull: eventKey !== null && eventEveryoneFull(eventKey),
+      complete: eventWalkComplete(),
+    } : null;
+
     return {
       started: GAME.started, over: GAME.over,
       round: GAME.round, totalRounds: TOTAL_ROUNDS, era: eraOf(GAME.round),
       phase, phases, phaseIndex: GAME.phaseIndex,
       order: GAME.order.slice(),
       turnIndex: GAME.turnIndex, current,
-      perPlayer,
+      perPlayer, isEvent,
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
@@ -1315,6 +1419,7 @@
       cupRolled: { ...GAME.cupRolled },
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
+      eventWalk, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
@@ -1353,7 +1458,15 @@
       clearAllHeroDice();                       // last round's played dice are spent
       selectedHeroId = null;
     }
-    if (isPerPlayer()) { activeColorName = curPlayer(); focusCurrent(); }
+    const phase = curPhase();
+    if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
+      // start (or restart, on ◂ Back) the guided event walk at the first non-empty event
+      GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
+      selectedHeroId = null;
+      const k = curEventKey();
+      if (k !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k)); }
+      else { frameTable(true); }
+    } else if (isPerPlayer()) { activeColorName = curPlayer(); focusCurrent(); }
     else { frameTable(true); }
   }
 
@@ -1583,6 +1696,7 @@
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
+    nextEventParticipant, resolveEvent,
     barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;
