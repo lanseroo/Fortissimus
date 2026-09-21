@@ -1020,7 +1020,7 @@
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
-                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null };
+                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, eventKeys: [] };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1224,7 +1224,10 @@
     GAME.order.filter((c) => minisAtEvent(key).some((m) => m.userData.color === c));
   // Only events with someone competing take part in the walk (empties are skipped).
   const nonEmptyEvents = () => eventOrder().filter((k) => minisAtEvent(k).length);
-  const curEventKey = () => nonEmptyEvents()[GAME.eventIndex] ?? null;
+  // The walk order is FROZEN at phase entry (GAME.eventKeys) — resolving a mini moves it off
+  // its event slot, so computing "non-empty events" live would shrink the list mid-walk and
+  // skip the next event. Index into the frozen list instead.
+  const curEventKey = () => GAME.eventKeys[GAME.eventIndex] ?? null;
   const curEventPlayer = () => { const k = curEventKey(); return k === null ? null : (eventParticipants(k)[GAME.evtTurnIndex] ?? null); };
   const eventBoardMesh = (key) => (key === 'ColosseumBoard.png'
     ? boardMeshes.find((m) => m.userData.boardKey === 'ColosseumBoard.png')
@@ -1235,7 +1238,7 @@
       .every((m) => (m.userData.eventDice || []).length >= requiredFor(m));
   const eventEveryoneFull = (key) => key !== null &&
     eventParticipants(key).every((c) => participantFull(c, key));
-  const eventWalkComplete = () => GAME.eventIndex >= nonEmptyEvents().length;
+  const eventWalkComplete = () => GAME.eventIndex >= GAME.eventKeys.length;
 
   // Next player ▶ during an event phase: pass to the next participant at the current event
   // once the current one has diced all their heroes. No-op on the last participant.
@@ -1437,6 +1440,18 @@
     }
   }
 
+  // End-of-round cleanup (on entering Market): send every non-waiting mini that isn't already
+  // resting on its home hero-market circle back home, discarding its tied hero card. Catches
+  // event competitors and barracks minis alike; waiting (Colosseum-bound) minis are left locked.
+  function returnPlayedMinisHome() {
+    for (const m of pieces) {
+      if (m.userData.type !== 'mini' || m.userData.waiting) continue;
+      const s = m.userData.slot;
+      const atHome = s && s.role === 'hero-market' && s.owner === m.userData.color && s.sym === m.userData.sym;
+      if (!atHome) sendHomeDiscard(m);
+    }
+  }
+
   // Short human label for an event key (active mini-game name, sans "Event.png").
   function labelForEvent(key) {
     if (key === 'ColosseumBoard.png') return 'Colosseum';
@@ -1558,7 +1573,7 @@
     const eventWalk = isEvent ? {
       active: eventKey !== null,
       key: eventKey, label: eventKey === null ? null : labelForEvent(eventKey),
-      index: GAME.eventIndex, count: nonEmptyEvents().length,
+      index: GAME.eventIndex, count: GAME.eventKeys.length,
       participants: parts.slice(), evtTurnIndex: GAME.evtTurnIndex,
       isLastParticipant: eventKey !== null && GAME.evtTurnIndex >= parts.length - 1,
       currentFull: eventKey !== null && participantFull(current, eventKey),
@@ -1620,11 +1635,15 @@
       clearAllHeroDice();                       // last round's played dice are spent
       selectedHeroId = null;
     }
+    // Leaving events for the Market: every mini that competed (or sat at the barracks) returns
+    // home and its hero card is discarded — unless it's waiting for the Colosseum (kept locked).
+    if (curPhase() === 'Market' && forward) returnPlayedMinisHome();
     const phase = curPhase();
     if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
       // on forward entry to the Colosseum, seat every committed (waiting) mini into the arena
       if (phase === 'Colosseum' && forward) seatWaitingIntoArena();
-      // start (or restart, on ◂ Back) the guided event walk at the first non-empty event
+      // freeze the walk order for this phase (see curEventKey), then start at the first event
+      GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
       GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null; GAME.colWait = null;
       selectedHeroId = null;
       const k = curEventKey();
