@@ -87,10 +87,17 @@
   document.getElementById('reroll').addEventListener('click', () => PT.reroll());
 
   // ---- view / game ----
-  // Deal 3 mini-games into the active-event slots (and sync the dropdowns). For now a fixed
-  // trio so all six events are easy to exercise across two New games; swap for a shuffle of
-  // EVENTS.map(e => e[0]).slice(0, 3) once random deals are wanted.
-  const NEW_GAME_EVENTS = ['ArcheryEvent.png', 'HighJumpEvent.png', 'WrestlingEvent.png'];
+  // Deal 3 mini-games into the active-event slots (and sync the dropdowns). §5: randomly draw 3
+  // of the 6 events each New game (the 2-round cycle / remaining-3-next-round bookkeeping is a
+  // later pass — this just seeds a fresh random trio).
+  function randomEvents() {
+    const pool = EVENTS.map((e) => e[0]);
+    for (let i = pool.length - 1; i > 0; i--) {          // Fisher–Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, 3);
+  }
   function dealEvents(files) {
     files.forEach((file, i) => {
       const sel = document.getElementById('eventSlot' + i);
@@ -100,7 +107,7 @@
   }
   document.getElementById('initGame').addEventListener('click', () => {
     PT.initGame(HEROES.map((h) => h[0]));
-    dealEvents(NEW_GAME_EVENTS);
+    dealEvents(randomEvents());
   });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
