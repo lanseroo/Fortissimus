@@ -279,6 +279,24 @@
   }
   .hero-lj.on { background: #2c4160; border-color: #6f9fd6; color: #cfe6ff; }
   .hero-lj:disabled { opacity: 0.4; cursor: default; }
+  /* Long Jump: approach vs jump groups (clearly marked, jump locked until committed) */
+  .lj-grp {
+    margin: 6px 0; padding: 5px 7px 7px; border-radius: 5px;
+    border: 1px solid #3a3d42; background: #24262b;
+  }
+  .lj-grp .hero-dice { margin: 5px 0 0; min-height: 0; }
+  .lj-lbl {
+    display: block; font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: #9aa0a8; font-weight: 600;
+  }
+  .lj-grp.locked { opacity: 0.72; border-style: dashed; }
+  .lj-grp.locked .lj-lbl { color: #6f757d; }
+  .lj-hint { display: inline-block; margin-top: 4px; font-size: 0.72rem; color: #7d838b; font-style: italic; }
+  .hero-jump {
+    margin-top: 5px; padding: 5px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 600;
+    border: 1px solid #6f9fd6; background: #2c4160; color: #cfe6ff; cursor: pointer;
+  }
+  .hero-jump:hover { background: #35507a; }
   /* eliminated (OUT) multi-round hero row */
   .hero.out { opacity: 0.55; border-style: dashed; }
   .hero-cnt.out { color: #ff8f8f; font-weight: 700; }

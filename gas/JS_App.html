@@ -789,6 +789,10 @@
       if (curPhase() === 'Upkeep' && p.userData.type === 'card') return;
       // Market cards can't be dragged off the display — buy them (a click opens the purchase menu).
       if (p.userData.type === 'card' && p.userData.slot && p.userData.slot.role === 'market-hero') return;
+      // Once a game is running, a mini is committed: only Blind Placement drags it (to place it).
+      // In every other phase (Upkeep/events/Market) a click just inspects its tied card — never
+      // pick it up for a drag, which would re-snap its slot and shuffle the event turn order.
+      if (p.userData.type === 'mini' && GAME.started && curPhase() !== 'Blind Placement') return;
       select(p);
       dragging = true;
       controls.enabled = false;
@@ -1361,6 +1365,20 @@
     }
     return rules.dice;
   }
+  // Dice a hero may hold RIGHT NOW (the draw/roll gate). Same as requiredFor except Long Jump:
+  // the 2 jump dice stay locked behind the approach until the player commits it (ljStage==='jump').
+  // requiredFor stays the TOTAL (drives the "full"/participant gate); assignCap gates adding dice.
+  function assignCap(mini) {
+    const rules = rulesFor(mini);
+    if (rules && rules.longJump && !mini.userData.eliminated) {
+      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
+      const app = (mini.userData.eventDice || []).slice(0, appN);
+      const fouled = app.length >= appN && app.reduce((a, b) => a + b, 0) + heroStats(mini).speed > 13;
+      if (fouled) return appN;                                   // foul locks the field at the approach
+      return mini.userData.ljStage === 'jump' ? appN + 2 : appN; // jump dice unlock only after commit
+    }
+    return requiredFor(mini);
+  }
   // Reset a hero's free-reroll allowance for its current event/round (Sun ±1 bumps are separate).
   function seedRerolls(mini) {
     const rules = rulesFor(mini);
@@ -1872,7 +1890,7 @@
     for (const p of pieces) if (p.userData.type === 'mini') {
       p.userData.eventDice = []; p.userData.diceAdj = 0;
       p.userData.eliminated = false; p.userData.roundsSurvived = 0;
-      p.userData.ljExtra = false; p.userData.rerollsLeft = 0;
+      p.userData.ljExtra = false; p.userData.ljStage = 'approach'; p.userData.rerollsLeft = 0;
       if (p.userData.diceGroup) renderHeroDice3D(p);
     }
   }
@@ -1883,7 +1901,7 @@
   function drawFromCup(color, idx) {
     const arr = GAME.cup[color]; if (!arr || idx < 0 || idx >= arr.length || arr[idx] === null) return;
     const m = selectedMini(); if (!m || m.userData.color !== color) return;
-    if ((m.userData.eventDice || []).length >= requiredFor(m)) return;   // hero already full
+    if ((m.userData.eventDice || []).length >= assignCap(m)) return;     // at the current dice cap
     if (!(m.userData.eventDice || []).length) seedRerolls(m);            // first die → fresh rerolls
     const v = arr.splice(idx, 1)[0];
     (m.userData.eventDice = m.userData.eventDice || []).push(v);
@@ -1894,7 +1912,7 @@
   // Roll a FRESH random die onto the selected hero (general supply, cup untouched).
   function rollRandomDie(color) {
     const m = selectedMini(); if (!m || m.userData.color !== color) return;
-    if ((m.userData.eventDice || []).length >= requiredFor(m)) return;
+    if ((m.userData.eventDice || []).length >= assignCap(m)) return;     // at the current dice cap
     if (!(m.userData.eventDice || []).length) seedRerolls(m);            // first die → fresh rerolls
     (m.userData.eventDice = m.userData.eventDice || []).push(rollFace());
     renderHeroDice3D(m);
@@ -1921,6 +1939,20 @@
     notifyFlow();
   }
 
+  // Long Jump: commit the approach and begin the jump — unlocks the 2 jump dice. Only once the
+  // approach is fully diced and legal (a foul locks the field and there is no jump).
+  function commitLongJump(heroId) {
+    const m = findMini(heroId); if (!m) return;
+    const rules = rulesFor(m); if (!rules || !rules.longJump) return;
+    if (m.userData.ljStage === 'jump') return;                           // already jumping
+    const appN = 2 + (m.userData.ljExtra ? 1 : 0);
+    const app = (m.userData.eventDice || []).slice(0, appN);
+    if (app.length < appN) return;                                       // approach not finished
+    if (app.reduce((a, b) => a + b, 0) + heroStats(m).speed > 13) return; // fouled — no jump
+    m.userData.ljStage = 'jump';
+    notifyFlow();
+  }
+
   // Set-die: spend 1☀ (from the hero's owner) to bump one of a hero's dice ±1, within 1-6.
   function bumpHeroDie(heroId, idx, dir) {
     const m = findMini(heroId); if (!m) return;
@@ -1938,6 +1970,7 @@
     const m = findMini(heroId); if (!m) return;
     m.userData.eventDice = [];
     m.userData.diceAdj = 0;
+    m.userData.ljStage = 'approach';        // re-arm the Long Jump approach → jump flow
     renderHeroDice3D(m);
     notifyFlow();
   }
@@ -1975,16 +2008,28 @@
     // the selection always belongs to the panel owner (you play your dice onto your heroes)
     if (selectedHeroId !== null && !ownerHeroes.some((m) => m.userData.id === selectedHeroId)) selectedHeroId = null;
     if (selectedHeroId === null && ownerHeroes.length) selectedHeroId = ownerHeroes[0].userData.id;
+    const heroesRules = eventKey !== null ? rulesForKey(eventKey) : null;
     const heroes = ownerHeroes.map((m) => {
       const ci = miniCardInfo(m);
       const sc = eventKey !== null ? eventScore(m, eventKey) : { score: 0, foul: false };
+      // Long Jump split: approach (2 +opt) vs jump (2), and whether the jump is unlocked yet.
+      let lj = null;
+      if (heroesRules && heroesRules.longJump && !m.userData.eliminated) {
+        const appN = 2 + (m.userData.ljExtra ? 1 : 0);
+        const app = (m.userData.eventDice || []).slice(0, appN);
+        const approachDone = app.length >= appN;
+        const fouled = approachDone && app.reduce((a, b) => a + b, 0) + heroStats(m).speed > 13;
+        const stage = m.userData.ljStage === 'jump' ? 'jump' : 'approach';
+        lj = { appN, approachDone, fouled, stage, canJump: approachDone && !fouled && stage !== 'jump' };
+      }
       return { id: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, hasCard: ci.hasCard,
                dice: (m.userData.eventDice || []).slice(), required: requiredFor(m),
+               cap: eventKey !== null ? assignCap(m) : 0,
                score: sc.score, foul: sc.foul,
                scoreText: eventKey !== null ? eventDisplay(m, eventKey, true) : '',
                eliminated: !!m.userData.eliminated, roundsSurvived: m.userData.roundsSurvived || 0,
-               rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra };
+               rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra, lj };
     });
     // roll gate: in Upkeep, rolling ENDS a player's turn (auto-advance), so the phase can't
     // advance until EVERY seated player has rolled their cup.
@@ -2397,7 +2442,7 @@
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
-    rerollHeroDie, toggleLongJumpExtra,
+    rerollHeroDie, toggleLongJumpExtra, commitLongJump,
     nextEventParticipant, resolveEvent,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
