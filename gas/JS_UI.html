@@ -516,11 +516,17 @@
       esRows.innerHTML = summ.rows.map((row) => {
         const col = FLOW_COLORS[row.color] || '#ccc';
         const rew = (row.reward && row.reward !== '—') ? row.reward : '—';
+        const spon = row.sponsor
+          ? '<span class="espon" title="Sponsorship (awarded regardless of podium)">🎗 ' + row.sponsor + '</span>'
+          : '';
         return '<div class="esrow" style="color:' + col + '">'
-          + '<span class="ppl">' + row.place + '.</span>' + sym(row.symImg)
-          + '<span class="pwho">' + row.color + '</span>'
-          + '<span class="ptot">' + fmtTotal(row.total) + '</span>'
-          + '<span class="prew' + (rew === '—' ? ' none' : '') + '">' + rew + '</span>'
+          + '<div class="esmain">'
+          +   '<span class="ppl">' + row.place + '.</span>' + sym(row.symImg)
+          +   '<span class="pwho">' + row.color + '</span>'
+          +   '<span class="ptot">' + fmtTotal(row.total) + '</span>'
+          +   '<span class="prew' + (rew === '—' ? ' none' : '') + '">' + rew + '</span>'
+          + '</div>'
+          + spon
           + '</div>';
       }).join('');
       esNext.textContent = f.summaryLast ? 'Finish events ▶' : 'Next event ▶';

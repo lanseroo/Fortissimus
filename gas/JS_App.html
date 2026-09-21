@@ -1178,20 +1178,32 @@
       name: 'Wrestling', dir: 'max', dice: 2, rerolls: () => 0,
       objective: 'furthest from 7 wins (Str above, Speed below)',
       score: (sum, st) => sum > 7 ? (sum - 7) + st.str : sum < 7 ? (7 - sum) + st.speed : 0,
+      // sponsor keyed to score (dist-from-7 + stat); ≥4/5/6/7. House-added (no draft ladder).
+      sponsor: (v) => v >= 7 ? { coin: 1, zap: 1, sun: 2 } : v >= 6 ? { zap: 2, sun: 1 }
+                    : v >= 5 ? { coin: 2, sun: 1 } : v >= 4 ? { zap: 1 } : null,
     },
     'DiscusEvent.png': {
       name: 'Discus', dir: 'max', dice: 2, rerolls: (st) => st.speed,
       objective: 'sum + Strength, highest wins; reroll up to Speed times',
       score: (sum, st) => sum + st.str,
+      // sponsor keyed to score; 10/11/12/13 → ⚡ / ☀⚡ / ☀☀⚡ / ☀☀☀⚡.
+      sponsor: (v) => v >= 13 ? { zap: 1, sun: 3 } : v >= 12 ? { zap: 1, sun: 2 }
+                    : v >= 11 ? { zap: 1, sun: 1 } : v >= 10 ? { zap: 1 } : null,
     },
     'SprintEvent.png': {
       name: 'Sprint', dir: 'min', dice: 2, rerolls: (st) => st.str,
       objective: 'sum − Speed (min 1), LOWEST wins; reroll up to Strength times',
       score: (sum, st) => Math.max(1, sum - st.speed),
+      // sponsor keyed to score (lower = better); 1/2/3/4/5 → ⚡⚡⚡☀☀ … ⚡, ≥6 nothing.
+      sponsor: (v) => ({ 1: { zap: 3, sun: 2 }, 2: { zap: 2, sun: 2 }, 3: { zap: 2, sun: 1 },
+                         4: { zap: 1, sun: 1 }, 5: { zap: 1 } })[v] || null,
     },
     'LongJumpEvent.png': {
       name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
       objective: 'approach 2d(+1)+Speed must be ≤13 (or FOUL), + jump 2d+Str; highest wins',
+      // sponsor keyed to final score; 15/18/20/23 → 1/3/5/7 VP (VP = race steps here).
+      sponsor: (v) => v >= 23 ? { vp: 7 } : v >= 20 ? { vp: 5 } : v >= 18 ? { vp: 3 }
+                    : v >= 15 ? { vp: 1 } : null,
     },
     'HighJumpEvent.png': {
       name: 'High Jump', dir: 'max', multiRound: true, rerolls: (st) => st.str,
@@ -1204,6 +1216,9 @@
       ],
       passes: (sum, st, round) => (sum + st.speed) >= round.bar,
       roundValue: (sum, st) => sum + st.speed,
+      // sponsor keyed to bars cleared (rounds survived); bar 13 = Income Recollect (display-only).
+      sponsor: (v) => v >= 4 ? { note: 'Income Recollect' } : v >= 3 ? { zap: 1, sun: 2 }
+                    : v >= 2 ? { zap: 1, sun: 1 } : v >= 1 ? { zap: 2 } : null,
     },
     'ArcheryEvent.png': {
       name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0,
@@ -1216,6 +1231,9 @@
       ],
       passes: (sum, st, round) => sum >= (round.target - st.str) && sum <= (round.target + st.speed),
       roundValue: (sum) => sum,
+      // sponsor keyed to rounds survived; top rung adds a free market hero (display-only).
+      sponsor: (v) => v >= 4 ? { coin: 5, zap: 2, note: 'free market hero' } : v >= 3 ? { coin: 5, zap: 2 }
+                    : v >= 2 ? { coin: 4, zap: 1 } : v >= 1 ? { coin: 4 } : null,
     },
   };
   // Active mini-game file in each of the 3 event slots (0-2), seeded from LAYOUT and kept
@@ -1751,6 +1769,36 @@
     if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k));
   }
 
+  // §5 sponsorship: an independent ladder per event, awarded to EVERY hero (regardless of podium)
+  // by its absolute result — score for single-shot, rounds survived for multi-round. A fouled
+  // single-shot hero earns nothing. Returns {coin?,zap?,sun?,vp?,note?} or null.
+  function sponsorReward(mini, key) {
+    const rules = rulesForKey(key);
+    if (!rules || typeof rules.sponsor !== 'function') return null;
+    let v;
+    if (rules.multiRound) v = mini.userData.roundsSurvived || 0;
+    else { const sc = eventScore(mini, key); if (sc.foul) return null; v = sc.score; }
+    return rules.sponsor(v);
+  }
+  // Auto-credit the grantable part (coin/zap/sun, and VP as race steps); note (free hero / Income
+  // Recollect) is display-only until those mechanics exist.
+  function grantSponsorReward(mini, rw) {
+    if (!rw) return;
+    const r = GAME.res[mini.userData.color];
+    if (r) { r.coin += rw.coin || 0; r.zap += rw.zap || 0; r.sun += rw.sun || 0; }
+    if (rw.vp) advanceRace(mini.userData.color, rw.vp);
+  }
+  function fmtSponsor(rw) {
+    if (!rw) return '';
+    const parts = [];
+    if (rw.coin) parts.push(rw.coin + '🪙');
+    if (rw.zap)  parts.push(rw.zap + '⚡');
+    if (rw.sun)  parts.push(rw.sun + '☀');
+    if (rw.vp)   parts.push('+' + rw.vp + ' VP 🏁');
+    if (rw.note) parts.push(rw.note);
+    return parts.join(' ');
+  }
+
   // Score the current event: rank by total, apply podium rewards, open the waiting walk.
   function scoreEvent() {
     const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
@@ -1763,7 +1811,7 @@
       const rows = ranked.map((m, i) => {
         const ci = miniCardInfo(m);
         return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-                 face: ci.face, total: disp(m), place: i + 1, reward: '⚔ arena' };
+                 face: ci.face, total: disp(m), place: i + 1, reward: '⚔ arena', sponsor: '' };
       });
       GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
       finishEventResolution();
@@ -1786,8 +1834,10 @@
       if (pl === 0)      { grantTicket(m); reward = '🎟 ticket'; }
       else if (pl === 2) { advanceRace(m.userData.color, 1); reward = '+1 VP 🏁'; }
       // pl === 1 (2nd): column +1 only → Chunk B (nothing automated in Chunk A).
+      const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
+      grantSponsorReward(m, sw);
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total: disp(m), place: pl + 1, reward };
+               face: ci.face, total: disp(m), place: pl + 1, reward, sponsor: fmtSponsor(sw) };
     });
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
