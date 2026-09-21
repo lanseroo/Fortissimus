@@ -261,6 +261,17 @@
   #cwBtns { flex-wrap: wrap; }
   .cwbtn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
   .cwbtn .psym { width: 15px; height: 15px; flex: 0 0 auto; }
+  /* modWait (Cheer/Jeer) modal reuses the barracks look; one row per hero target. */
+  #modalBox #modWait { margin: 0; padding: 0; border: 0; }
+  #modalBox #modWait[hidden] { display: none; }
+  #mwLine { font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; line-height: 1.35; }
+  #mwTargets { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .mwrow { display: flex; align-items: center; gap: 8px; }
+  .mwrow .mwhero { display: inline-flex; align-items: center; gap: 5px; min-width: 52px; }
+  .mwrow .psym { width: 16px; height: 16px; flex: 0 0 auto; }
+  .mwbtn { min-width: 40px; padding: 4px 8px; border-radius: 6px; border: 1px solid #3a3d42;
+           background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
+  .mwbtn:hover { background: #3a3d42; }
 
   /* ------------------------------------------------------------- VP panel */
   #vpPanel {

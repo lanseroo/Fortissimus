@@ -1033,8 +1033,8 @@
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
-                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, eventKeys: [],
-                 pendingTurnEnd: false };
+                 eventIndex: 0, evtTurnIndex: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
+                 eventKeys: [], pendingTurnEnd: false };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1204,7 +1204,10 @@
 
   // ---- per-hero event dice ----
   const findMini = (id) => pieces.find((p) => p.userData.type === 'mini' && p.userData.id === id) || null;
+  const findCard = (id) => pieces.find((p) => p.userData.type === 'card' && p.userData.id === id) || null;
   const selectedMini = () => findMini(selectedHeroId);
+  // A hero's competition score: its assigned dice plus any Cheer/Jeer adjustment applied this event.
+  const heroTotal = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0) + (m.userData.diceAdj || 0);
 
   // Which slot index (0-2) an event-grid mini's strip maps to → its active mini-game.
   // Strips sit at board x -125/0/125 = active event slots 0/1/2 (same columns).
@@ -1292,6 +1295,7 @@
     mini.userData.waiting = true;
     mini.userData.locked = true;
     mini.userData.eventDice = [];
+    mini.userData.diceAdj = 0;
     if (mini.userData.diceGroup) renderHeroDice3D(mini);
     const cs = cardSlotOf(mini);
     if (cs) placeOnSlot(mini, cs);                          // lands on top of its card
@@ -1309,6 +1313,7 @@
     mini.userData.waiting = false;
     mini.userData.locked = false;
     mini.userData.eventDice = [];
+    mini.userData.diceAdj = 0;
     if (mini.userData.diceGroup) renderHeroDice3D(mini);
     const hc = homeCircleOf(mini);
     if (hc) placeOnSlot(mini, hc);
@@ -1374,13 +1379,92 @@
     advanceColWait();
   }
 
-  // Resolve event ▶: rank heroes by dice total with TIE-AWARE (competition) placing, hand out
-  // podium rewards (1st = Colosseum ticket; 3rd = +1 VP), then open the waiting-decision walk
-  // for every non-1st participant before advancing. Colosseum: seat-only (no fight in Chunk A).
+  // ---- Cheer/Jeer modifiers (modWait) --------------------------------------------------------
+  // After every hero at an event has its dice, but BEFORE scoring, each player holding a Cheer or
+  // Jeer card in HAND gets a modal (turn order; two modals if they hold both) to optionally spend
+  // it, nudging one hero's total: Cheer ±2 on the OWNER's own heroes at the event, Jeer ±1 on ANY
+  // hero at the event. Direction is the player's choice; a used card discards, an unused one stays.
+  const isModifierCard = (c) => c.userData.type === 'card' && c.userData.cardKind === 'modifier';
+  const inHand = (c) => c.userData.slot && c.userData.slot.role === 'hand';
+  const cardKindOf = (c) => (c.userData.face === 'Cheer.png' ? 'cheer' : 'jeer');
+  // Build the queue of hand modifier cards (turn order) whose owner has a valid target this event.
+  function buildModWaitQueue(k) {
+    const atEvent = minisAtEvent(k);
+    if (!atEvent.length) return [];
+    const q = [];
+    for (const color of GAME.order) {
+      const cards = pieces
+        .filter((c) => isModifierCard(c) && inHand(c) && c.userData.owner === color)
+        .sort((a, b) => (a.userData.slot.ord ?? 0) - (b.userData.slot.ord ?? 0));
+      for (const c of cards) {
+        const kind = cardKindOf(c);
+        const hasTarget = kind === 'cheer'
+          ? atEvent.some((m) => m.userData.color === color)   // Cheer only your own heroes
+          : atEvent.length > 0;                               // Jeer any hero at the event
+        if (hasTarget) q.push({ cardId: c.userData.id, color, kind });
+      }
+    }
+    return q;
+  }
+  // The current Cheer/Jeer modal step, or null when the queue is drained.
+  function modWaitStep() {
+    const mw = GAME.modWait; if (!mw || !mw.queue.length) return null;
+    const head = mw.queue[0];
+    const c = findCard(head.cardId);
+    if (!c || !inHand(c) || c.userData.owner !== head.color) { mw.queue.shift(); return modWaitStep(); }
+    const mag = head.kind === 'cheer' ? 2 : 1;
+    const targets = minisAtEvent(mw.key)
+      .filter((m) => head.kind === 'jeer' || m.userData.color === head.color)
+      .map((m) => { const ci = miniCardInfo(m);
+        return { miniId: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null,
+                 symImg: ci.symImg, total: heroTotal(m) }; });
+    if (!targets.length) { mw.queue.shift(); return modWaitStep(); }
+    return { kind: head.kind, cardId: head.cardId, color: head.color, mag,
+             label: labelForEvent(mw.key), targets };
+  }
+  const advanceModWait = () => {
+    if (!modWaitStep()) { GAME.modWait = null; scoreEvent(); } else notifyFlow();
+  };
+  // Spend the head card on one hero (dir = +1/-1); applies ±mag to its total, then discards.
+  function modWaitUse(cardId, miniId, dir) {
+    const mw = GAME.modWait; if (!mw || !mw.queue.length || mw.queue[0].cardId !== cardId) return;
+    const head = mw.queue[0], c = findCard(cardId); if (!c) return;
+    const m = findMini(miniId); if (!m) return;
+    const s = m.userData.slot; if (!s || !s.event || eventSlotIndex(s.bx) !== mw.key) return;
+    if (head.kind === 'cheer' && m.userData.color !== head.color) return;   // Cheer = own heroes only
+    const mag = head.kind === 'cheer' ? 2 : 1;
+    m.userData.diceAdj = (m.userData.diceAdj || 0) + (dir > 0 ? mag : -mag);
+    if (m.userData.diceGroup) renderHeroDice3D(m);
+    const disc = discardSlotOf(c.userData.owner);
+    if (disc) { placeOnSlot(c, disc); c.userData.zone = 'discard'; setCardFace(c, c.userData.face); }
+    mw.queue.shift();
+    advanceModWait();
+  }
+  // Decline: keep the card in hand, move to the next holder.
+  function modWaitPass(cardId) {
+    const mw = GAME.modWait; if (!mw || !mw.queue.length || mw.queue[0].cardId !== cardId) return;
+    mw.queue.shift();
+    advanceModWait();
+  }
+
+  // Resolve event ▶: run the Cheer/Jeer window first (non-Colosseum), then rank heroes by
+  // (dice + modifier) total with TIE-AWARE (competition) placing, hand out podium rewards
+  // (1st = Colosseum ticket; 3rd = +1 VP), and open the waiting-decision walk for every
+  // non-1st participant before advancing. Colosseum: seat-only (no fight in Chunk A).
   function resolveEvent() {
     const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
+    if (k !== 'ColosseumBoard.png') {
+      const queue = buildModWaitQueue(k);
+      if (queue.length) { GAME.modWait = { key: k, queue }; notifyFlow(); return; }
+    }
+    scoreEvent();
+  }
+
+  // Score the current event: rank by total, apply podium rewards, open the waiting walk.
+  function scoreEvent() {
+    const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
     const oi = (c) => GAME.order.indexOf(c);
-    const total = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0);
+    const total = (m) => heroTotal(m);
     const ranked = minisAtEvent(k).slice().sort((a, b) =>
       total(b) - total(a) || oi(a.userData.color) - oi(b.userData.color));
 
@@ -1426,6 +1510,7 @@
   // decision, mark the event resolved, and advance the guided walk to the next event.
   function finishEventResolution() {
     GAME.colWait = null;
+    GAME.modWait = null;
     const k = curEventKey();
     GAME.resolved.push(k);
     GAME.eventIndex++;                                              // next non-empty event
@@ -1454,6 +1539,7 @@
       const slot = pool[i]; if (!slot) break;
       placeOnSlot(m, slot);
       m.userData.eventDice = [];
+      m.userData.diceAdj = 0;
       if (m.userData.diceGroup) renderHeroDice3D(m);
       i++;
     }
@@ -1468,6 +1554,21 @@
       const s = m.userData.slot;
       const atHome = s && s.role === 'hero-market' && s.owner === m.userData.color && s.sym === m.userData.sym;
       if (!atHome) sendHomeDiscard(m);
+    }
+  }
+
+  // After all events resolve, every "free" faction card — one that isn't in a hand, isn't already
+  // in the deck/discard, and isn't tied to a waiting (Colosseum-bound) mini — goes to its owner's
+  // discard pile. (Market cards have no owner and are left alone.)
+  function sweepFreeCards() {
+    for (const c of pieces.slice()) {
+      if (c.userData.type !== 'card' || !c.userData.owner) continue;
+      if (c.userData.zone === 'deck' || c.userData.zone === 'discard') continue;
+      const s = c.userData.slot;
+      if (s && s.role === 'hand') continue;                        // still held in a hand
+      if (s && s.role === 'card' && s.occupants.some((o) => o.userData.type === 'mini' && o.userData.waiting)) continue;
+      const disc = discardSlotOf(c.userData.owner);
+      if (disc) { placeOnSlot(c, disc); c.userData.zone = 'discard'; setCardFace(c, c.userData.face); }
     }
   }
 
@@ -1500,7 +1601,7 @@
     mini.add(dg);
   }
   function clearAllHeroDice() {
-    for (const p of pieces) if (p.userData.type === 'mini') { p.userData.eventDice = []; if (p.userData.diceGroup) renderHeroDice3D(p); }
+    for (const p of pieces) if (p.userData.type === 'mini') { p.userData.eventDice = []; p.userData.diceAdj = 0; if (p.userData.diceGroup) renderHeroDice3D(p); }
   }
 
   function selectHero(id) { selectedHeroId = id; notifyFlow(); }
@@ -1541,6 +1642,7 @@
   function clearHeroDice(heroId) {
     const m = findMini(heroId); if (!m) return;
     m.userData.eventDice = [];
+    m.userData.diceAdj = 0;
     renderHeroDice3D(m);
     notifyFlow();
   }
@@ -1610,6 +1712,7 @@
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
       colWait: GAME.colWait ? { key: GAME.colWait.key, label: GAME.colWait.label, step: colWaitStep() } : null,
+      modWait: GAME.modWait ? { key: GAME.modWait.key, step: modWaitStep() } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
       cup: JSON.parse(JSON.stringify(GAME.cup)),
       cupRolled: { ...GAME.cupRolled },
@@ -1656,14 +1759,15 @@
     }
     // Leaving events for the Market: every mini that competed (or sat at the barracks) returns
     // home and its hero card is discarded — unless it's waiting for the Colosseum (kept locked).
-    if (curPhase() === 'Market' && forward) returnPlayedMinisHome();
+    if (curPhase() === 'Market' && forward) { returnPlayedMinisHome(); sweepFreeCards(); }
     const phase = curPhase();
     if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
       // on forward entry to the Colosseum, seat every committed (waiting) mini into the arena
       if (phase === 'Colosseum' && forward) seatWaitingIntoArena();
       // freeze the walk order for this phase (see curEventKey), then start at the first event
       GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
-      GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null; GAME.colWait = null;
+      GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
+      GAME.colWait = null; GAME.modWait = null;
       selectedHeroId = null;
       const k = curEventKey();
       if (k !== null) { activeColorName = curEventPlayer(); if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k)); }
@@ -1855,16 +1959,40 @@
   // them in a column just below the deck. Like the dice cup, the hand is private —
   // it'll be hidden from other players when visibility lands.
   function dealHand(colorName, n = 3) {
-    const deck = pieces
+    const deckOf = () => pieces
       .filter((p) => p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'deck')
       .sort((p, q) => q.position.y - p.position.y);   // top of the pile first
     const hand = slotsByRole('hand', colorName).sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0));
-    const take = deck.slice(0, n);
-    take.forEach((c) => {
+    const b = LAYOUT.find((l) => l.color === colorName);
+    const anchor = b ? deckAnchor(b) : null;
+    for (let i = 0; i < n; i++) {
+      const free = hand.find((s) => !s.occupants.length);   // fill left→right, keep any held cards
+      if (!free) break;
+      let deck = deckOf();
+      // Draw pile empty? Shuffle the discard pile back into it, then resume dealing.
+      if (!deck.length) { reshuffleDiscardIntoDeck(colorName, anchor); deck = deckOf(); }
+      const c = deck[0]; if (!c) break;
       c.userData.zone = 'hand';
       setCardFace(c, c.userData.face);               // reveal to the active player
-      const free = hand.find((s) => !s.occupants.length);   // fill left→right, keep any held cards
-      if (free) placeOnSlot(c, free);
+      placeOnSlot(c, free);
+    }
+  }
+
+  // Shuffle a faction's discard pile back into its (face-down) draw pile, restacked at the deck
+  // anchor — used by dealHand when the draw pile runs dry mid-deal.
+  function reshuffleDiscardIntoDeck(colorName, anchor) {
+    const disc = pieces.filter((p) =>
+      p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'discard');
+    if (!disc.length) return;
+    for (let i = disc.length - 1; i > 0; i--) {          // Fisher-Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [disc[i], disc[j]] = [disc[j], disc[i]];
+    }
+    disc.forEach((c, i) => {
+      freeSlot(c);                                        // leave the discard slot
+      c.userData.zone = 'deck';
+      setCardFace(c, 'BackofCards.png');                  // face-down draw pile again
+      if (anchor) c.position.set(anchor.x + (Math.random() - 0.5) * 1.4, 0.06 + i * 0.05, anchor.z + (Math.random() - 0.5) * 1.4);
     });
   }
 
@@ -1937,6 +2065,7 @@
     selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
     nextEventParticipant, resolveEvent,
     colWaitPay, colWaitSkip, colWaitRelease,
+    modWaitUse, modWaitPass,
     barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;
