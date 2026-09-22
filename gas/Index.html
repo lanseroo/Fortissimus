@@ -127,7 +127,6 @@
 
       <!-- CENTER: 3D table -->
       <div id="viewer">
-        <div id="vpFlash" aria-hidden="true"></div>   <!-- VP banner burst overlay (bursts appended in JS_UI) -->
         <div id="miniCard" hidden>
           <button id="miniCardClose" title="Close">✕</button>
           <div id="miniCardHead"></div>
@@ -209,6 +208,10 @@
         </div>
       </div>
     </div>
+
+    <!-- VP banner burst overlay — top-level & fixed so it renders ABOVE the modal dimming screen
+         (#modalBackdrop). Bursts are appended here in JS_UI. -->
+    <div id="vpFlash" aria-hidden="true"></div>
 
     <!-- Expose the repo asset base to the client -->
     <script>window.ASSET_BASE = "<?= ASSET_BASE ?>";</script>

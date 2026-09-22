@@ -3254,6 +3254,22 @@
   // and random 0–5 starting coin/⚡/☀ per faction. For quickly playtesting combat.
   function simToColosseum(heroPool = []) {
     initGame(heroPool);                                     // full board setup (round 1 / Upkeep)
+    // initGame's minis stream in ASYNC (each STL loads in a loader.load callback — see addMini),
+    // so `pieces` is still empty the instant this returns. Wait for the squad to arrive, THEN
+    // build the arena; otherwise we'd seat nothing and land back at round-1 Upkeep.
+    const target = SLOTS.filter((s) => s.role === 'hero-market').length || 20;
+    const t0 = Date.now();
+    const build = () => buildColosseumSandbox(heroPool);
+    const waitForMinis = () => {
+      const n = pieces.filter((m) => m.userData.type === 'mini').length;
+      if (n >= target || Date.now() - t0 > 6000) build();   // all loaded (or give up after 6s)
+      else setTimeout(waitForMinis, 60);
+    };
+    waitForMinis();
+  }
+
+  // Second half of the sandbox jump — runs once the minis have finished loading.
+  function buildColosseumSandbox(heroPool = []) {
     const r5 = () => Math.floor(Math.random() * 6);         // 0..5
     const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     // pick a random squad from each team (0..3), keep the total playable (2..8)
@@ -3261,7 +3277,7 @@
     for (const nat of NATIONS) {
       const mine = shuffle(pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === nat.color));
       const cnt = Math.floor(Math.random() * 4);            // 0..3 from this team
-      for (let i = 0; i < cnt && chosen.length < 8; i++) chosen.push(mine[i]);
+      for (let i = 0; i < cnt && chosen.length < 8; i++) if (mine[i]) chosen.push(mine[i]);
     }
     if (chosen.length < 2) {                                // guarantee a fight
       const spare = shuffle(pieces.filter((m) => m.userData.type === 'mini' && !chosen.includes(m)));
@@ -3278,10 +3294,16 @@
     }
     // random starting economy 0..5 of each per faction
     for (const c of ALL_COLORS) GAME.res[c] = { coin: r5(), zap: r5(), sun: r5() };
-    // jump straight to a Colosseum interlude and open the fight
-    GAME.round = 3; GAME.order = computeOrder(GAME.round);
+    // jump straight to a Colosseum interlude and open the fight (bypass the event walk /
+    // "Resolve event" gate — seat the squad, then hand off to startColosseum directly).
+    GAME.round = 3; GAME.order = computeOrder(GAME.round); GAME.turnIndex = 0;
     GAME.phaseIndex = phasesFor(GAME.round).indexOf('Colosseum');
-    enterPhase(true);                                       // seats the waiting minis + startColosseum()
+    seatWaitingIntoArena();                                 // move the waiting minis into the arena
+    GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
+    GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
+    GAME.colWait = null; GAME.modWait = null; GAME.summaryOpen = false;
+    selectedHeroId = null;
+    startColosseum();                                       // draws a random gladiator + opens combat
     notifyFlow();
   }
 

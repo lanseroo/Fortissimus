@@ -613,14 +613,16 @@
   .stand .radv:hover { background: #3a3d42; }
 
   /* VP banner burst — flashes over the board whenever a faction earns VP */
+  /* Fixed & top-level (a direct <body> child) with a z-index above #modalBackdrop (50),
+     so VP bursts float over the dimming screen instead of being buried in the viewer. */
   #vpFlash {
-    position: absolute; inset: 0; z-index: 20;
+    position: fixed; inset: 0; z-index: 60;
     pointer-events: none; overflow: hidden;
   }
   .vpburst {
-    position: absolute; left: 50%; top: 42%;
+    position: absolute; left: 50%; top: 84px;
     width: 150px; height: 188px;
-    margin-left: -75px; margin-top: -94px;
+    margin-left: -75px; margin-top: 0;
     transform-origin: 50% 50%;
     animation: vpburst 1700ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
     filter: drop-shadow(0 0 14px var(--vpglow, #f5b800)) drop-shadow(0 6px 12px rgba(0,0,0,0.6));
