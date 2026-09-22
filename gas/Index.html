@@ -78,6 +78,7 @@
       <fieldset>
         <legend>View</legend>
         <button id="initGame" title="Seat every faction's starting pieces + deal the market">New game</button>
+        <button id="simColosseum" title="Sandbox: jump a fresh game straight to a Colosseum round — random gladiator, squads, cards &amp; economy">Sim to Colosseum</button>
         <button id="resetView">Frame table</button>
         <button id="clearBtn">Clear pieces</button>
         <label class="chk"><input id="showSlots" type="checkbox"> Show slots</label>
@@ -126,6 +127,7 @@
 
       <!-- CENTER: 3D table -->
       <div id="viewer">
+        <div id="vpFlash" aria-hidden="true"></div>   <!-- VP banner burst overlay (bursts appended in JS_UI) -->
         <div id="miniCard" hidden>
           <button id="miniCardClose" title="Close">✕</button>
           <div id="miniCardHead"></div>

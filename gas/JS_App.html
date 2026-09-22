@@ -1082,6 +1082,9 @@
                  colPush: null, colSelId: null, colAnimating: false,
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
+  let vpFlashCb = null;                          // JS_UI VP-banner flash (set via PT.onVPFlash)
+  // Flash the VP banner on screen with the earned value (called wherever VPs are rewarded).
+  function flashVP(color, amount) { if (amount > 0 && vpFlashCb) vpFlashCb({ color, amount }); }
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
   function initRes() { for (const c of ALL_COLORS) GAME.res[c] = { coin: seatBonusOf(c), zap: 0, sun: 0 }; }
@@ -1137,7 +1140,7 @@
   // manual correction); bank/unbank laps on the 0-6 bar as it crosses the line.
   // One space holds one runner: after a forward move, if the resting space already
   // has another player's marker, hop forward to the next empty space (banking laps).
-  function advanceRace(color, n = 1) {
+  function advanceRace(color, n = 1, opts) {
     const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
     const m = raceMarkerOf(color); if (!m) return;
     const L = RACE_LANE.length;
@@ -1155,6 +1158,7 @@
     if (n > 0) { let guard = 0; while (occupiedByOther(st.pos) && guard++ < L) stepFwd(); }
     placeOnTrackOrd(color, 'lap', st.laps);
     placeOnSlot(m, slotForPos(st.pos));
+    if (n > 0 && !(opts && opts.silent)) flashVP(color, n);   // celebrate a VP gain
     notifyFlow();
   }
 
@@ -2521,8 +2525,10 @@
         c.hearts = 0; c.deathHit = f.color;
         GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + c.level;
         c.log.push('🏆 ' + f.color + ' lands the killing blow! (+' + c.level + ' VP)');
+        flashVP(f.color, dmg + c.level);   // damage + killing-blow bonus
         c.counterQueue = []; c.sub = 'done'; clearTurnMarker(); notifyFlow(); return;
       }
+      flashVP(f.color, dmg);               // heart damage banks that many VP
     } else { c.log.push('🛡 ' + symName(f) + ' rolls ' + total + ' ≤ Shield ' + c.shield); }
     if (!c.counterQueue.length) colFinishRound(); else { setTurnMarker(c.counterQueue[0]); notifyFlow(); }
   }
@@ -2610,7 +2616,7 @@
     if (GAME.result) return;
     for (const color of ALL_COLORS) {
       const bonus = (GAME.pendingVP[color] || 0) + 3 * elysiumCountOf(color);
-      if (bonus) advanceRace(color, bonus);
+      if (bonus) advanceRace(color, bonus, { silent: true });   // end screen tallies these; no flash barrage
     }
     const standings = ALL_COLORS.map((color) => ({
       color, laps: GAME.race[color]?.laps || 0, pos: GAME.race[color]?.pos || 0,
@@ -3243,11 +3249,48 @@
     startGame();   // initialize the flow backbone (round 1, phase 0, seat order, VP=0)
   }
 
+  // ---- sandbox: jump a fresh game straight to the start of a Colosseum round ----
+  // Random gladiator, a random squad from each team, a random hero/plebe card per fighter,
+  // and random 0–5 starting coin/⚡/☀ per faction. For quickly playtesting combat.
+  function simToColosseum(heroPool = []) {
+    initGame(heroPool);                                     // full board setup (round 1 / Upkeep)
+    const r5 = () => Math.floor(Math.random() * 6);         // 0..5
+    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    // pick a random squad from each team (0..3), keep the total playable (2..8)
+    const chosen = [];
+    for (const nat of NATIONS) {
+      const mine = shuffle(pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === nat.color));
+      const cnt = Math.floor(Math.random() * 4);            // 0..3 from this team
+      for (let i = 0; i < cnt && chosen.length < 8; i++) chosen.push(mine[i]);
+    }
+    if (chosen.length < 2) {                                // guarantee a fight
+      const spare = shuffle(pieces.filter((m) => m.userData.type === 'mini' && !chosen.includes(m)));
+      while (chosen.length < 2 && spare.length) chosen.push(spare.shift());
+    }
+    // give every fighter a card (hero or plebe) on its tied card slot so it has Str/Speed
+    for (const m of chosen) {
+      const color = m.userData.color, sym = m.userData.sym;
+      const useHero = heroPool.length && Math.random() < 0.6;
+      const face = useHero ? heroPool[Math.floor(Math.random() * heroPool.length)] : (color + 'Pliebe.png');
+      const slot = SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
+      if (slot) { const card = addToken(face, 22, 'card'); card.userData.face = face; card.userData.cardKind = useHero ? 'hero' : 'plebe'; placeOnSlot(card, slot); }
+      m.userData.waiting = true; m.userData.locked = true;  // committed to the arena
+    }
+    // random starting economy 0..5 of each per faction
+    for (const c of ALL_COLORS) GAME.res[c] = { coin: r5(), zap: r5(), sun: r5() };
+    // jump straight to a Colosseum interlude and open the fight
+    GAME.round = 3; GAME.order = computeOrder(GAME.round);
+    GAME.phaseIndex = phasesFor(GAME.round).indexOf('Colosseum');
+    enterPhase(true);                                       // seats the waiting minis + startColosseum()
+    notifyFlow();
+  }
+
   // ------------------------------------------------------------------ public API
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable, initGame, dealHand,
+    setEventSlot, frameTable, initGame, dealHand, simToColosseum,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
+    onVPFlash: (cb) => { vpFlashCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
     onMiniPlace: (cb) => { miniPlaceCb = cb; }, sendMiniTo,
     onMarketBuy: (cb) => { marketBuyCb = cb; }, marketBuyInfo, buyMarketCard,

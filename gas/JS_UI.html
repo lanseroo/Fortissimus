@@ -109,6 +109,10 @@
     PT.initGame(HEROES.map((h) => h[0]));
     dealEvents(randomEvents());
   });
+  document.getElementById('simColosseum').addEventListener('click', () => {
+    PT.simToColosseum(HEROES.map((h) => h[0]));         // fresh game → straight into a Colosseum round
+    dealEvents(randomEvents());                         // seed the event slots (harmless for combat)
+  });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
   document.getElementById('clearBtn').addEventListener('click', () => PT.clearPieces());
   const showSlots = document.getElementById('showSlots');
@@ -780,6 +784,20 @@
 
   PT.onFlow(renderFlow);
   renderFlow(PT.getFlow());
+
+  // ---- VP banner burst: flash the VP.png standard with the earned value over the board ----
+  const vpFlashEl = document.getElementById('vpFlash');
+  PT.onVPFlash(({ color, amount }) => {
+    if (!vpFlashEl || !amount) return;
+    const b = document.createElement('div');
+    b.className = 'vpburst';
+    b.style.setProperty('--vpglow', FLOW_COLORS[color] || '#f5b800');
+    b.style.marginLeft = (-75 + (Math.random() * 60 - 30)) + 'px';   // slight jitter so stacked bursts read
+    b.innerHTML = '<img src="' + window.ASSET_BASE + 'VP.png" alt="VP">'
+      + '<span class="vpnum">+' + amount + '</span><span class="vplbl">VP</span>';
+    b.addEventListener('animationend', () => b.remove());
+    vpFlashEl.appendChild(b);
+  });
   nextBtn.addEventListener('click', () => PT.nextPhase());
   prevBtn.addEventListener('click', () => PT.prevPhase());
   nextPlayerBtn.addEventListener('click', () =>
