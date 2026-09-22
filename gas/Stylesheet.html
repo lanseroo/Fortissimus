@@ -362,6 +362,57 @@
             background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
   #esNext:hover { background: #3a3d42; }
 
+  /* Colosseum combat modal */
+  #modalBox #colFight { margin: 0; padding: 0; border: 0; }
+  #modalBox #colFight[hidden] { display: none; }
+  #cfHead { font-size: 0.9rem; font-weight: 700; color: #ffd479; margin-bottom: 8px; line-height: 1.4; }
+  #cfHead b { color: #ff9d5c; }
+  .heartbar { position: relative; height: 20px; border-radius: 10px; background: #3a1414;
+              border: 1px solid #5a1e1e; overflow: hidden; margin-bottom: 10px; }
+  #cfHeartFill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #b81d1d, #e34d4d);
+                 transition: width 0.3s ease; }
+  #cfHearts span { position: relative; z-index: 1; display: block; text-align: center; line-height: 20px;
+                   font-size: 0.78rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000; }
+  #cfFighters { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+  .colf { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; padding: 2px 4px;
+          border-radius: 4px; background: #26282c; }
+  .colf.dead { opacity: 0.42; }
+  .colf .psym { width: 15px; height: 15px; flex: 0 0 auto; }
+  .colf .colfpos { min-width: 50px; font-weight: 600; }
+  .colf .colfst { opacity: 0.75; min-width: 62px; }
+  .colf .colftag { flex: 1 1 auto; text-align: right; }
+  #cfBody { font-size: 0.85rem; margin-bottom: 10px; line-height: 1.4; }
+  .colbuyer { font-weight: 700; margin-bottom: 6px; }
+  .actstrip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .actbtn { padding: 5px 9px; border-radius: 6px; border: 1px solid #3a3d42; background: #2b2e33;
+            color: #eee; cursor: pointer; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; }
+  .actbtn:hover:not([disabled]) { background: #3a3d42; }
+  .actbtn[disabled] { opacity: 0.4; cursor: default; }
+  .actbtn.used { opacity: 0.55; background: #23252a; border-style: dashed; cursor: default; }
+  .actbtn .psym { width: 14px; height: 14px; }
+  .colatk, .colcnt { padding: 6px 0; }
+  .colwin { font-size: 1rem; font-weight: 700; color: #ffd479; }
+  .collose { font-size: 0.95rem; font-weight: 600; color: #ff8080; }
+  .cflog { font-size: 0.74rem; color: #aeb4bc; margin-bottom: 10px; max-height: 92px; overflow-y: auto;
+           border-top: 1px solid #2a2d31; padding-top: 6px; line-height: 1.5; }
+  #cfBtns { display: flex; flex-wrap: wrap; gap: 8px; }
+  #cfBtns .cwbtn { flex: 1 1 auto; padding: 8px; border-radius: 7px; border: 1px solid #3a3d42;
+                   background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
+  #cfBtns .cwbtn:hover:not([disabled]) { background: #3a3d42; }
+  #cfBtns .cwbtn[disabled] { opacity: 0.4; cursor: default; }
+
+  /* End-game victory screen */
+  #modalBox #endGame { margin: 0; padding: 0; border: 0; }
+  #modalBox #endGame[hidden] { display: none; }
+  #egHead { font-size: 1.1rem; font-weight: 700; color: #ffd479; margin-bottom: 12px; text-align: center; }
+  #egRows { display: flex; flex-direction: column; gap: 4px; }
+  .winrow { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; padding: 5px 4px;
+            border-bottom: 1px solid #2a2d31; }
+  .winrow:last-child { border-bottom: 0; }
+  .winrow .ppl { width: 16px; text-align: right; opacity: 0.85; }
+  .winrow .pwho { min-width: 56px; font-weight: 700; }
+  .winrow .wstat { opacity: 0.82; font-size: 0.78rem; }
+
   /* live running-total / target-window chip in a hero row */
   .hero-live { font-size: 0.72rem; margin: -2px 0 6px; }
   .hsum { color: #b6bcc4; font-weight: 600; }

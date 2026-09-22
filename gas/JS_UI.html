@@ -146,6 +146,18 @@
   const esObj = document.getElementById('esObj');
   const esRows = document.getElementById('esRows');
   const esNext = document.getElementById('esNext');
+  const colFight = document.getElementById('colFight');
+  const cfHead = document.getElementById('cfHead');
+  const cfHearts = document.getElementById('cfHearts');
+  const cfHeartFill = document.getElementById('cfHeartFill');
+  const cfHeartTxt = document.getElementById('cfHeartTxt');
+  const cfFighters = document.getElementById('cfFighters');
+  const cfBody = document.getElementById('cfBody');
+  const cfLog = document.getElementById('cfLog');
+  const cfBtns = document.getElementById('cfBtns');
+  const endGame = document.getElementById('endGame');
+  const egHead = document.getElementById('egHead');
+  const egRows = document.getElementById('egRows');
   const standings = document.getElementById('standings');
 
   // ---- left player panel (current player's cup / economy / competition) ----
@@ -538,7 +550,91 @@
       eventSummary.hidden = true;
     }
 
-    modalBackdrop.hidden = !(f.barracks || cw || mw || summ);
+    // Colosseum co-op combat (center modal): guided round-by-round walk against a gladiator.
+    const cf = f.colosseum;
+    if (cf) {
+      colFight.hidden = false;
+      const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
+      cfHead.innerHTML = '⚔ Gladiator <b>Lvl ' + cf.glad.level + '</b> · Round ' + cf.round
+        + ' · targets <b>' + cf.glad.target + '</b> · atk d6' + (cf.glad.atkMod ? ('+' + cf.glad.atkMod) : '')
+        + ' · Shield ' + cf.glad.shield;
+      const pct = Math.max(0, Math.round(100 * cf.glad.hearts / cf.glad.heartsMax));
+      cfHeartFill.style.width = pct + '%';
+      cfHeartTxt.textContent = '❤ ' + cf.glad.hearts + ' / ' + cf.glad.heartsMax;
+      cfFighters.innerHTML = cf.fighters.map((ff) => {
+        const col = FLOW_COLORS[ff.color] || '#ccc';
+        const tags = [ff.doubled ? '⚔⚔' : '', ff.rage ? '🔥' : '', (ff.targeted && ff.alive) ? '🎯' : ''].filter(Boolean).join(' ');
+        return '<div class="colf' + (ff.alive ? '' : ' dead') + '" style="color:' + col + '">'
+          + sym(ff.symImg) + '<span class="colfpos">' + (ff.alive ? ('pos ' + ff.pos) : '✝') + '</span>'
+          + '<span class="colfst">S' + ff.str + '/V' + ff.speed + '</span>'
+          + '<span class="colftag">' + tags + '</span></div>';
+      }).join('');
+      let body = '', btns = '';
+      if ((cf.sub === 'buyA' || cf.sub === 'buyB') && cf.buyer) {
+        const bcol = FLOW_COLORS[cf.buyer] || '#ccc';
+        body = '<div class="colbuyer" style="color:' + bcol + '">' + cf.buyer + ' — buy actions ('
+          + (cf.sub === 'buyA' ? 'before the gladiator strikes' : ('gladiator will hit for ' + cf.attackVal)) + ')</div>';
+        const acts = cf.buyerActions.map((a) => {
+          if (a.used) return '<span class="actbtn used">' + a.label + ' ✓</span>';
+          if (a.kind === 'simple' || a.kind === 'rest') {
+            const extra = a.kind === 'rest' ? (' · reclaim ' + a.reclaim + '🪙') : '';
+            return '<button class="actbtn" data-cfbuy="' + a.key + '"' + (a.canBuy ? '' : ' disabled') + '>'
+              + a.label + ' (' + a.cost + '🪙' + extra + ')</button>';
+          }
+          if (!a.canBuy || !a.targets.length) return '<span class="actbtn used">' + a.label + ' (n/a)</span>';
+          if (a.kind === 'own') {
+            return a.targets.map((t) => '<button class="actbtn" data-cfbuy="' + a.key + '" data-target="' + t.id + '">'
+              + a.label + ' → ' + sym(t.symImg) + '(' + a.cost + '🪙)</button>').join('');
+          }
+          // push: a ← / → per legal direction
+          return a.targets.map((t) => t.dirs.map((d) =>
+            '<button class="actbtn" data-cfbuy="push" data-target="' + t.id + '" data-dir="' + d + '">'
+              + 'Push ' + sym(t.symImg) + '(pos ' + t.pos + ') ' + (d < 0 ? '←' : '→') + ' (' + a.cost + '🪙)</button>').join('')).join('');
+        }).join('');
+        body += '<div class="actstrip">' + acts + '</div>';
+        btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';
+      } else if (cf.sub === 'attack' && cf.save) {
+        const s = cf.save, scol = FLOW_COLORS[s.color] || '#ccc';
+        body = '<div class="colatk">👹 Gladiator strikes for <b>' + cf.attackVal + '</b> — '
+          + '<span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span> (Speed ' + s.speed + ') must save or fall.</div>';
+        btns = '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="1"' + (s.canAfford ? '' : ' disabled') + '>Save (1☀)</button>'
+          + '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="0">Let fall ✝</button>';
+      } else if (cf.sub === 'counter' && cf.counterNext) {
+        const s = cf.counterNext, scol = FLOW_COLORS[s.color] || '#ccc';
+        body = '<div class="colcnt"><span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span>'
+          + ' counter-attacks (d6+' + s.str + (s.rage ? '+2🔥' : '') + ' vs Shield ' + cf.glad.shield + ') — ' + cf.counterLeft + ' left</div>';
+        btns = '<button class="cwbtn" data-cfcounter="1">⚔ Strike ▶</button>';
+      } else if (cf.sub === 'done') {
+        body = cf.deathHit
+          ? '<div class="colwin">🏆 <span style="color:' + (FLOW_COLORS[cf.deathHit] || '#ffd479') + '">' + cf.deathHit + '</span> lands the killing blow!</div>'
+          : '<div class="collose">💀 The gladiator prevails — every fighter has fallen.</div>';
+        btns = '<button class="cwbtn" data-cfdone="1">Continue ▶</button>';
+      }
+      cfBody.innerHTML = body;
+      cfBtns.innerHTML = btns;
+      cfLog.innerHTML = (cf.log || []).map((l) => '<div>' + l + '</div>').join('');
+    } else {
+      colFight.hidden = true;
+    }
+
+    // End-game victory screen (center modal): deferred VP applied, nations ranked.
+    const eg = f.endGame;
+    if (eg) {
+      endGame.hidden = false;
+      egHead.innerHTML = '🏆 <b style="color:' + (FLOW_COLORS[eg.winner] || '#ffd479') + '">' + eg.winner + '</b> wins Fortissimus!';
+      egRows.innerHTML = eg.standings.map((s, i) => {
+        const col = FLOW_COLORS[s.color] || '#ccc';
+        return '<div class="winrow" style="color:' + col + '">'
+          + '<span class="ppl">' + (i + 1) + '.</span><span class="pwho">' + s.color + '</span>'
+          + '<span class="wstat">' + s.laps + ' laps · pos ' + s.pos + '</span>'
+          + '<span class="wstat">🏛 ' + s.elysium + ' · ✝ ' + s.tartarus + ' · +' + s.combatVP + ' VP · ' + s.leftover + ' left</span>'
+          + '</div>';
+      }).join('');
+    } else {
+      endGame.hidden = true;
+    }
+
+    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || cf || eg);
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
@@ -731,4 +827,15 @@
 
   // event summary modal: dismiss it to advance the guided walk to the next event/phase.
   esNext.addEventListener('click', () => PT.dismissEventSummary());
+
+  // Colosseum combat modal: all context buttons are delegated here (rebuilt per sub in renderFlow).
+  colFight.addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn || btn.disabled) return;
+    const d = btn.dataset;
+    if (d.cfbuy) PT.colBuy(d.cfbuy, d.target != null ? Number(d.target) : null, d.dir != null ? Number(d.dir) : 0);
+    else if (d.cfpass) PT.colActPass();
+    else if (d.cfsave) PT.colResolveSave(Number(d.cfsave), d.spend === '1');
+    else if (d.cfcounter) PT.colCounterStep();
+    else if (d.cfdone) PT.dismissColosseum();
+  });
 </script>

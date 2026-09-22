@@ -140,6 +140,25 @@
     { u: 0.500, v: 0.478, accepts: ['mini'], r: 8 }, // center gladiator
   ];
 
+  // ColosseumActions: a coin-driven action layer that sits just above the arena.
+  // Players pay 🪙 to place a coin on an action's own-color circle, manipulating the
+  // fight (see COMBAT below). Rest has no circle (its coins go to the bank). The 4
+  // color circles per action are laid out Blue/Purple (top) · Green/Yellow (bottom),
+  // measured off ColosseumActions.png (u = image column center, v = image row center).
+  const COL_ACTIONS = [
+    { key: 'double',   label: 'Double Hit', cost: 1, window: 'B', uL: 0.054, uR: 0.116 },
+    { key: 'rage',     label: 'Rage',       cost: 1, window: 'B', uL: 0.256, uR: 0.318 },
+    { key: 'push',     label: 'Push',       cost: 1, window: 'A', uL: 0.470, uR: 0.531 },
+    { key: 'backstab', label: 'Backstab',   cost: 1, window: 'A', uL: 0.683, uR: 0.745 },
+    { key: 'rest',     label: 'Rest',       cost: 2, window: '*', uL: null,  uR: null  },
+  ];
+  const COL_ACTION_ROWS = { Blue: [0, 0.357], Purple: [1, 0.357], Green: [0, 0.510], Yellow: [1, 0.510] };
+  const COLOSSEUM_ACTIONS_SLOTS = COL_ACTIONS.flatMap((a) => (a.uL == null) ? [] :
+    ['Blue', 'Purple', 'Green', 'Yellow'].map((color) => {
+      const [side, v] = COL_ACTION_ROWS[color];
+      return { u: side ? a.uR : a.uL, v, r: 3.5, accepts: ['coin'], color, action: a.key };
+    }));
+
   // Faction mats (shared template for all 4): income track, hero market
   // circles, and hero card slots below.
   const FACTION_SLOTS = [
@@ -165,14 +184,13 @@
   // image's true aspect at load. All non-player boards share BW so they render
   // the same size; the 4 player/faction mats share the (slightly larger) FW.
   // `slot` marks the 3 swappable active-event boards (events are dealt from a
-  // shuffled deck each round); `deck` marks the static Event-Deck card.
-  // Everything here is locked scenery.
+  // shuffled deck each round). Everything here is locked scenery.
   const BW = 116;   // uniform board width (all non-player boards)
   const FW = 132;   // uniform player/faction-mat width
   const LAYOUT = [
     // top row
+    { file: 'ColosseumActions.png', x: 0, z: -162, w: 150, slotsDef: COLOSSEUM_ACTIONS_SLOTS }, // action layer, above the arena
     { file: 'ColosseumBoard.png', x:    0, z: -100, w: BW, slotsDef: COLOSSEUM_SLOTS },  // top-center
-    { file: 'ArcheryEvent.png',   x:  175, z: -100, w: BW, deck: true },  // Event Deck (top card)
     // middle row (spine)
     { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW, slotsDef: COLUMN_SLOTS },     // pillars, left
     { file: 'RaceTrackBoard.png', x:    0, z:  -20, w: BW, slotsDef: RACE_SLOTS },       // race track, center
@@ -304,7 +322,7 @@
       SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
                    coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
                    track: s.track || null, ord: (s.ord ?? null), bx: b.x, lane: s.lane || null,
-                   sym: (s.sym ?? null), marker, occupants: [] });
+                   sym: (s.sym ?? null), action: s.action || null, marker, occupants: [] });
     }
   }
 
@@ -1055,7 +1073,9 @@
   const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
                  eventIndex: 0, evtTurnIndex: 0, eventRound: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
-                 summaryOpen: false, eventKeys: [], pendingTurnEnd: false, marketPool: [] };
+                 summaryOpen: false, eventKeys: [], pendingTurnEnd: false, marketPool: [],
+                 gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
+                 pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
@@ -1911,16 +1931,11 @@
     const ranked = minisAtEvent(k).concat(rome ? [rome] : [])
       .sort(eventCompare(k));                                     // §5 win-direction & elimination
 
-    // Colosseum in Chunk A: no fight. Record standings by dice total (start position) and
-    // leave the fighters seated & locked. Combat + Elysium/Tartarus routing = Chunk B.
+    // Colosseum: the ranked dice totals are each fighter's ROUND-1 start position — hand off to the
+    // co-op combat subsystem (startColosseum). It drives its own modal walk and, when the arena
+    // closes (dismissColosseum), advances the event walk itself. No podium rewards here.
     if (k === 'ColosseumBoard.png') {
-      const rows = ranked.map((m, i) => {
-        const ci = miniCardInfo(m);
-        return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-                 face: ci.face, total: disp(m), place: i + 1, reward: '⚔ arena', sponsor: '' };
-      });
-      GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
-      finishEventResolution();
+      startColosseum();
       return;
     }
 
@@ -1959,6 +1974,7 @@
       const rp = place[ranked.indexOf(rome)];       // 0=1st, 1=2nd, 2=3rd
       const steps = rp === 0 ? 3 : rp === 1 ? 2 : rp === 2 ? 1 : 0;
       if (steps) advanceRomeChariot(steps);
+      if (rp !== 0) GAME.romeLostRound = true;       // §14.D — Rome off the top burns a gladiator
     }
     // Rome never queues a waiting-for-Colosseum decision.
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0 && !m.isRome).map((m) => m.userData.id);
@@ -2022,6 +2038,342 @@
       const atHome = s && s.role === 'hero-market' && s.owner === m.userData.color && s.sym === m.userData.sym;
       if (!atHome) sendHomeDiscard(m);
     }
+  }
+
+  // ================================================================== COMBAT
+  // Colosseum co-op combat (§9): the arena fighters (waiting minis seated this phase) gang up on
+  // one gladiator drawn from a shuffled 12-card deck. Each combat ROUND: fighters take a position
+  // (2d6 → station II–XII), players may buy Push/Backstab (before the gladiator attacks), the
+  // gladiator hits the positions its card names (a hero dies if its Speed ≤ the attack, unless it
+  // spends 1☀), players may buy Double Hit/Rage, then every survivor counter-attacks (1d6 + Str),
+  // chipping the gladiator's Hearts past its Shield. Repeat until the gladiator dies or all fighters
+  // fall. Heart damage + the killing-blow bonus + Elysium survivors are banked as deferred VP,
+  // applied to the race track at the end of the game (scoreEndGame). See ColosseumActions above for
+  // the coin-driven action layer (COL_ACTIONS).
+
+  // 12 gladiators (read off Gladiator<level>-<n>.png). `target` = which positions it strikes:
+  // all · lowest/highest position · highest odd · lowest even · pos 2–6 · pos 7–12 · even · odd.
+  const GLAD_DECK = [
+    { file: 'Gladiator1-1.png', level: 1, target: 'all',      atkMod: 2, shield: 4, hearts: 9 },
+    { file: 'Gladiator1-2.png', level: 1, target: 'lowP',     atkMod: 2, shield: 3, hearts: 9 },
+    { file: 'Gladiator1-3.png', level: 1, target: 'highOdd',  atkMod: 0, shield: 4, hearts: 6 },
+    { file: 'Gladiator2-1.png', level: 2, target: 'lowEven',  atkMod: 0, shield: 5, hearts: 4 },
+    { file: 'Gladiator2-2.png', level: 2, target: 'all',      atkMod: 3, shield: 5, hearts: 6 },
+    { file: 'Gladiator2-3.png', level: 2, target: 'highP',    atkMod: 3, shield: 5, hearts: 5 },
+    { file: 'Gladiator3-1.png', level: 3, target: 'low2_6',   atkMod: 0, shield: 5, hearts: 8 },
+    { file: 'Gladiator3-2.png', level: 3, target: 'high7_12', atkMod: 0, shield: 5, hearts: 9 },
+    { file: 'Gladiator3-3.png', level: 3, target: 'even',     atkMod: 0, shield: 6, hearts: 3 },
+    { file: 'Gladiator4-1.png', level: 4, target: 'all',      atkMod: 0, shield: 6, hearts: 5 },
+    { file: 'Gladiator4-2.png', level: 4, target: 'all',      atkMod: 1, shield: 6, hearts: 6 },
+    { file: 'Gladiator4-3.png', level: 4, target: 'odd',      atkMod: 0, shield: 6, hearts: 7 },
+  ];
+  const GLAD_TARGET_LABEL = { all: 'everyone', lowP: 'lowest', highP: 'highest', highOdd: 'highest odd',
+    lowEven: 'lowest even', low2_6: 'pos 2–6', high7_12: 'pos 7–12', even: 'even pos', odd: 'odd pos' };
+
+  function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  // Deck: shuffle the 3 variants WITHIN each level, then stack level 1 (top) → level 4 (bottom).
+  function initGladDeck() {
+    GAME.gladDeck = [1, 2, 3, 4].flatMap((lv) => shuffleArr(GLAD_DECK.map((c, i) => ({ c, i })).filter((x) => x.c.level === lv).map((x) => x.i)));
+    GAME.gladDiscard = [];
+  }
+  // §14.D Rome pressure: burn the top (toughest-available) gladiator so the next arena is deadlier.
+  function colBurnGladiator() { if (GAME.gladDeck.length) GAME.gladDiscard.push(GAME.gladDeck.shift()); }
+
+  // Which alive fighters a gladiator card strikes (by their arena position).
+  function gladTargets(card, alive) {
+    const t = card.target, at = (pred) => alive.filter((f) => pred(f.pos));
+    if (t === 'all') return alive.slice();
+    if (t === 'odd') return at((p) => p % 2 === 1);
+    if (t === 'even') return at((p) => p % 2 === 0);
+    if (t === 'low2_6') return at((p) => p <= 6);
+    if (t === 'high7_12') return at((p) => p >= 7);
+    if (t === 'lowP') { if (!alive.length) return []; const m = Math.min(...alive.map((f) => f.pos)); return at((p) => p === m); }
+    if (t === 'highP') { if (!alive.length) return []; const m = Math.max(...alive.map((f) => f.pos)); return at((p) => p === m); }
+    if (t === 'highOdd') { const o = alive.filter((f) => f.pos % 2 === 1); if (!o.length) return []; const m = Math.max(...o.map((f) => f.pos)); return o.filter((f) => f.pos === m); }
+    if (t === 'lowEven') { const e = alive.filter((f) => f.pos % 2 === 0); if (!e.length) return []; const m = Math.min(...e.map((f) => f.pos)); return e.filter((f) => f.pos === m); }
+    return [];
+  }
+
+  // The 22 fighter circles (11 stations II–XII × inner/outer), in board order (station = pos−2).
+  const arenaFighterSlots = () => arenaStations().filter((s) => s.r < 8);
+  const fighterOf = (id) => (GAME.colosseum ? GAME.colosseum.fighters.find((f) => f.id === id) : null);
+  const symName = (f) => f.color + (f.sym != null ? ' #' + (f.sym + 1) : '');
+  const wrapPos = (p) => (p > 12 ? 2 : p < 2 ? 12 : p);          // positions 2..12 wrap 12↔2
+  const posOccupied = (pos) => GAME.colosseum.fighters.filter((f) => f.alive && f.pos === pos).length;
+  const pushBlocked = (pos, dir) => posOccupied(wrapPos(pos + dir)) >= 2;   // max 2 heroes per position
+
+  // Seat every alive fighter on its position's station (inner circle first, outer for the 2nd).
+  function placeAllFighters() {
+    const slots = arenaFighterSlots(), cnt = {};
+    for (const f of GAME.colosseum.fighters) {
+      if (!f.alive) continue;
+      const st = f.pos - 2, k = cnt[st] || 0; cnt[st] = k + 1;
+      const slot = slots[st * 2 + Math.min(k, 1)];
+      const m = findMini(f.id);
+      if (m && slot) placeOnSlot(m, slot);
+    }
+  }
+  // Round positions: round 1 uses each fighter's played 2 dice (start position); later rounds 2d6.
+  function colSetPositions(useDice) {
+    for (const f of GAME.colosseum.fighters) {
+      if (!f.alive) continue;
+      if (useDice) {
+        const m = findMini(f.id);
+        const sum = (m && m.userData.eventDice || []).reduce((a, b) => a + b, 0);
+        f.pos = Math.min(12, Math.max(2, sum || (rollFace() + rollFace())));
+      } else { f.pos = rollFace() + rollFace(); }
+    }
+    placeAllFighters();
+  }
+
+  // Dark-red gladiator disc on the center station.
+  let gladMarker = null;
+  function removeGladiatorMarker() {
+    if (!gladMarker) return;
+    scene.remove(gladMarker);
+    gladMarker.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    gladMarker = null;
+  }
+  function addGladiatorMarker() {
+    removeGladiatorMarker();
+    const g = new THREE.Group();
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(3, 32), new THREE.MeshBasicMaterial({ color: 0x8a0f0f, side: THREE.DoubleSide }));
+    disc.rotation.x = -Math.PI / 2; disc.renderOrder = 6; g.add(disc);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(3, 3.5, 32), new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide }));
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.01; rim.renderOrder = 7; g.add(rim);
+    const center = arenaStations().find((s) => s.r >= 8);
+    if (center) g.position.set(center.x, MARKER_Y, center.z);
+    g.userData.gladiator = true;
+    scene.add(g); gladMarker = g;
+  }
+
+  // ---- action buy windows (turn order, one pass each) ----
+  function colActInit(window) { GAME.colAct = { window, turn: 0 }; }
+  const colActBuyer = () => (GAME.colAct ? (GAME.order[GAME.colAct.turn] ?? null) : null);
+  const fInfo = (f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos });
+  // Opposing alive fighters this color could push, with the legal directions (−1 toward 2 / +1 toward 12).
+  function pushTargets(color) {
+    return GAME.colosseum.fighters.filter((f) => f.alive && f.color !== color).map((f) => {
+      const dirs = [];
+      if (!pushBlocked(f.pos, -1)) dirs.push(-1);
+      if (!pushBlocked(f.pos, 1)) dirs.push(1);
+      return { ...fInfo(f), dirs };
+    }).filter((t) => t.dirs.length);
+  }
+  // What `color` may buy in the current window: affordability, already-used, and valid targets.
+  function colActionState(color) {
+    const c = GAME.colosseum, w = GAME.colAct ? GAME.colAct.window : null;
+    const coin = GAME.res[color]?.coin || 0, used = c.used[color] || {};
+    const aliveOwn = c.fighters.filter((f) => f.color === color && f.alive);
+    const out = [];
+    for (const a of COL_ACTIONS) {
+      if (a.key === 'rest') {
+        const n = Object.keys(used).length;
+        out.push({ key: 'rest', label: a.label, cost: a.cost, kind: 'rest', reclaim: n, used: false, canBuy: n > 0 && coin >= a.cost });
+        continue;
+      }
+      if (a.window !== w) continue;
+      let valid = true, kind = 'simple', targets = [];
+      if (a.key === 'double' || a.key === 'rage') { kind = 'own'; targets = aliveOwn.map(fInfo); valid = aliveOwn.length > 0; }
+      else if (a.key === 'push') { kind = 'push'; targets = pushTargets(color); valid = targets.length > 0; }
+      out.push({ key: a.key, label: a.label, cost: a.cost, kind, targets, used: !!used[a.key], canBuy: !used[a.key] && coin >= a.cost && valid });
+    }
+    return out;
+  }
+  function colBuy(action, targetId, dir) {
+    const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
+    const color = colActBuyer(); if (!color) return;
+    if (action === 'rest') return colRest(color);
+    const meta = COL_ACTIONS.find((a) => a.key === action); if (!meta || meta.window !== ca.window) return;
+    const used = c.used[color] || (c.used[color] = {});
+    if (used[action] || (GAME.res[color]?.coin || 0) < meta.cost) return;
+    if (action === 'backstab') { c.gladBonus += 2; c.log.push('🗡 ' + color + ' Backstab (+2 gladiator attack)'); }
+    else if (action === 'push') {
+      const f = fighterOf(targetId), d = dir > 0 ? 1 : -1;
+      if (!f || !f.alive || f.color === color || pushBlocked(f.pos, d)) return;
+      f.pos = wrapPos(f.pos + d); placeAllFighters();
+      c.log.push('↔ ' + color + ' pushes ' + symName(f) + ' → pos ' + f.pos);
+    } else if (action === 'double') {
+      const f = fighterOf(targetId); if (!f || !f.alive || f.color !== color) return;
+      f.doubled = true; c.log.push('⚔⚔ ' + color + ' Double Hit on ' + symName(f));
+    } else if (action === 'rage') {
+      const f = fighterOf(targetId); if (!f || !f.alive || f.color !== color) return;
+      f.rage = true; c.log.push('🔥 ' + color + ' Rage on ' + symName(f));
+    } else return;
+    used[action] = true;
+    adjustRes(color, 'coin', -meta.cost);   // notifyFlow inside
+  }
+  // Rest: 2🪙 to the bank, reclaim every coin this color has on the board, free their actions again.
+  function colRest(color) {
+    const c = GAME.colosseum; const used = c.used[color] || {}; const n = Object.keys(used).length;
+    if (!n || (GAME.res[color]?.coin || 0) < 2) return;
+    c.used[color] = {};
+    c.log.push('♻ ' + color + ' rests (−2🪙 bank, +' + n + '🪙 reclaimed)');
+    adjustRes(color, 'coin', n - 2);        // notifyFlow inside
+  }
+  function colActPass() {
+    const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
+    ca.turn++;
+    if (ca.turn >= GAME.order.length) { GAME.colAct = null; if (c.sub === 'buyA') colStartAttack(); else colToCounter(); }
+    else notifyFlow();
+  }
+
+  // ---- the fight, round by round ----
+  function startColosseum() {
+    const arenaMinis = pieces.filter((m) => m.userData.type === 'mini' && m.userData.slot && m.userData.slot.boardKey === 'ColosseumBoard.png');
+    if (!arenaMinis.length) { finishEventResolution(); return; }
+    if (!GAME.gladDeck.length) initGladDeck();
+    const idx = GAME.gladDeck.shift(), card = GLAD_DECK[idx];
+    const fighters = arenaMinis.map((m) => {
+      const ci = miniCardInfo(m), st = heroStats(m);
+      return { id: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
+               face: ci.face, str: st.str, speed: st.speed, pos: 2, alive: true, doubled: false, rage: false };
+    });
+    GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
+      targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atkMod: card.atkMod, shield: card.shield,
+      heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
+      gladBonus: 0, attackVal: 0, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
+      log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
+    addGladiatorMarker();
+    colSetPositions(true);
+    colActInit('A');
+    notifyFlow();
+  }
+  function colStartAttack() {
+    const c = GAME.colosseum; c.sub = 'attack';
+    const alive = c.fighters.filter((f) => f.alive);
+    const targets = gladTargets(GLAD_DECK[c.idx], alive);
+    c.attackVal = rollFace() + c.atkMod + c.gladBonus;
+    c.targetIds = targets.map((f) => f.id);
+    c.saveQueue = targets.filter((f) => f.speed <= c.attackVal).map((f) => f.id);
+    c.log.push('👹 Gladiator strikes for ' + c.attackVal + ' at ' + c.targetLabel);
+    for (const f of targets) if (f.speed > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + f.speed + ')');
+    colAutoResolveSaves();
+    if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
+  }
+  // Auto-kill the head of the save queue while its owner has no ☀ to spend (nothing to decide).
+  function colAutoResolveSaves() {
+    const c = GAME.colosseum;
+    while (c.saveQueue.length) {
+      const f = fighterOf(c.saveQueue[0]);
+      if (!f) { c.saveQueue.shift(); continue; }
+      if ((GAME.res[f.color]?.sun || 0) >= 1) break;
+      f.alive = false; c.log.push('✝ ' + symName(f) + ' falls (no ☀)'); c.saveQueue.shift();
+    }
+  }
+  function colResolveSave(miniId, spend) {
+    const c = GAME.colosseum; if (!c || c.sub !== 'attack' || c.saveQueue[0] !== miniId) return;
+    const f = fighterOf(miniId);
+    if (f && spend && (GAME.res[f.color]?.sun || 0) >= 1) { adjustRes(f.color, 'sun', -1); c.log.push('☀ ' + f.color + ' saves ' + symName(f)); }
+    else if (f) { f.alive = false; c.log.push('✝ ' + symName(f) + ' falls'); }
+    c.saveQueue.shift();
+    colAutoResolveSaves();
+    if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
+  }
+  function colToBuyB() {
+    const c = GAME.colosseum;
+    if (!c.fighters.some((f) => f.alive)) { colToCounter(); return; }   // all fell → (empty) counter → done
+    c.sub = 'buyB'; colActInit('B'); notifyFlow();
+  }
+  function colToCounter() {
+    const c = GAME.colosseum; c.sub = 'counter';
+    const alive = c.fighters.filter((f) => f.alive).sort((a, b) => a.pos - b.pos || GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color));
+    c.counterQueue = [];
+    for (const f of alive) { c.counterQueue.push(f.id); if (f.doubled) c.counterQueue.push(f.id); }
+    if (!c.counterQueue.length) colFinishRound(); else notifyFlow();
+  }
+  function colCounterStep() {
+    const c = GAME.colosseum; if (!c || c.sub !== 'counter' || !c.counterQueue.length) return;
+    const f = fighterOf(c.counterQueue.shift()); if (!f) { notifyFlow(); return; }
+    const total = rollFace() + f.str + (f.rage ? 2 : 0);
+    if (total > c.shield) {
+      const dmg = total - c.shield + (f.rage ? 1 : 0);
+      c.hearts -= dmg;
+      GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + dmg;
+      c.log.push('⚔ ' + symName(f) + ' hits (' + total + ' − ' + c.shield + (f.rage ? '+1' : '') + ') = ' + dmg + '❤');
+      if (c.hearts <= 0) {
+        c.hearts = 0; c.deathHit = f.color;
+        GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + c.level;
+        c.log.push('🏆 ' + f.color + ' lands the killing blow! (+' + c.level + ' VP)');
+        c.counterQueue = []; c.sub = 'done'; notifyFlow(); return;
+      }
+    } else { c.log.push('🛡 ' + symName(f) + ' rolls ' + total + ' ≤ Shield ' + c.shield); }
+    if (!c.counterQueue.length) colFinishRound(); else notifyFlow();
+  }
+  function colFinishRound() {
+    const c = GAME.colosseum;
+    if (c.hearts <= 0) { c.sub = 'done'; notifyFlow(); return; }
+    for (const f of c.fighters) { f.doubled = false; f.rage = false; }
+    c.gladBonus = 0;
+    if (c.fighters.some((f) => f.alive)) { c.round++; colSetPositions(false); c.sub = 'buyA'; colActInit('A'); notifyFlow(); }
+    else { c.sub = 'done'; notifyFlow(); }
+  }
+  // Close out the arena: survivors → Elysium (3 VP each at end), the fallen → Tartarus; champion to
+  // the discard; every action coin still on the board returns to its owner; then end the phase walk.
+  function dismissColosseum() {
+    const c = GAME.colosseum; if (!c) return;
+    const elySlots = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png' && (s.accepts || []).includes('card')).slice(0, 4);
+    const tarSlot = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png').find((s) => !elySlots.includes(s));
+    let ei = 0;
+    for (const f of c.fighters) {
+      const m = findMini(f.id);
+      if (f.alive) {
+        GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id });
+        if (m && elySlots.length) { const slot = elySlots[ei % elySlots.length]; ei++; placeOnSlot(m, slot); }
+      } else {
+        GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id });
+        if (m && tarSlot) placeOnSlot(m, tarSlot);
+      }
+      if (m) { m.userData.waiting = false; m.userData.locked = true; }
+    }
+    for (const color of Object.keys(c.used)) { const n = Object.keys(c.used[color]).length; if (n) adjustRes(color, 'coin', n); }
+    GAME.gladDiscard.push(c.idx);
+    removeGladiatorMarker();
+    GAME.colosseum = null; GAME.colAct = null;
+    GAME.resolved.push('ColosseumBoard.png');
+    GAME.eventIndex++;
+    selectedHeroId = null;
+    enterEventKey(curEventKey());
+    notifyFlow();
+  }
+  const elysiumCountOf = (color) => GAME.elysium.filter((e) => e.color === color).length;
+  const tartarusCountOf = (color) => GAME.tartarus.filter((e) => e.color === color).length;
+
+  // Snapshot of the live combat for the UI (null when no arena is active).
+  function colFlow() {
+    const c = GAME.colosseum; if (!c) return null;
+    const buyer = GAME.colAct ? colActBuyer() : null;
+    const wrapF = (id) => { const f = fighterOf(id); return f ? fInfo(f) : null; };
+    return {
+      sub: c.sub, round: c.round,
+      glad: { file: c.file, level: c.level, target: c.targetLabel, atkMod: c.atkMod, shield: c.shield, hearts: c.hearts, heartsMax: c.heartsMax },
+      fighters: c.fighters.map((f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos,
+                 alive: f.alive, str: f.str, speed: f.speed, doubled: f.doubled, rage: f.rage, targeted: c.targetIds.includes(f.id) })),
+      attackVal: (c.sub === 'attack' || c.sub === 'buyB' || c.sub === 'counter') ? c.attackVal : null,
+      window: GAME.colAct ? GAME.colAct.window : null,
+      buyer, buyerActions: buyer ? colActionState(buyer) : [],
+      save: (c.sub === 'attack' && c.saveQueue.length) ? (() => { const f = fighterOf(c.saveQueue[0]); return f ? { ...fInfo(f), speed: f.speed, canAfford: (GAME.res[f.color]?.sun || 0) >= 1 } : null; })() : null,
+      counterNext: (c.sub === 'counter' && c.counterQueue.length) ? (() => { const f = fighterOf(c.counterQueue[0]); return f ? { ...fInfo(f), str: f.str, rage: f.rage } : null; })() : null,
+      counterLeft: c.counterQueue.length,
+      log: c.log.slice(-8), deathHit: c.deathHit, done: c.sub === 'done',
+    };
+  }
+
+  // ---- end game: apply deferred VP, then rank the nations ----
+  function scoreEndGame() {
+    if (GAME.result) return;
+    for (const color of ALL_COLORS) {
+      const bonus = (GAME.pendingVP[color] || 0) + 3 * elysiumCountOf(color);
+      if (bonus) advanceRace(color, bonus);
+    }
+    const standings = ALL_COLORS.map((color) => ({
+      color, laps: GAME.race[color]?.laps || 0, pos: GAME.race[color]?.pos || 0,
+      elysium: elysiumCountOf(color), tartarus: tartarusCountOf(color),
+      combatVP: GAME.pendingVP[color] || 0,
+      leftover: (GAME.res[color]?.coin || 0) + (GAME.res[color]?.zap || 0) + (GAME.res[color]?.sun || 0),
+    })).sort((a, b) => b.laps - a.laps || b.pos - a.pos || b.elysium - a.elysium || b.leftover - a.leftover || SEAT_ORDER.indexOf(a.color) - SEAT_ORDER.indexOf(b.color));
+    GAME.result = { standings, winner: standings[0].color };
+    notifyFlow();
   }
 
   // After all events resolve, every "free" faction card — one that isn't in a hand, isn't already
@@ -2293,6 +2645,8 @@
       eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
       summaryOpen: !!GAME.summaryOpen,
       summaryLast: !!GAME.summaryOpen && (GAME.eventIndex + 1) >= GAME.eventKeys.length,
+      colosseum: colFlow(),
+      endGame: GAME.result ? JSON.parse(JSON.stringify(GAME.result)) : null,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
     };
@@ -2438,6 +2792,9 @@
     GAME.turnIndex = 0;
     initRes();
     initRace();
+    initGladDeck();
+    GAME.colosseum = null; GAME.colAct = null; GAME.romeLostRound = false;
+    GAME.pendingVP = {}; GAME.elysium = []; GAME.tartarus = []; GAME.result = null;
     enterPhase(true);
     notifyFlow();
   }
@@ -2448,8 +2805,10 @@
       GAME.phaseIndex++;
     } else if (GAME.round < TOTAL_ROUNDS) {
       GAME.round++; GAME.phaseIndex = 0; GAME.order = computeOrder(GAME.round);
+      if (GAME.romeLostRound) { colBurnGladiator(); GAME.romeLostRound = false; }  // §14.D deck burn
     } else {
       GAME.over = true;
+      scoreEndGame();                                              // apply deferred VP → declare winner
     }
     enterPhase(true);
     notifyFlow();
@@ -2652,6 +3011,7 @@
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
+    colBuy, colRest, colActPass, colResolveSave, colCounterStep, dismissColosseum,
     barracksPick, barracksMove, barracksDone, advanceRace,
     setSlotsVisible: (v) => {
       slotsForced = v;

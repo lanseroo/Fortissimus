@@ -191,6 +191,18 @@
           <div id="esRows"></div>   <!-- one placement row (place · who · score · reward) per hero, built in renderFlow -->
           <button id="esNext" title="Continue the guided event walk">Continue ▶</button>
         </div>
+        <div id="colFight" hidden>
+          <div id="cfHead"></div>                <!-- gladiator name · level · target -->
+          <div id="cfHearts" class="heartbar"><div id="cfHeartFill"></div><span id="cfHeartTxt"></span></div>
+          <div id="cfFighters"></div>            <!-- fighter rows: sym · pos · Str/Speed · alive -->
+          <div id="cfBody"></div>                <!-- sub-specific block (action strip / save / counter) -->
+          <div id="cfLog" class="cflog"></div>   <!-- last combat log lines -->
+          <div id="cfBtns" class="barbtns"></div><!-- context buttons, built per-sub in renderFlow -->
+        </div>
+        <div id="endGame" hidden>
+          <div id="egHead"></div>                <!-- 🏆 winner -->
+          <div id="egRows"></div>                <!-- final standings table -->
+        </div>
       </div>
     </div>
 
