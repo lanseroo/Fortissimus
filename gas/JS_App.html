@@ -2109,38 +2109,78 @@
   const posOccupied = (pos) => GAME.colosseum.fighters.filter((f) => f.alive && f.pos === pos).length;
   const pushBlocked = (pos, dir) => posOccupied(wrapPos(pos + dir)) >= 2;   // max 2 heroes per position
 
-  // Seat every alive fighter on its position's station (inner circle first, outer for the 2nd).
-  function placeAllFighters() {
+  // Seat entered alive fighters on their station: inner circle first, outer for the 2nd. `lastId`
+  // (a fighter that just moved/arrived) is seated LAST so it takes the inner-MOST AVAILABLE spot —
+  // the resident keeps its inner circle, the newcomer fills whatever's free.
+  function placeAllFighters(lastId) {
     const slots = arenaFighterSlots(), cnt = {};
-    for (const f of GAME.colosseum.fighters) {
-      if (!f.alive) continue;
+    const list = GAME.colosseum.fighters
+      .map((f, idx) => ({ f, idx }))
+      .filter((o) => o.f.alive && o.f.entered !== false)
+      .sort((a, b) => (a.f.id === lastId ? 1 : 0) - (b.f.id === lastId ? 1 : 0) || a.idx - b.idx);
+    for (const { f } of list) {
       const st = f.pos - 2, k = cnt[st] || 0; cnt[st] = k + 1;
       const slot = slots[st * 2 + Math.min(k, 1)];
       const m = findMini(f.id);
       if (m && slot) placeOnSlot(m, slot);
     }
   }
-  // Round positions: round 1 uses each fighter's played 2 dice (start position); later rounds 2d6.
-  // A station holds at most 2 heroes — if a fighter rolls onto a full position it slides CLOCKWISE
-  // (II→III→…→XII→II) to the next open one. Seated in turn order so bumps are deterministic.
-  function colSetPositions(useDice) {
-    const alive = GAME.colosseum.fighters.filter((f) => f.alive);
-    for (const f of alive) {
-      if (useDice) {
-        const m = findMini(f.id);
-        const sum = (m && m.userData.eventDice || []).reduce((a, b) => a + b, 0);
-        f.rollPos = Math.min(12, Math.max(2, sum || (rollFace() + rollFace())));
-      } else { f.rollPos = rollFace() + rollFace(); }
-    }
+  // Roll each fighter's 2d6 position ONE AT A TIME (turn order). On entrance the minis start off the
+  // board (hidden) and pop in as their dice settle; later rounds re-roll positions the same way. A
+  // station holds at most 2 — a full roll slides CLOCKWISE (II→…→XII→II) to the next open one.
+  function colRollPositions(entrance, done) {
+    const c = GAME.colosseum;
+    const alive = c.fighters.filter((f) => f.alive).slice()
+      .sort((a, b) => GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color));
+    for (const f of alive) { f.entered = false; if (entrance) { const m = findMini(f.id); if (m) m.visible = false; } }
+    GAME.colAnimating = true; notifyFlow();
+    const center = arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 };
     const count = {};
-    for (const f of alive.slice().sort((a, b) => GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color))) {
-      let p = f.rollPos, guard = 0;
-      while ((count[p] || 0) >= 2 && guard++ < 11) p = wrapPos(p + 1);   // clockwise = next station, XII→II
-      if (p !== f.rollPos) GAME.colosseum.log.push('↻ ' + symName(f) + ' rolled ' + f.rollPos + ' (full) → pos ' + p);
+    let i = 0;
+    const step = () => {
+      if (i >= alive.length) {
+        GAME.colAnimating = false; clearTurnMarker(); placeAllFighters();
+        if (done) done(); else notifyFlow();
+        return;
+      }
+      const f = alive[i++];
+      const d1 = rollFace(), d2 = rollFace();
+      let p = Math.min(12, Math.max(2, d1 + d2)), guard = 0;
+      while ((count[p] || 0) >= 2 && guard++ < 11) p = wrapPos(p + 1);
+      if (p !== Math.min(12, Math.max(2, d1 + d2))) c.log.push('↻ ' + symName(f) + ' rolled ' + (d1 + d2) + ' (full) → pos ' + p);
       f.pos = p; count[p] = (count[p] || 0) + 1;
-      delete f.rollPos;
-    }
-    placeAllFighters();
+      f.entered = true;
+      const m = findMini(f.id); if (m) m.visible = true;
+      placeAllFighters(f.id);                 // seat inner-most available
+      setTurnMarker(f.id);
+      const seat = (m && m.userData.slot) ? m.userData.slot : (stationSlotsForPos(p)[0] || center);
+      notifyFlow();
+      rollDiceAnim({ x: seat.x, z: seat.z }, [d1, d2], () => { setTimeout(step, 300); });
+    };
+    step();
+  }
+
+  // ---- turn indicator: a bobbing gold ▼ arrow above the mini whose turn it is (attack / move) ----
+  let turnMarker = null;
+  function clearTurnMarker() {
+    if (!turnMarker) return;
+    scene.remove(turnMarker);
+    turnMarker.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    turnMarker = null;
+  }
+  function setTurnMarker(miniId) {
+    clearTurnMarker();
+    const m = miniId != null ? findMini(miniId) : null; if (!m) return;
+    const g = new THREE.Group();
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.6, 4),
+      new THREE.MeshBasicMaterial({ color: 0xffe14a }));
+    cone.rotation.x = Math.PI;          // tip points down at the mini
+    cone.rotation.y = Math.PI / 4;
+    cone.renderOrder = 12;
+    g.add(cone);
+    g.userData.miniId = miniId; g.userData.baseY = 5.2;
+    g.position.set(m.position.x, g.userData.baseY, m.position.z);
+    scene.add(g); turnMarker = g;
   }
 
   // The drawn gladiator card, laid on the center station (with a red backing so the spot reads).
@@ -2157,14 +2197,19 @@
     const center = arenaStations().find((s) => s.r >= 8);
     const R = center ? center.r : 8;
     if (center) g.position.set(center.x, MARKER_Y, center.z);
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(R, 40), new THREE.MeshBasicMaterial({ color: 0x2a0808, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
-    disc.rotation.x = -Math.PI / 2; disc.renderOrder = 6; g.add(disc);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(R, R * 1.1, 40), new THREE.MeshBasicMaterial({ color: 0x8a0f0f, side: THREE.DoubleSide }));
-    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.005; rim.renderOrder = 7; g.add(rim);
+    // A thin red ring around (not over) the card marks the gladiator's spot; NO filled disc on top.
+    const rim = new THREE.Mesh(new THREE.RingGeometry(R * 0.92, R * 1.06, 40), new THREE.MeshBasicMaterial({ color: 0x8a0f0f, side: THREE.DoubleSide }));
+    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.005; rim.renderOrder = 6; g.add(rim);
     if (file) {
       const cardG = new THREE.Group();
-      setCardFace(cardG, file);                 // textures a flat, aspect-fit 22-unit plane
-      cardG.scale.setScalar((R * 1.7) / 22);    // shrink the card to fit the center disc
+      // Pre-mint the plane so we can set renderOrder ABOVE the rim — setCardFace then just
+      // re-textures children[0] (a bare disc used to render on top of the card and hide it).
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(22, 22),
+        new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+      plane.rotation.x = -Math.PI / 2; plane.renderOrder = 10;
+      cardG.add(plane);
+      setCardFace(cardG, file);                 // re-textures the pre-minted plane, aspect-fit
+      cardG.scale.setScalar((R * 1.55) / 22);   // fit the card inside the rim
       cardG.position.y = 0.02;
       g.add(cardG);
     }
@@ -2191,7 +2236,13 @@
     clearColHighlights();
     const c = GAME.colosseum; if (!c) return;
     const pu = GAME.colPush;
-    if (pu && pu.step === 'dest' && pu.miniId != null) {
+    if (pu && pu.step === 'mini') {
+      // Push step 1: gold-ring every opposing hero so the buyer can click one to shove.
+      for (const f of c.fighters) {
+        if (!f.alive || f.color === pu.color) continue;
+        const m = findMini(f.id); if (m && m.userData.slot) addColRing(m.userData.slot, 0xffe14a);
+      }
+    } else if (pu && pu.step === 'dest' && pu.miniId != null) {
       const f = fighterOf(pu.miniId);
       if (f) for (const d of [-1, 1]) if (!pushBlocked(f.pos, d)) for (const s of stationSlotsForPos(wrapPos(f.pos + d))) addColRing(s, 0x38d0ff);
     } else if (c.sub === 'attack') {
@@ -2239,6 +2290,20 @@
         setTimeout(() => { for (const g of dice) { scene.remove(g); g.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); } }, 650);
         if (onDone) onDone();
       },
+    });
+  }
+  // A counter-attacking mini lunges ~80% toward the gladiator at arena center and springs back to its
+  // seat — a quick "strike" flourish. Its home slot is restored by placeAllFighters afterwards.
+  function lungeAnim(miniId, onDone) {
+    const m = findMini(miniId);
+    const center = arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 };
+    if (!m) { if (onDone) onDone(); return; }
+    const from = { x: m.position.x, z: m.position.z };
+    const to = { x: from.x + (center.x - from.x) * 0.8, z: from.z + (center.z - from.z) * 0.8 };
+    anims.push({
+      t0: performance.now(), dur: 600,
+      update: (k) => { const t = Math.sin(k * Math.PI); m.position.x = from.x + (to.x - from.x) * t; m.position.z = from.z + (to.z - from.z) * t; },
+      onDone: () => { m.position.x = from.x; m.position.z = from.z; if (onDone) onDone(); },
     });
   }
 
@@ -2337,7 +2402,7 @@
       // destPos (absolute station) wins when the two-step picker supplies it; else fall back to ±dir.
       const d = destPos != null ? (destPos === wrapPos((f ? f.pos : 0) + 1) ? 1 : destPos === wrapPos((f ? f.pos : 0) - 1) ? -1 : 0) : (dir > 0 ? 1 : -1);
       if (!f || !f.alive || f.color === color || d === 0 || pushBlocked(f.pos, d)) return;
-      f.pos = wrapPos(f.pos + d); placeAllFighters();
+      f.pos = wrapPos(f.pos + d); placeAllFighters(f.id);   // pushed mini takes the inner-most free spot
       c.log.push('↔ ' + color + ' pushes ' + symName(f) + ' → pos ' + f.pos);
     } else if (action === 'double') {
       const f = fighterOf(targetId); if (!f || !f.alive || f.color !== color) return;
@@ -2381,9 +2446,8 @@
       gladBonus: 0, attackVal: 0, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
       log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
     addGladiatorMarker(card.file);
-    colSetPositions(true);
-    colActInit('A');
-    notifyFlow();
+    // Minis start OFF the board and are brought in one by one as their dice settle.
+    colRollPositions(true, () => { colActInit('A'); notifyFlow(); });
   }
   function colStartAttack() {
     const c = GAME.colosseum; c.sub = 'attack';
@@ -2434,15 +2498,16 @@
     const alive = c.fighters.filter((f) => f.alive).sort((a, b) => a.pos - b.pos || GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color));
     c.counterQueue = [];
     for (const f of alive) { c.counterQueue.push(f.id); if (f.doubled) c.counterQueue.push(f.id); }
-    if (!c.counterQueue.length) colFinishRound(); else notifyFlow();
+    if (!c.counterQueue.length) colFinishRound(); else { setTurnMarker(c.counterQueue[0]); notifyFlow(); }
   }
   function colCounterStep() {
     const c = GAME.colosseum; if (!c || c.sub !== 'counter' || !c.counterQueue.length || GAME.colAnimating) return;
     const f = fighterOf(c.counterQueue.shift()); if (!f) { notifyFlow(); return; }
     const raw = rollFace();
-    GAME.colAnimating = true; notifyFlow();
+    GAME.colAnimating = true; setTurnMarker(f.id); notifyFlow();
     const m = findMini(f.id), at = m ? { x: m.position.x, z: m.position.z } : (arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 });
-    rollDiceAnim(at, [raw], () => { GAME.colAnimating = false; colApplyCounter(f, raw); });
+    // roll → lunge at the gladiator → snap back → apply the result
+    rollDiceAnim(at, [raw], () => { lungeAnim(f.id, () => { GAME.colAnimating = false; colApplyCounter(f, raw); }); });
   }
   function colApplyCounter(f, raw) {
     const c = GAME.colosseum; if (!c) return;
@@ -2456,17 +2521,21 @@
         c.hearts = 0; c.deathHit = f.color;
         GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + c.level;
         c.log.push('🏆 ' + f.color + ' lands the killing blow! (+' + c.level + ' VP)');
-        c.counterQueue = []; c.sub = 'done'; notifyFlow(); return;
+        c.counterQueue = []; c.sub = 'done'; clearTurnMarker(); notifyFlow(); return;
       }
     } else { c.log.push('🛡 ' + symName(f) + ' rolls ' + total + ' ≤ Shield ' + c.shield); }
-    if (!c.counterQueue.length) colFinishRound(); else notifyFlow();
+    if (!c.counterQueue.length) colFinishRound(); else { setTurnMarker(c.counterQueue[0]); notifyFlow(); }
   }
   function colFinishRound() {
     const c = GAME.colosseum;
-    if (c.hearts <= 0) { c.sub = 'done'; notifyFlow(); return; }
+    if (c.hearts <= 0) { c.sub = 'done'; clearTurnMarker(); notifyFlow(); return; }
     for (const f of c.fighters) { f.doubled = false; f.rage = false; }
     c.gladBonus = 0;
-    if (c.fighters.some((f) => f.alive)) { c.round++; colSetPositions(false); c.sub = 'buyA'; colActInit('A'); notifyFlow(); }
+    clearTurnMarker();
+    if (c.fighters.some((f) => f.alive)) {
+      c.round++;
+      colRollPositions(false, () => { const cc = GAME.colosseum; if (!cc) return; cc.sub = 'buyA'; colActInit('A'); notifyFlow(); });
+    }
     else { c.sub = 'done'; notifyFlow(); }
   }
   // Close out the arena: every MINI returns to its player-board home circle (unlocked). Only the tied
@@ -2489,7 +2558,8 @@
         GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id });
         if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
       }
-      // mini goes home, unlocked and reset
+      // mini goes home, unlocked and reset (visible again in case it entered/left mid-roll)
+      m.visible = true;
       m.userData.waiting = false; m.userData.locked = false;
       m.userData.eventDice = []; m.userData.diceAdj = 0;
       if (m.userData.diceGroup) renderHeroDice3D(m);
@@ -2498,6 +2568,7 @@
     for (const color of Object.keys(c.used)) { const n = Object.keys(c.used[color]).length; if (n) adjustRes(color, 'coin', n); }
     GAME.gladDiscard.push(c.idx);
     clearColHighlights();
+    clearTurnMarker();
     removeGladiatorMarker();
     GAME.colosseum = null; GAME.colAct = null;
     GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
@@ -3218,6 +3289,11 @@
         a.update(k);
         if (k >= 1) { anims.splice(i, 1); if (a.onDone) a.onDone(); }
       }
+    }
+    if (turnMarker) {                         // bob the ▼ arrow and keep it over its mini
+      const mm = findMini(turnMarker.userData.miniId);
+      if (mm) { turnMarker.position.x = mm.position.x; turnMarker.position.z = mm.position.z; }
+      turnMarker.position.y = turnMarker.userData.baseY + Math.sin(performance.now() / 260) * 0.8;
     }
     controls.update();
     if (selectionBox) selectionBox.update();
