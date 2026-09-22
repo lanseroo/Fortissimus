@@ -363,9 +363,19 @@
             background: #2b2e33; color: #eee; cursor: pointer; font-weight: 600; }
   #esNext:hover { background: #3a3d42; }
 
-  /* Colosseum combat modal */
+  /* Colosseum combat — now lives in the left player panel (board stays visible) */
   #modalBox #colFight { margin: 0; padding: 0; border: 0; }
-  #modalBox #colFight[hidden] { display: none; }
+  #colFight[hidden] { display: none; }
+  #playerPanel #colFight { margin-top: 4px; }
+  /* widen the panel while a fight is on so the combat readout is legible */
+  body.incombat #playerPanel { flex-basis: 268px; }
+  .colf { cursor: pointer; }
+  .colf:hover { background: #30333a; }
+  .colf.sel { outline: 2px solid #ffe14a; background: #35322266; }
+  .colf.pushable { background: #12303a; box-shadow: inset 0 0 0 1px #38d0ff; }
+  .colf.pushable:hover { background: #16414f; }
+  .colpush { color: #38d0ff; }
+  .colrolling { font-weight: 700; color: #ffd479; }
   #cfHead { font-size: 0.9rem; font-weight: 700; color: #ffd479; margin-bottom: 8px; line-height: 1.4; }
   #cfHead b { color: #ff9d5c; }
   .heartbar { position: relative; height: 20px; border-radius: 10px; background: #3a1414;
@@ -379,8 +389,8 @@
           border-radius: 4px; background: #26282c; }
   .colf.dead { opacity: 0.42; }
   .colf .psym { width: 15px; height: 15px; flex: 0 0 auto; }
-  .colf .colfpos { min-width: 50px; font-weight: 600; }
-  .colf .colfst { opacity: 0.75; min-width: 62px; }
+  .colf .colfpos { min-width: 44px; font-weight: 600; }
+  .colf .colfst { opacity: 0.8; min-width: 92px; font-variant-numeric: tabular-nums; }
   .colf .colftag { flex: 1 1 auto; text-align: right; }
   #cfBody { font-size: 0.85rem; margin-bottom: 10px; line-height: 1.4; }
   .colbuyer { font-weight: 700; margin-bottom: 6px; }

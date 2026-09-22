@@ -169,6 +169,7 @@
   const ppDot = document.getElementById('ppDot');
   const ppName = document.getElementById('ppName');
   const ppRes = document.getElementById('ppRes');
+  const cupSec = document.getElementById('cupSec');
   const cupGrid = document.getElementById('cupGrid');
   const ppCupHint = document.getElementById('ppCupHint');
   const econ = document.getElementById('econ');
@@ -188,6 +189,13 @@
     ppName.style.color = col;
     const r = (f.res && f.res[owner]) || { coin: 0, zap: 0, sun: 0 };
     ppRes.textContent = '🪙 ' + r.coin + '    ⚡ ' + r.zap + '    ☀ ' + r.sun;
+
+    // Colosseum combat takes over the panel: hide the cup/economy/competition sections and
+    // widen the panel (body.incombat) so the fight is legible while the board stays on screen.
+    const inCombat = !!f.colosseum;
+    document.body.classList.toggle('incombat', inCombat);
+    cupSec.hidden = inCombat;
+    if (inCombat) { econ.hidden = true; compete.hidden = true; return; }
 
     const isUpkeep = f.started && !f.over && f.phase === 'Upkeep';
     const isEvent = f.started && !f.over && EVENT_PHASES.includes(f.phase);
@@ -564,13 +572,24 @@
       cfFighters.innerHTML = cf.fighters.map((ff) => {
         const col = FLOW_COLORS[ff.color] || '#ccc';
         const tags = [ff.doubled ? '⚔⚔' : '', ff.rage ? '🔥' : '', (ff.targeted && ff.alive) ? '🎯' : ''].filter(Boolean).join(' ');
-        return '<div class="colf' + (ff.alive ? '' : ' dead') + '" style="color:' + col + '">'
+        const selCls = (ff.id === cf.selId) ? ' sel' : '';
+        const pushable = cf.push && cf.push.step === 'mini' && ff.alive && ff.color !== cf.push.color;
+        return '<div class="colf' + (ff.alive ? '' : ' dead') + selCls + (pushable ? ' pushable' : '') + '" data-cfsel="' + ff.id + '" style="color:' + col + '">'
           + sym(ff.symImg) + '<span class="colfpos">' + (ff.alive ? ('pos ' + ff.pos) : '✝') + '</span>'
-          + '<span class="colfst">S' + ff.str + '/V' + ff.speed + '</span>'
+          + '<span class="colfst">Str ' + ff.str + ' · Spd ' + ff.speed + '</span>'
           + '<span class="colftag">' + tags + '</span></div>';
       }).join('');
       let body = '', btns = '';
-      if ((cf.sub === 'buyA' || cf.sub === 'buyB') && cf.buyer) {
+      if (cf.animating) {
+        body = '<div class="colatk colrolling">🎲 rolling…</div>';
+      } else if (cf.push) {
+        // Two-step Push: pick an opposing hero, then click a destination station on the board.
+        const pcol = FLOW_COLORS[cf.push.color] || '#ccc';
+        body = '<div class="colbuyer colpush" style="color:' + pcol + '">↔ Push — '
+          + (cf.push.step === 'mini' ? 'click an opposing hero (board or list above)' : 'click a destination station on the board (±1)')
+          + '</div>';
+        btns = '<button class="cwbtn" data-cfpushcancel="1">Cancel push</button>';
+      } else if ((cf.sub === 'buyA' || cf.sub === 'buyB') && cf.buyer) {
         const bcol = FLOW_COLORS[cf.buyer] || '#ccc';
         body = '<div class="colbuyer" style="color:' + bcol + '">' + cf.buyer + ' — buy actions ('
           + (cf.sub === 'buyA' ? 'before the gladiator strikes' : ('gladiator will hit for ' + cf.attackVal)) + ')</div>';
@@ -586,10 +605,8 @@
             return a.targets.map((t) => '<button class="actbtn" data-cfbuy="' + a.key + '" data-target="' + t.id + '">'
               + a.label + ' → ' + sym(t.symImg) + '(' + a.cost + '🪙)</button>').join('');
           }
-          // push: a ← / → per legal direction
-          return a.targets.map((t) => t.dirs.map((d) =>
-            '<button class="actbtn" data-cfbuy="push" data-target="' + t.id + '" data-dir="' + d + '">'
-              + 'Push ' + sym(t.symImg) + '(pos ' + t.pos + ') ' + (d < 0 ? '←' : '→') + ' (' + a.cost + '🪙)</button>').join('')).join('');
+          // push: a single button that enters two-step board targeting
+          return '<button class="actbtn" data-cfpush="1">' + a.label + ' (' + a.cost + '🪙)</button>';
         }).join('');
         body += '<div class="actstrip">' + acts + '</div>';
         btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';
@@ -634,7 +651,7 @@
       endGame.hidden = true;
     }
 
-    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || cf || eg);
+    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg);   // combat renders in the left panel, not the modal
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
@@ -828,11 +845,17 @@
   // event summary modal: dismiss it to advance the guided walk to the next event/phase.
   esNext.addEventListener('click', () => PT.dismissEventSummary());
 
-  // Colosseum combat modal: all context buttons are delegated here (rebuilt per sub in renderFlow).
+  // Colosseum combat panel: all context buttons + fighter-row clicks are delegated here
+  // (rebuilt per sub in renderFlow; combat now lives in the left panel, board stays visible).
   colFight.addEventListener('click', (e) => {
+    // A fighter row (div) — inspect its stats, or pick it as a push target.
+    const row = e.target.closest('[data-cfsel]');
+    if (row && !e.target.closest('button')) { PT.colFighterClick(Number(row.dataset.cfsel)); return; }
     const btn = e.target.closest('button'); if (!btn || btn.disabled) return;
     const d = btn.dataset;
-    if (d.cfbuy) PT.colBuy(d.cfbuy, d.target != null ? Number(d.target) : null, d.dir != null ? Number(d.dir) : 0);
+    if (d.cfpush) PT.colPushStart();
+    else if (d.cfpushcancel) PT.colPushCancel();
+    else if (d.cfbuy) PT.colBuy(d.cfbuy, d.target != null ? Number(d.target) : null, d.dir != null ? Number(d.dir) : 0);
     else if (d.cfpass) PT.colActPass();
     else if (d.cfsave) PT.colResolveSave(Number(d.cfsave), d.spend === '1');
     else if (d.cfcounter) PT.colCounterStep();

@@ -91,7 +91,7 @@
         <div id="ppHead"><span class="ppdot" id="ppDot"></span><span id="ppName">—</span></div>
         <div id="ppRes" class="ppres"></div>
 
-        <div class="ppsec">
+        <div class="ppsec" id="cupSec">
           <div class="ppsec-h">Dice cup</div>
           <div id="cupGrid" class="digrid"></div>
           <div id="ppCupHint" class="ppmini"></div>
@@ -111,6 +111,16 @@
           <div class="ppsec-h">Competition</div>
           <div id="heroList"></div>
           <div id="competeHint" class="ppmini"></div>
+        </div>
+
+        <!-- Colosseum combat drives from here (board stays visible); shown only mid-fight. -->
+        <div id="colFight" hidden>
+          <div id="cfHead"></div>                <!-- gladiator name · level · target -->
+          <div id="cfHearts" class="heartbar"><div id="cfHeartFill"></div><span id="cfHeartTxt"></span></div>
+          <div id="cfFighters"></div>            <!-- fighter rows: sym · pos · Str/Speed · alive -->
+          <div id="cfBody"></div>                <!-- sub-specific block (action strip / save / counter) -->
+          <div id="cfLog" class="cflog"></div>   <!-- last combat log lines -->
+          <div id="cfBtns" class="barbtns"></div><!-- context buttons, built per-sub in renderFlow -->
         </div>
       </div>
 
@@ -190,14 +200,6 @@
           <div id="esObj" class="es-obj"></div>
           <div id="esRows"></div>   <!-- one placement row (place · who · score · reward) per hero, built in renderFlow -->
           <button id="esNext" title="Continue the guided event walk">Continue ▶</button>
-        </div>
-        <div id="colFight" hidden>
-          <div id="cfHead"></div>                <!-- gladiator name · level · target -->
-          <div id="cfHearts" class="heartbar"><div id="cfHeartFill"></div><span id="cfHeartTxt"></span></div>
-          <div id="cfFighters"></div>            <!-- fighter rows: sym · pos · Str/Speed · alive -->
-          <div id="cfBody"></div>                <!-- sub-specific block (action strip / save / counter) -->
-          <div id="cfLog" class="cflog"></div>   <!-- last combat log lines -->
-          <div id="cfBtns" class="barbtns"></div><!-- context buttons, built per-sub in renderFlow -->
         </div>
         <div id="endGame" hidden>
           <div id="egHead"></div>                <!-- 🏆 winner -->
