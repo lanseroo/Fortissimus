@@ -2114,14 +2114,24 @@
     }
   }
   // Round positions: round 1 uses each fighter's played 2 dice (start position); later rounds 2d6.
+  // A station holds at most 2 heroes — if a fighter rolls onto a full position it slides CLOCKWISE
+  // (II→III→…→XII→II) to the next open one. Seated in turn order so bumps are deterministic.
   function colSetPositions(useDice) {
-    for (const f of GAME.colosseum.fighters) {
-      if (!f.alive) continue;
+    const alive = GAME.colosseum.fighters.filter((f) => f.alive);
+    for (const f of alive) {
       if (useDice) {
         const m = findMini(f.id);
         const sum = (m && m.userData.eventDice || []).reduce((a, b) => a + b, 0);
-        f.pos = Math.min(12, Math.max(2, sum || (rollFace() + rollFace())));
-      } else { f.pos = rollFace() + rollFace(); }
+        f.rollPos = Math.min(12, Math.max(2, sum || (rollFace() + rollFace())));
+      } else { f.rollPos = rollFace() + rollFace(); }
+    }
+    const count = {};
+    for (const f of alive.slice().sort((a, b) => GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color))) {
+      let p = f.rollPos, guard = 0;
+      while ((count[p] || 0) >= 2 && guard++ < 11) p = wrapPos(p + 1);   // clockwise = next station, XII→II
+      if (p !== f.rollPos) GAME.colosseum.log.push('↻ ' + symName(f) + ' rolled ' + f.rollPos + ' (full) → pos ' + p);
+      f.pos = p; count[p] = (count[p] || 0) + 1;
+      delete f.rollPos;
     }
     placeAllFighters();
   }
