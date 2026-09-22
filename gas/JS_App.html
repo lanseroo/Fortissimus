@@ -1637,7 +1637,9 @@
       const { color } = cw.releaseQueue[0];
       const options = waitingMinisOf(color).map((m) => {
         const ci = miniCardInfo(m);
-        return { miniId: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg, face: ci.face };
+        const hm = /^(\d)_(\d)_Hero/.exec(ci.face || '');
+        const stats = hm ? ('Str ' + hm[1] + ' · Spd ' + hm[2]) : 'Plebe';
+        return { miniId: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg, face: ci.face, stats };
       });
       return { kind: 'release', color, options };
     }

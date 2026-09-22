@@ -492,7 +492,7 @@
           + 'release one waiting hero to make room:';
         cwBtns.innerHTML = s.options.map((o) =>
           '<button class="cwbtn" data-action="release" data-id="' + o.miniId + '">'
-            + sym(o.symImg) + 'Release</button>').join('');
+            + sym(o.symImg) + '<span class="cwstat">' + (o.stats || '') + '</span> · Release</button>').join('');
       }
     } else {
       colWait.hidden = true;
