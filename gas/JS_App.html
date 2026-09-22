@@ -1934,8 +1934,13 @@
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, total, place: pl + 1, reward, sponsor: fmtSponsor(sw) };
     });
-    // Rome winning (1st, incl. a tie for 1st) pushes its black chariot forward (§14.E, +2/win).
-    if (rome && place[ranked.indexOf(rome)] === 0) advanceRomeChariot(2);
+    // Rome's podium finish pushes its black chariot forward (§14.E): 1st→+3, 2nd→+2, 3rd→+1
+    // spaces (ties share a place, so a tie-for-1st still advances +3).
+    if (rome) {
+      const rp = place[ranked.indexOf(rome)];       // 0=1st, 1=2nd, 2=3rd
+      const steps = rp === 0 ? 3 : rp === 1 ? 2 : rp === 2 ? 1 : 0;
+      if (steps) advanceRomeChariot(steps);
+    }
     // Rome never queues a waiting-for-Colosseum decision.
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0 && !m.isRome).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
