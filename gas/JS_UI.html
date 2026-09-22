@@ -499,9 +499,9 @@
       const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
       mwTargets.innerHTML = s.targets.map((t) =>
         '<div class="mwrow" style="color:' + (FLOW_COLORS[t.color] || '#ccc') + '">'
-          + '<span class="mwhero">' + sym(t.symImg) + '<b>' + t.total + '</b></span>'
-          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="1">+' + s.mag + '</button>'
-          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="-1">−' + s.mag + '</button>'
+          + '<span class="mwhero">' + sym(t.symImg) + 'now <b>' + t.total + '</b></span>'
+          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="1" title="Result if you play +' + s.mag + '">+' + s.mag + ' → <b>' + t.plus + '</b></button>'
+          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="-1" title="Result if you play −' + s.mag + '">−' + s.mag + ' → <b>' + t.minus + '</b></button>'
           + '</div>').join('');
       mwPass.dataset.card = s.cardId;
     } else {

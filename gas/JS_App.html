@@ -1697,11 +1697,22 @@
     const c = findCard(head.cardId);
     if (!c || !inHand(c) || c.userData.owner !== head.color) { mw.queue.shift(); return modWaitStep(); }
     const mag = head.kind === 'cheer' ? 2 : 1;
+    // Show the event's FINAL result for each choice (dice are modified, but the
+    // score is derived — e.g. Wrestling is "furthest from 7" — so preview the
+    // resolved score with +mag / -mag applied, not just the raw dice total.
+    const displayWithAdj = (m, delta) => {
+      const orig = m.userData.diceAdj || 0;
+      m.userData.diceAdj = orig + delta;
+      const d = eventDisplay(m, mw.key, true);
+      m.userData.diceAdj = orig;
+      return d;
+    };
     const targets = eventTargets(mw.key)
       .filter((m) => head.kind === 'jeer' || m.userData.color === head.color)
       .map((m) => { const ci = miniCardInfo(m);
         return { miniId: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null,
-                 symImg: ci.symImg, total: eventDisplay(m, mw.key, true) }; });
+                 symImg: ci.symImg, total: eventDisplay(m, mw.key, true),
+                 plus: displayWithAdj(m, mag), minus: displayWithAdj(m, -mag) }; });
     if (!targets.length) { mw.queue.shift(); return modWaitStep(); }
     return { kind: head.kind, cardId: head.cardId, color: head.color, mag,
              label: labelForEvent(mw.key), targets };
