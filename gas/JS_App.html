@@ -1116,15 +1116,20 @@
     const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
     const m = raceMarkerOf(color); if (!m) return;
     const L = RACE_LANE.length;
-    const stepFwd = () => { st.pos++; if (st.pos >= L) { st.pos = 0; if (st.laps < LAP_MAX) st.laps++; } };
-    const occupiedByOther = (pos) => RACE_LANE[pos].occupants.some(
-      (p) => p !== m && p.userData.type === 'marker' && p.userData.color !== color);
+    // pos 0 = behind the start/finish line (pre-race); pos 1..L = spaces 1..L.
+    // A lap banks only when crossing the line (pos wraps L -> 1), so the very
+    // first VP just steps onto space 1 with NO lap credit. pos 0 renders on the
+    // last space (RACE_LANE[L-1]), immediately behind the line.
+    const slotForPos = (p) => RACE_LANE[(p <= 0 ? L : p) - 1];
+    const stepFwd = () => { st.pos++; if (st.pos > L) { st.pos = 1; if (st.laps < LAP_MAX) st.laps++; } };
+    const occupiedByOther = (p) => slotForPos(p).occupants.some(
+      (q) => q !== m && q.userData.type === 'marker' && q.userData.color !== color);
     for (let s = n; s > 0; s--) stepFwd();
-    for (let s = n; s < 0; s++) { st.pos--; if (st.pos < 0) { st.pos = L - 1; if (st.laps > 0) st.laps--; } }
+    for (let s = n; s < 0; s++) { st.pos--; if (st.pos < 1) { st.pos = L; if (st.laps > 0) st.laps--; } }
     // hop off a shared space onto the next free one (forward moves only)
     if (n > 0) { let guard = 0; while (occupiedByOther(st.pos) && guard++ < L) stepFwd(); }
     placeOnTrackOrd(color, 'lap', st.laps);
-    placeOnSlot(m, RACE_LANE[st.pos]);
+    placeOnSlot(m, slotForPos(st.pos));
     notifyFlow();
   }
 
@@ -1168,9 +1173,12 @@
     const st = GAME.rome; if (!st) return;
     if (!OUTER_LANE.length) return;
     const L = OUTER_LANE.length;
-    for (let s = n; s > 0; s--) { st.chariotPos++; if (st.chariotPos >= L) { st.chariotPos = 0; st.laps++; } }
+    // chariotPos 0 = behind the line (start); 1..L = spaces. Laps bank only on a
+    // line crossing (wrap L -> 1), so the first win just enters the track.
+    const slotForPos = (p) => OUTER_LANE[(p <= 0 ? L : p) - 1];
+    for (let s = n; s > 0; s--) { st.chariotPos++; if (st.chariotPos > L) { st.chariotPos = 1; st.laps++; } }
     const m = romeChariotOf();
-    if (m) placeOnSlot(m, OUTER_LANE[st.chariotPos]);
+    if (m) placeOnSlot(m, slotForPos(st.chariotPos));
     notifyFlow();
   }
 
@@ -2589,14 +2597,15 @@
         for (const color of ALL_COLORS) placeOnSlot(addMarker(color), slot);
       }
     }
-    // on-foot race markers: at the start/finish line of the inner lane
+    // on-foot race markers: behind the start/finish line (pos 0 = last space),
+    // so the first VP steps onto space 1 without banking a lap.
     buildRaceLane();
     if (RACE_LANE.length) {
-      for (const color of ALL_COLORS) placeOnSlot(addMarker(color), RACE_LANE[0]);
+      for (const color of ALL_COLORS) placeOnSlot(addMarker(color), RACE_LANE[RACE_LANE.length - 1]);
     }
-    // Rome's black chariot at the start/finish line of the outer lane
+    // Rome's black chariot behind the start/finish line of the outer lane
     buildOuterLane();
-    if (OUTER_LANE.length) placeOnSlot(addRomeChariot(), OUTER_LANE[0]);
+    if (OUTER_LANE.length) placeOnSlot(addRomeChariot(), OUTER_LANE[OUTER_LANE.length - 1]);
     const era = slotsByRole('era-start')[0];      // round tracker on the era start
     if (era) placeOnSlot(addRound(), era);
 
