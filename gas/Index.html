@@ -15,7 +15,9 @@
     </script>
   </head>
   <body>
-    <h1 class="title">Fortissimus — Playtable</h1>
+    <h1 class="title">Fortissimus — Playtable
+      <button id="toolbarToggle" class="tbtoggle" title="Show/hide the setup &amp; sim tools">⚙ Tools</button>
+    </h1>
 
     <div id="toolbar">
       <fieldset>
@@ -87,6 +89,10 @@
       </fieldset>
     </div>
 
+    <!-- TOP: whole-game status (resources, columns, faction abilities, log) — moved up out of the
+         right panel so the board area gets more room and the status is readable at a glance. -->
+    <div id="topStatus"></div>
+
     <div id="stage">
       <!-- LEFT: current-player tools/actions -->
       <div id="playerPanel">
@@ -107,6 +113,11 @@
             <button id="addDie" title="Spend 1⚡ to add a die to your cup">⚡→+1 die</button>
           </div>
           <button id="rollCup" class="ppwide" title="Reroll every die in your cup">Roll cup</button>
+        </div>
+
+        <!-- Turn control lives on the LEFT (with the active player's tools); phase Next/Back stay right. -->
+        <div class="ppsec" id="ppTurn" hidden>
+          <button id="nextPlayer" class="ppwide" title="Pass to the next player (loops)">Next player ▶</button>
         </div>
 
         <div class="ppsec" id="compete" hidden>
@@ -155,7 +166,6 @@
           <div id="turnbar" hidden>
             <div id="turnLine"></div>
             <div class="turnbtns">
-              <button id="nextPlayer" title="Pass to the next player (loops)">Next player ▶</button>
               <button id="resolveEvent" title="Score this event and hand out podium rewards" hidden>Resolve event ▶</button>
             </div>
           </div>

@@ -105,9 +105,22 @@
       PT.setEventSlot(i, file);
     });
   }
+  // Setup/sim tools live in #toolbar; a ⚙ button in the title collapses them so a running
+  // game gets the full width. New game auto-collapses; the toggle re-opens for re-seeding.
+  const toolbarToggle = document.getElementById('toolbarToggle');
+  const setToolbar = (open) => {
+    document.body.classList.toggle('toolsopen', open);
+    document.body.classList.toggle('toolshidden', !open);
+  };
+  setToolbar(true);
+  if (toolbarToggle) {
+    toolbarToggle.addEventListener('click', () =>
+      setToolbar(!document.body.classList.contains('toolsopen')));
+  }
   document.getElementById('initGame').addEventListener('click', () => {
     PT.initGame(HEROES.map((h) => h[0]));
     dealEvents(randomEvents());
+    setToolbar(false);   // a game just started — get the tools out of the way
   });
   // Each new round the app asks for a fresh random event trio (D5).
   if (PT.onNewRound) PT.onNewRound(() => dealEvents(randomEvents()));
@@ -135,6 +148,9 @@
   const flowLine = document.getElementById('flowLine');
   const flowOrder = document.getElementById('flowOrder');
   const flowRes = document.getElementById('flowRes');
+  const topStatus = document.getElementById('topStatus');
+  const toolbar = document.getElementById('toolbar');
+  const ppTurn = document.getElementById('ppTurn');
   const turnbar = document.getElementById('turnbar');
   const turnLine = document.getElementById('turnLine');
   const nextPlayerBtn = document.getElementById('nextPlayer');
@@ -381,9 +397,14 @@
         + (i + 1) + '. ' + c + '</span>').join('');
     }
 
-    // per-player resource readout (coin / ⚡ / ☀), current player emphasized
+    // Whole-game status now lives in the TOP bar (#topStatus) as side-by-side sections:
+    // resources · columns/tracks · faction abilities · recent log. flowRes stays empty.
+    flowRes.innerHTML = '';
     if (f.started && f.res) {
-      flowRes.innerHTML = f.order.map((c) => {
+      const secs = [];
+
+      // resources (coin / ⚡ / ☀), current player emphasized, + Rome's chariot line
+      let resHtml = '<div class="tsh">Resources</div>' + f.order.map((c) => {
         const r = f.res[c] || { coin: 0, zap: 0, sun: 0 };
         const cls = 'resrow' + (c === f.current ? ' cur' : '');
         const coin = '<span' + (r.coin < 0 ? ' class="neg"' : '') + '>🪙' + r.coin + '</span>';
@@ -391,35 +412,32 @@
           + c + ' ' + coin + ' ⚡' + r.zap + ' ☀' + r.sun + '</div>';
       }).join('');
       if (f.rome) {
-        flowRes.innerHTML += '<div class="resrow" style="color:' + FLOW_COLORS.Rome + '">'
-          + '🏛 Rome chariot — Act ' + f.rome.act + ' · lap ' + f.rome.laps + ' · step ' + f.rome.chariotPos + '</div>';
+        resHtml += '<div class="resrow" style="color:' + FLOW_COLORS.Rome + '">'
+          + '🏛 Rome — Act ' + f.rome.act + ' · lap ' + f.rome.laps + ' · step ' + f.rome.chariotPos + '</div>';
       }
-      // Column standings (§8): each active god's per-player rung (/6) + Favor unlocks
+      secs.push('<div class="tsSec">' + resHtml + '</div>');
+
+      // columns (§8) + track unlock rows (Favor / Chariot / Relic)
       if (f.columns) {
         const GODS = { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
-        let html = '<div class="colhdr">Columns — rung /6</div>';
+        let html = '<div class="tsh">Columns — rung /6</div>';
         for (const cn of [1, 2, 3]) {
           const cells = f.order.map((c) =>
             '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + ((f.columns[c] && f.columns[c][cn]) || 0) + '</span>'
           ).join(' ');
           html += '<div class="colrow">' + GODS[cn] + ': ' + cells + '</div>';
         }
-        const stars = f.order.filter((c) => f.favorUnlocked && f.favorUnlocked[c])
-          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">★' + c + '</span>').join(' ');
-        html += '<div class="colrow">Favor: ' + (stars || '—') + '</div>';
-        // §7: nations that completed the chariot track race the faster outer lane
-        const chariots = f.order.filter((c) => f.chariotUnlocked && f.chariotUnlocked[c])
-          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">🏇' + c + '</span>').join(' ');
-        html += '<div class="colrow">Chariot: ' + (chariots || '—') + '</div>';
-        // §11: nations that completed the relic track can equip their faction Relic
-        const relics = f.order.filter((c) => f.relicUnlocked && f.relicUnlocked[c])
-          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">🏺' + c + '</span>').join(' ');
-        html += '<div class="colrow">Relic: ' + (relics || '—') + '</div>';
-        flowRes.innerHTML += html;
+        const badges = (pred, glyph) => f.order.filter((c) => pred && pred[c])
+          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + glyph + c + '</span>').join(' ') || '—';
+        html += '<div class="colrow">Favor: ' + badges(f.favorUnlocked, '★') + '</div>';
+        html += '<div class="colrow">Chariot: ' + badges(f.chariotUnlocked, '🏇') + '</div>';
+        html += '<div class="colrow">Relic: ' + badges(f.relicUnlocked, '🏺') + '</div>';
+        secs.push('<div class="tsSec">' + html + '</div>');
       }
+
       // §11 faction legend: each nation's Relic / Favor / Blessing + unlock state
       if (f.factions && f.order) {
-        let leg = '<div class="colhdr">Factions (§11)</div>';
+        let leg = '<div class="tsh">Factions (§11)</div>';
         for (const c of f.order) {
           const fac = f.factions[c]; if (!fac) continue;
           const rel = (f.relicUnlocked && f.relicUnlocked[c]) ? '🏺' : '·';
@@ -427,14 +445,18 @@
           leg += '<div class="colrow" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' +
             fac.name + ' — ' + rel + ' ' + fac.relic + ' / ' + fav + ' ' + fac.favor + ' / ✨ ' + fac.blessing + '</div>';
         }
-        flowRes.innerHTML += leg;
+        secs.push('<div class="tsSec tswide">' + leg + '</div>');
       }
-      // Recent game log (column rungs, Favor unlocks, owner-resolved prompts)
+
+      // recent game log (column rungs, Favor unlocks, blessings, owner-resolved prompts)
       if (f.log && f.log.length) {
-        flowRes.innerHTML += '<div class="gamelog">' + f.log.map((l) => '<div>' + l + '</div>').join('') + '</div>';
+        secs.push('<div class="tsSec tslog"><div class="tsh">Log</div>'
+          + f.log.map((l) => '<div>' + l + '</div>').join('') + '</div>');
       }
+
+      topStatus.innerHTML = secs.join('');
     } else {
-      flowRes.innerHTML = '';
+      topStatus.innerHTML = '';
     }
 
     // turn bar: per-player phases (Upkeep/Blind Placement/Market) OR the guided event walk.
@@ -478,7 +500,11 @@
       reflectSwatch(f.current);
     } else {
       turnbar.hidden = true;
+      nextPlayerBtn.hidden = true;
     }
+    // The Next-player button lives in the LEFT panel now (#ppTurn) — mirror the turnbar's
+    // computed visibility so it appears only when passing is actually offered.
+    ppTurn.hidden = nextPlayerBtn.hidden;
 
     // podium readout: the most recently resolved event's placements + rewards.
     if (f.started && !f.over && f.isEvent && f.lastResolution) {

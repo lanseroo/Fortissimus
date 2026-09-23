@@ -14,6 +14,16 @@
     margin: 10px 16px 8px;
     font-size: 1.4rem;
   }
+  /* ⚙ toggle for the setup/sim tools — collapses once a game is running. */
+  .tbtoggle {
+    font: inherit; font-style: normal; font-size: 0.72rem;
+    vertical-align: middle; margin-left: 12px;
+    padding: 3px 9px; border-radius: 5px;
+    border: 1px solid #4a4d52; background: #2a2c30; color: #cfd3d8; cursor: pointer;
+  }
+  .tbtoggle:hover { background: #3a3d42; }
+  body.toolsopen .tbtoggle { box-shadow: 0 0 0 2px #ffd47955; }
+  body.toolshidden #toolbar { display: none; }
 
   /* ------------------------------------------------------------- toolbar */
   #toolbar {
@@ -68,6 +78,39 @@
   }
   .sw:hover { border-color: #fff; }
   .sw.active { border-color: #fff; box-shadow: 0 0 0 2px #ffd479; }
+
+  /* ------------------------------------------------------- top game status */
+  /* Whole-game readout (resources / columns / factions / log) sits above the board
+     as side-by-side sections. Empty (and collapsed) until a game starts. */
+  #topStatus {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 0 16px 8px;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #topStatus:empty { display: none; }
+  #topStatus .tsSec {
+    background: #1c1e22;
+    border: 1px solid #2a2c30;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-width: 150px;
+  }
+  #topStatus .tsSec.tswide { flex: 1 1 240px; }
+  #topStatus .tsSec.tslog { flex: 1 1 200px; }
+  #topStatus .tsh {
+    color: #8a8d93; font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 3px;
+  }
+  #topStatus .resrow { display: flex; gap: 6px; padding: 1px 3px; border-radius: 3px; }
+  #topStatus .resrow.cur { background: #2a2c30; font-weight: 700; }
+  #topStatus .resrow .neg { color: #ff6b6b; }
+  #topStatus .colrow { display: flex; gap: 6px; padding: 1px 3px; flex-wrap: wrap; }
+  #topStatus .tslog div { padding: 1px 0; color: #b7bcc4; font-size: 0.72rem; }
+  #topStatus .tslog { max-height: 96px; overflow: auto; }
 
   /* ------------------------------------------------------------- stage */
   #stage {
