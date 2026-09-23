@@ -131,6 +131,7 @@
 
   // ---- game flow HUD (round / phase / turn order) ----
   const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800', Rome: '#9a9a9a' };
+  const resSym = (k) => ({ coin: '🪙', zap: '⚡', sun: '☀', income: ' income' }[k] || (' ' + k));
   const flowLine = document.getElementById('flowLine');
   const flowOrder = document.getElementById('flowOrder');
   const flowRes = document.getElementById('flowRes');
@@ -171,6 +172,10 @@
   const endGame = document.getElementById('endGame');
   const egHead = document.getElementById('egHead');
   const egRows = document.getElementById('egRows');
+  const promptBox = document.getElementById('promptBox');
+  const pbLine = document.getElementById('pbLine');
+  const pbBody = document.getElementById('pbBody');
+  const pbBtns = document.getElementById('pbBtns');
   const standings = document.getElementById('standings');
 
   // ---- left player panel (current player's cup / economy / competition) ----
@@ -713,7 +718,39 @@
       endGame.hidden = true;
     }
 
-    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg);   // combat renders in the left panel, not the modal
+    // pending decision prompt (lap→column pick / Bacchus trade). Lower priority than every other
+    // modal — only shown once the board is otherwise clear, so mid-scoring picks queue politely.
+    const higherModal = f.barracks || cw || mw || summ || eg || f.colosseum;
+    const pr = (!higherModal && f.prompt) ? f.prompt : null;
+    if (pr) {
+      promptBox.hidden = false;
+      const col = FLOW_COLORS[pr.color] || '#ccc';
+      const queued = pr.pending > 1 ? ' <span class="pbq">(' + pr.pending + ' queued)</span>' : '';
+      if (pr.type === 'colpick') {
+        pbLine.innerHTML = '🏁 <b style="color:' + col + '">' + pr.color + '</b> — completed a lap. Choose a column to advance:' + queued;
+        pbBody.innerHTML = pr.cols.map((c) =>
+          '<button class="pbcol" data-colpick="' + c.colNum + '"' + (c.topped ? ' disabled' : '') + '>'
+          + '<b>' + c.name + '</b><span class="pbrung">rung ' + c.rung + '/6</span>'
+          + '<span class="pbnext">' + (c.topped ? 'TOPPED' : '→ ' + c.nextLabel) + '</span></button>'
+        ).join('');
+        pbBtns.innerHTML = '';
+      } else {   // trade
+        pbLine.innerHTML = '🍇 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
+          + ': trade <b>' + pr.label + '</b> (max ×' + pr.max + ')' + queued;
+        const giveTxt = Object.keys(pr.give).map((k) => pr.give[k] + resSym(k)).join(' + ');
+        const getTxt = Object.keys(pr.get).map((k) => (k === 'race' ? pr.get[k] + ' race' : pr.get[k] + resSym(k))).join(' + ');
+        pbBody.innerHTML = '<div class="pbtrade">Give ' + giveTxt + ' → get ' + getTxt + ' each</div>'
+          + (pr.affordN < 1 ? '<div class="pbwarn">Can\'t afford this trade.</div>' : '');
+        let btns = '';
+        for (let n = 1; n <= pr.max; n++) btns += '<button data-trade="' + n + '"' + (n > pr.affordN ? ' disabled' : '') + '>Accept ×' + n + '</button>';
+        btns += '<button data-trade="0">Decline</button>';
+        pbBtns.innerHTML = btns;
+      }
+    } else {
+      promptBox.hidden = true;
+    }
+
+    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg || pr);   // combat renders in the left panel, not the modal
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
@@ -918,6 +955,17 @@
 
   // event summary modal: dismiss it to advance the guided walk to the next event/phase.
   esNext.addEventListener('click', () => PT.dismissEventSummary());
+
+  // decision-prompt modal: lap→column pick (pbBody) + Bacchus trade accept/decline (pbBtns).
+  pbBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-colpick]'); if (!btn || btn.disabled) return;
+    PT.resolveColPick(Number(btn.dataset.colpick));
+  });
+  pbBtns.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-trade]'); if (!btn || btn.disabled) return;
+    const n = Number(btn.dataset.trade);
+    if (n <= 0) PT.dismissPrompt(); else PT.resolveTrade(n);
+  });
 
   // Colosseum combat panel: all context buttons + fighter-row clicks are delegated here
   // (rebuilt per sub in renderFlow; combat now lives in the left panel, board stays visible).

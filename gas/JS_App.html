@@ -1101,7 +1101,7 @@
                  marketVisited: {}, exchanged: {},
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
-                 columns: {}, favorUnlocked: {}, relicUnlocked: {}, log: [],
+                 columns: {}, favorUnlocked: {}, relicUnlocked: {}, log: [], prompts: [],
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1351,13 +1351,29 @@
     1: { name: 'Fortuna', top: 'strElysium', rungs: {
            1: { sun: 1 }, 2: { draft: 1 }, 3: { income: true }, 4: { draft: 2 }, 5: { draft: 3 } } },
     2: { name: 'Bacchus', top: 'pin', rungs: {
-           1: { manual: '⚡→☀ ×2' }, 2: { manual: 'send a hand card → Elysium' },
-           3: { manual: 'discard a card +1🪙 → income' }, 4: { manual: '🪙→☀ ×2' },
-           5: { manual: '1☀ → 5 race steps (×3)' } } },
+           1: { trade: { give: { zap: 1 },                  get: { sun: 1 },  max: 2 }, label: '1⚡ → 1☀' },
+           2: { manual: 'send a hand card → Elysium' },
+           3: { trade: { give: { coin: 1 },                 get: { sun: 1 },  max: 2 }, label: '1🪙 → 1☀' },
+           4: { trade: { give: { coin: 1, zap: 1, sun: 1 }, get: { income: 1 }, max: 1 }, label: '1🪙+1⚡+1☀ → income upgrade' },
+           5: { trade: { give: { sun: 1 },                  get: { race: 5 }, max: 3 }, label: '1☀ → 5 race steps' } } },
     3: { name: 'Mercury', top: 'spdElysium', rungs: {
            1: { race: 3 }, 2: { race: 4 }, 3: { race: 5 }, 4: { draft: 1 }, 5: { race: 10 } } },
   };
   const godName = (colNum) => (COLUMN_GODS[colNum] ? COLUMN_GODS[colNum].name : 'Column ' + colNum);
+  // Short human label for the reward at (colNum, ord) — for the lap→column pick modal.
+  function describeRung(colNum, ord) {
+    if (ord >= 6) return 'TOP — Favor + ×2 VP';
+    const rw = (COLUMN_GODS[colNum] && COLUMN_GODS[colNum].rungs[ord]) || {};
+    if (rw.race)   return '+' + rw.race + ' race';
+    if (rw.sun)    return '+' + rw.sun + '☀';
+    if (rw.zap)    return '+' + rw.zap + '⚡';
+    if (rw.coin)   return '+' + rw.coin + '🪙';
+    if (rw.income) return 'income upgrade';
+    if (rw.draft)  return 'draft ' + rw.draft + ' hero' + (rw.draft > 1 ? 's' : '');
+    if (rw.trade)  return (rw.label || 'trade') + ' (trade)';
+    if (rw.manual) return rw.manual;
+    return '—';
+  }
   const markerOnColumn = (color, colNum) =>
     pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
                        p.userData.slot && p.userData.slot.colNum === colNum);
@@ -1379,6 +1395,8 @@
     if (rw.income) { grantIncome(color); notifyFlow(); }
     if (rw.draft)  logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + rw.draft + ' market hero' + (rw.draft > 1 ? 's' : '') + ' — resolve manually.');
     if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
+    if (rw.trade)  pushPrompt({ type: 'trade', color, colNum, ord, label: rw.label || 'trade',
+                                give: rw.trade.give, get: rw.trade.get, max: rw.trade.max || 1 });
   }
   // Advance a nation up one column by n rungs (capped at the top, ord 6), moving the marker and
   // resolving each rung passed. Returns the number of rungs actually climbed.
@@ -1394,22 +1412,72 @@
     notifyFlow();
     return target - before;
   }
-  // Each completed race lap advances one active column (§7). PIN: rules say "your choice"; until a
-  // picker UI exists this auto-advances the column the player is HIGHEST on (accelerates a top-rung
-  // / Favor), ties → lowest colNum, skipping any already at the top.
+  // Each completed race lap advances one active column of the player's CHOICE (§7). Queue one
+  // colpick prompt per lap (skipping laps where all three columns are already topped); the player
+  // resolves each via the modal (resolveColPick → moveUpColumn).
   function grantLapColumns(color, laps) {
     for (let i = 0; i < laps; i++) {
       const st = GAME.columns[color] || {};
-      let best = null;
-      for (const cn of [1, 2, 3]) {
-        const v = st[cn] || 0;
-        if (v >= 6) continue;
-        if (best === null || v > (st[best] || 0)) best = cn;
-      }
-      if (best === null) return;                          // all three columns topped
-      logNote('🏁 ' + color + ' completed a lap → ' + godName(best) + ' column +1.');
-      moveUpColumn(color, best, 1);
+      if ([1, 2, 3].every((cn) => (st[cn] || 0) >= 6)) return;   // all columns topped → nothing to pick
+      logNote('🏁 ' + color + ' completed a lap → choose a column to advance.');
+      pushPrompt({ type: 'colpick', color });
     }
+  }
+
+  // ---- pending decision prompts (lap→column pick, Bacchus trade rungs) -----------------------
+  // A small FIFO the UI drains one at a time via a modal. Decisions raised mid-scoring (podium,
+  // blessings) simply enqueue; the modal shows the head prompt whenever no higher-priority modal
+  // (barracks / colWait / modWait / event summary / end game) is open.
+  function pushPrompt(p) { GAME.prompts.push(p); notifyFlow(); }
+  function resolveColPick(colNum) {
+    const p = GAME.prompts[0]; if (!p || p.type !== 'colpick') return;
+    if (![1, 2, 3].includes(colNum)) return;
+    if ((GAME.columns[p.color]?.[colNum] || 0) >= 6) return;    // can't pick a topped column
+    GAME.prompts.shift();
+    moveUpColumn(p.color, colNum, 1);                            // may enqueue a Bacchus trade prompt
+    notifyFlow();
+  }
+  const canAffordGive = (color, give, times) =>
+    Object.keys(give).every((k) => (GAME.res[color]?.[k] || 0) >= give[k] * times);
+  function resolveTrade(times) {
+    const p = GAME.prompts[0]; if (!p || p.type !== 'trade') return;
+    const n = Math.max(0, Math.min(times | 0, p.max));
+    if (n > 0 && canAffordGive(p.color, p.give, n)) {
+      for (const k of Object.keys(p.give)) adjustRes(p.color, k, -p.give[k] * n);
+      for (let i = 0; i < n; i++) {
+        if (p.get.sun)    adjustRes(p.color, 'sun', p.get.sun);
+        if (p.get.zap)    adjustRes(p.color, 'zap', p.get.zap);
+        if (p.get.coin)   adjustRes(p.color, 'coin', p.get.coin);
+        if (p.get.race)   advanceRace(p.color, p.get.race, { noColumn: true });
+        if (p.get.income) { grantIncome(p.color); }
+      }
+      logNote('🍇 ' + p.color + ' (' + godName(p.colNum) + ' rung ' + p.ord + '): ' + p.label + ' ×' + n + '.');
+    }
+    GAME.prompts.shift();
+    notifyFlow();
+  }
+  function dismissPrompt() {   // decline a trade / defer (colpick can't be declined — re-queue)
+    const p = GAME.prompts[0]; if (!p) return;
+    GAME.prompts.shift();
+    if (p.type === 'colpick') GAME.prompts.push(p);   // must be resolved — send to back, don't drop
+    notifyFlow();
+  }
+  // Enriched head-of-queue prompt for the UI (null when empty).
+  function promptFlow() {
+    const p = GAME.prompts[0]; if (!p) return null;
+    if (p.type === 'colpick') {
+      const st = GAME.columns[p.color] || {};
+      const cols = [1, 2, 3].map((cn) => {
+        const rung = st[cn] || 0;
+        return { colNum: cn, name: godName(cn), rung, topped: rung >= 6, nextLabel: describeRung(cn, rung + 1) };
+      });
+      return { type: 'colpick', color: p.color, pending: GAME.prompts.length, cols };
+    }
+    // trade: how many times (0..max) can this player currently afford?
+    let affordN = 0;
+    while (affordN < p.max && canAffordGive(p.color, p.give, affordN + 1)) affordN++;
+    return { type: 'trade', color: p.color, colNum: p.colNum, ord: p.ord, god: godName(p.colNum),
+             label: p.label, give: p.give, get: p.get, max: p.max, affordN, pending: GAME.prompts.length };
   }
   // End-game top-rung ×2 conversions (§8): Fortuna = Strength in Elysium ×2, Mercury = Speed in
   // Elysium ×2. Bacchus top has no printed conversion (PIN) — Favor unlock only, 0 VP here.
@@ -3157,6 +3225,7 @@
       exchanged: JSON.parse(JSON.stringify(GAME.exchanged)),
       columns: JSON.parse(JSON.stringify(GAME.columns)),
       favorUnlocked: { ...GAME.favorUnlocked },
+      prompt: promptFlow(),
       chariotUnlocked: { ...(GAME.chariotUnlocked || {}) },
       relicUnlocked: { ...(GAME.relicUnlocked || {}) },
       factions: FACTIONS,
@@ -3324,7 +3393,7 @@
     initGladDeck();
     GAME.colosseum = null; GAME.colAct = null; GAME.romeLostRound = false;
     GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
-    GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = [];
+    GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = []; GAME.prompts = [];
     for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; }
     GAME.pendingVP = {}; GAME.elysium = []; GAME.tartarus = []; GAME.result = null;
     enterPhase(true);
@@ -3613,6 +3682,7 @@
     colBuy, colRest, colActPass, colResolveSave, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
+    resolveColPick, resolveTrade, dismissPrompt,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;

@@ -337,6 +337,24 @@
   .mwbtn b { color: #ffd479; }
   .mwbtn:hover { background: #3a3d42; }
 
+  /* decision prompt (lap→column pick / Bacchus trade) */
+  #modalBox #promptBox { margin: 0; padding: 0; border: 0; }
+  #modalBox #promptBox[hidden] { display: none; }
+  #pbLine { font-size: 0.9rem; font-weight: 600; margin-bottom: 10px; line-height: 1.35; }
+  #pbLine .pbq { font-size: 0.78rem; opacity: 0.7; font-weight: 500; }
+  #pbBody { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .pbcol { flex: 1 1 0; min-width: 78px; display: flex; flex-direction: column; align-items: center;
+           gap: 3px; padding: 8px 6px; border-radius: 8px; border: 1px solid #3a3d42; background: #2b2e33;
+           color: #eee; cursor: pointer; text-align: center; }
+  .pbcol:hover:not(:disabled) { background: #3a3d42; border-color: #6a6d72; }
+  .pbcol:disabled { opacity: 0.4; cursor: default; }
+  .pbcol b { font-size: 0.9rem; }
+  .pbcol .pbrung { font-size: 0.72rem; opacity: 0.75; }
+  .pbcol .pbnext { font-size: 0.78rem; color: #ffd479; }
+  .pbtrade { font-size: 0.86rem; color: #d6dbe2; }
+  .pbwarn { font-size: 0.8rem; color: #e08a8a; margin-top: 4px; }
+  #pbBtns { flex-wrap: wrap; }
+
   /* event summary (post-resolution recap) */
   #modalBox #eventSummary { margin: 0; padding: 0; border: 0; }
   #modalBox #eventSummary[hidden] { display: none; }
