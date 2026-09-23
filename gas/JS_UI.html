@@ -410,8 +410,10 @@
         const r = f.res[c] || { coin: 0, zap: 0, sun: 0 };
         const cls = 'resrow' + (c === f.current ? ' cur' : '');
         const coin = '<span' + (r.coin < 0 ? ' class="neg"' : '') + '>🪙' + r.coin + '</span>';
+        const inc = (f.income && f.income[c]) || 0;   // income-track rung (0-4 → shown 1-5)
         return '<div class="' + cls + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
-          + c + ' ' + coin + ' ⚡' + r.zap + ' ☀' + r.sun + '</div>';
+          + c + ' ' + coin + ' ⚡' + r.zap + ' ☀' + r.sun
+          + ' <span class="incrung" title="income rung">△' + (inc + 1) + '</span></div>';
       }).join('');
       if (f.rome) {
         resHtml += '<div class="resrow" style="color:' + FLOW_COLORS.Rome + '">'

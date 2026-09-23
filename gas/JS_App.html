@@ -1081,7 +1081,18 @@
   const SEAT_ORDER = ['Blue', 'Yellow', 'Purple', 'Green'];
 
   // Tunable rules numbers (rules still WIP — keep as constants, not hard-coded logic).
-  const START_INCOME  = { coin: 3, zap: 2, sun: 0 };  // per-round income (matches setup tokens)
+  // Income Track (§11): 5 rungs (levels 0-4). Each per-round collection pays the resources at the
+  // player's CURRENT rung. Winning an event (1st) / some column rungs move the marker up one rung.
+  // Starts ~3🪙/2⚡ → up to ~5🪙 + ⚡ + ☀ (rules-draft §11).
+  const INCOME_LEVELS = [
+    { coin: 3, zap: 2, sun: 0 },   // rung 1 (start)
+    { coin: 4, zap: 2, sun: 0 },   // rung 2
+    { coin: 4, zap: 2, sun: 1 },   // rung 3
+    { coin: 5, zap: 2, sun: 1 },   // rung 4
+    { coin: 5, zap: 3, sun: 1 },   // rung 5 (max)
+  ];
+  const INCOME_MAX = INCOME_LEVELS.length - 1;        // top rung index
+  const START_INCOME  = INCOME_LEVELS[0];             // round-1 base income (matches setup tokens)
   const DIE_ZAP_COST  = 1;                             // ⚡ per added cup die (Lightning buys dice)
   const MODIFIER_COIN = 2;                             // Cheer/Jeer discard reward
   const PER_PLAYER_PHASES = ['Upkeep', 'Blind Placement', 'Market'];
@@ -1102,7 +1113,7 @@
                  marketVisited: {}, exchanged: {},
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
-                 columns: {}, favorUnlocked: {}, relicUnlocked: {}, log: [], prompts: [],
+                 columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1113,17 +1124,41 @@
   function logNote(msg) { GAME.log.push(msg); if (GAME.log.length > 60) GAME.log.shift(); }
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
-  function initRes() { for (const c of ALL_COLORS) GAME.res[c] = { coin: seatBonusOf(c), zap: 0, sun: 0 }; }
+  function initRes() { for (const c of ALL_COLORS) { GAME.res[c] = { coin: seatBonusOf(c), zap: 0, sun: 0 }; GAME.income[c] = 0; } }
   function adjustRes(color, kind, n) {
     const r = GAME.res[color];
     if (!r || !(kind in r)) return;
     r[kind] += n;
     notifyFlow();
   }
+  // Collect one round's income at the player's CURRENT income-track rung.
   const grantIncome = (color) => {
     const r = GAME.res[color]; if (!r) return;
-    r.coin += START_INCOME.coin; r.zap += START_INCOME.zap; r.sun += START_INCOME.sun;
+    const lvl = Math.min(GAME.income[color] || 0, INCOME_MAX);
+    const inc = INCOME_LEVELS[lvl];
+    r.coin += inc.coin; r.zap += inc.zap; r.sun += inc.sun;
   };
+  // A faction's income token: the 'income' piece resting on one of that mat's income slots.
+  const incomeTokenOf = (color) =>
+    pieces.find((p) => p.userData.type === 'income' && p.userData.slot && p.userData.slot.owner === color);
+  // Move a nation UP one rung on its income track (marker + level). Future grantIncome() calls
+  // then pay the higher rung. Capped at the top rung.
+  function upgradeIncome(color) {
+    if (GAME.income[color] == null) GAME.income[color] = 0;
+    if (GAME.income[color] >= INCOME_MAX) {
+      logNote('△ ' + color + ' income track already at the top rung.');
+      notifyFlow();
+      return;
+    }
+    const lvl = ++GAME.income[color];
+    const tok = incomeTokenOf(color);
+    const slot = slotsByRole('income', color)[lvl];   // income slots are built left→right = rung 0..4
+    if (tok && slot) placeOnSlot(tok, slot);
+    const inc = INCOME_LEVELS[lvl];
+    logNote('△ ' + color + ' income upgraded to rung ' + (lvl + 1) + ' ('
+      + inc.coin + '🪙 / ' + inc.zap + '⚡' + (inc.sun ? ' / ' + inc.sun + '☀' : '') + ' per round).');
+    notifyFlow();
+  }
   const curPhase = () => phasesFor(GAME.round)[GAME.phaseIndex];
   const isPerPlayer = () => PER_PLAYER_PHASES.includes(curPhase());
   const curPlayer = () => (isPerPlayer() ? GAME.order[GAME.turnIndex] : null);
@@ -1405,7 +1440,7 @@
     if (rw.sun)    adjustRes(color, 'sun', rw.sun);
     if (rw.zap)    adjustRes(color, 'zap', rw.zap);
     if (rw.coin)   adjustRes(color, 'coin', rw.coin);
-    if (rw.income) { grantIncome(color); notifyFlow(); }
+    if (rw.income) upgradeIncome(color);   // move the income marker up one rung
     if (rw.draft)  logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + rw.draft + ' market hero' + (rw.draft > 1 ? 's' : '') + ' — resolve manually.');
     if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
     if (rw.trade)  pushPrompt({ type: 'trade', color, colNum, ord, label: rw.label || 'trade',
@@ -1462,7 +1497,7 @@
         if (p.get.zap)    adjustRes(p.color, 'zap', p.get.zap);
         if (p.get.coin)   adjustRes(p.color, 'coin', p.get.coin);
         if (p.get.race)   advanceRace(p.color, p.get.race, { noColumn: true });
-        if (p.get.income) { grantIncome(p.color); }
+        if (p.get.income) upgradeIncome(p.color);   // Bacchus rung 4 = income-track upgrade
       }
       logNote('🍇 ' + p.color + ' (' + godName(p.colNum) + ' rung ' + p.ord + '): ' + p.label + ' ×' + n + '.');
     }
@@ -2249,8 +2284,8 @@
       if (pl === 0) {                         // 1st: Colosseum pass + income-track upgrade + column +1
         grantTicket(m);
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
-        logNote('▶ ' + m.userData.color + ' won ' + labelForEvent(k) + ' — income-track upgrade (resolve manually).');
-        reward = '🎟 ticket · ' + godName(colNum) + ' +1';
+        upgradeIncome(m.userData.color);      // move the income marker up one rung (§9)
+        reward = '🎟 ticket · ' + godName(colNum) + ' +1 · income ▲';
       } else if (pl === 1) {                  // 2nd: column +1 only
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         reward = godName(colNum) + ' +1';
@@ -3237,6 +3272,7 @@
       cupRolled: { ...GAME.cupRolled },
       exchanged: JSON.parse(JSON.stringify(GAME.exchanged)),
       columns: JSON.parse(JSON.stringify(GAME.columns)),
+      income: { ...(GAME.income || {}) },
       favorUnlocked: { ...GAME.favorUnlocked },
       prompt: promptFlow(),
       chariotUnlocked: { ...(GAME.chariotUnlocked || {}) },
