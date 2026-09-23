@@ -805,6 +805,7 @@
     }
 
     modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg || pr);   // combat renders in the left panel, not the modal
+    document.body.classList.toggle('modalOpen', !modalBackdrop.hidden);     // dims the board only (bars stay readable)
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {

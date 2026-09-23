@@ -374,7 +374,18 @@
   #modalBackdrop {
     position: fixed; inset: 0; z-index: 50;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    /* transparent so the readable left/right/top status bars stay bright; the
+       "resolve me first" dim is applied to the center board only (#viewer::after
+       below). This full-screen element still swallows every click (no close-on-
+       backdrop handler), so interaction is blocked everywhere but the modal. */
+    background: transparent;
+  }
+  /* dim ONLY the 3D board while a modal is up — the bars keep full brightness so
+     the player can read status while deciding. pointer-events:none: the backdrop
+     already blocks clicks. */
+  body.modalOpen #viewer::after {
+    content: ''; position: absolute; inset: 0; z-index: 40;
+    background: rgba(0, 0, 0, 0.6); border-radius: 8px; pointer-events: none;
   }
   /* the `hidden` attribute must beat the display:flex above (equal specificity, so
      this rule wins by coming later); without it the modal is always shown. */
