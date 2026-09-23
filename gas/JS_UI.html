@@ -421,22 +421,22 @@
       }
       secs.push('<div class="tsSec">' + resHtml + '</div>');
 
-      // columns (§8): a compact per-god × per-player rung MATRIX of 6-segment meters,
-      // plus Favor / Chariot / Relic unlock badges beneath.
+      // columns (§8): a compact per-faction × per-god rung MATRIX of 6-segment meters
+      // (faction rows × god columns), plus Favor / Chariot / Relic unlock badges beneath.
       if (f.columns) {
         const GODS = { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
         let html = '<div class="tsh">Columns — rung /6</div><div class="colsum">';
-        // header: blank corner + a player color dot per column
-        html += '<span></span>' + f.order.map((c) =>
-          '<span class="pdot" style="background:' + (FLOW_COLORS[c] || '#ccc') + '" title="' + c + '"></span>').join('');
-        for (const cn of [1, 2, 3]) {
-          html += '<span class="cg">' + GODS[cn] + '</span>';
-          html += f.order.map((c) => {
+        // header: blank corner + a god name per column
+        html += '<span></span>' + [1, 2, 3].map((cn) =>
+          '<span class="cg">' + GODS[cn] + '</span>').join('');
+        for (const c of f.order) {
+          html += '<span class="pdot" style="background:' + (FLOW_COLORS[c] || '#ccc') + '" title="' + c + '"></span>';
+          html += [1, 2, 3].map((cn) => {
             const rung = (f.columns[c] && f.columns[c][cn]) || 0;
             const segs = [0, 1, 2, 3, 4, 5].map((i) =>
               '<span class="rseg"' + (i < rung
                 ? ' style="background:' + (FLOW_COLORS[c] || '#ccc') + '"' : '') + '></span>').join('');
-            return '<span class="rmeter" title="' + c + ' ' + rung + '/6">' + segs + '</span>';
+            return '<span class="rmeter" title="' + c + ' ' + GODS[cn] + ' ' + rung + '/6">' + segs + '</span>';
           }).join('');
         }
         html += '</div>';
