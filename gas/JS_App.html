@@ -2064,22 +2064,37 @@
 
   // 12 gladiators (read off Gladiator<level>-<n>.png). `target` = which positions it strikes:
   // all · lowest/highest position · highest odd · lowest even · pos 2–6 · pos 7–12 · even · odd.
+  // Two SEPARATE numbers per card (they were being conflated):
+  //   • atk      = the lower-left "⚔ = d6 ±M" attack value (a single d6, straight / −1 / +1).
+  //                This is what a hero's Speed must beat to evade.
+  //   • rangeMod = the "🎲🎲 ±N" in the POSITION text — roll 2d6 for a window of positions the
+  //                gladiator reaches (only on cards that print dice; 0 = no roll, target is exact).
   const GLAD_DECK = [
-    { file: 'Gladiator1-1.png', level: 1, target: 'all',      atkMod: 2, shield: 4, hearts: 9 },
-    { file: 'Gladiator1-2.png', level: 1, target: 'lowP',     atkMod: 2, shield: 3, hearts: 9 },
-    { file: 'Gladiator1-3.png', level: 1, target: 'highOdd',  atkMod: 0, shield: 4, hearts: 6 },
-    { file: 'Gladiator2-1.png', level: 2, target: 'lowEven',  atkMod: 0, shield: 5, hearts: 4 },
-    { file: 'Gladiator2-2.png', level: 2, target: 'all',      atkMod: 3, shield: 5, hearts: 6 },
-    { file: 'Gladiator2-3.png', level: 2, target: 'highP',    atkMod: 3, shield: 5, hearts: 5 },
-    { file: 'Gladiator3-1.png', level: 3, target: 'low2_6',   atkMod: 0, shield: 5, hearts: 8 },
-    { file: 'Gladiator3-2.png', level: 3, target: 'high7_12', atkMod: 0, shield: 5, hearts: 9 },
-    { file: 'Gladiator3-3.png', level: 3, target: 'even',     atkMod: 0, shield: 6, hearts: 3 },
-    { file: 'Gladiator4-1.png', level: 4, target: 'all',      atkMod: 0, shield: 6, hearts: 5 },
-    { file: 'Gladiator4-2.png', level: 4, target: 'all',      atkMod: 1, shield: 6, hearts: 6 },
-    { file: 'Gladiator4-3.png', level: 4, target: 'odd',      atkMod: 0, shield: 6, hearts: 7 },
+    { file: 'Gladiator1-1.png', level: 1, target: 'all',      atk: -1, rangeMod: 2, shield: 4, hearts: 9 },
+    { file: 'Gladiator1-2.png', level: 1, target: 'lowP',     atk:  0, rangeMod: 2, shield: 3, hearts: 9 },
+    { file: 'Gladiator1-3.png', level: 1, target: 'highOdd',  atk:  0, rangeMod: 0, shield: 4, hearts: 6 },
+    { file: 'Gladiator2-1.png', level: 2, target: 'lowEven',  atk:  0, rangeMod: 0, shield: 5, hearts: 4 },
+    { file: 'Gladiator2-2.png', level: 2, target: 'all',      atk: -1, rangeMod: 3, shield: 5, hearts: 6 },
+    { file: 'Gladiator2-3.png', level: 2, target: 'highP',    atk:  0, rangeMod: 3, shield: 5, hearts: 5 },
+    { file: 'Gladiator3-1.png', level: 3, target: 'low2_6',   atk:  0, rangeMod: 0, shield: 5, hearts: 8 },
+    { file: 'Gladiator3-2.png', level: 3, target: 'high7_12', atk: -1, rangeMod: 0, shield: 5, hearts: 9 },
+    { file: 'Gladiator3-3.png', level: 3, target: 'even',     atk:  0, rangeMod: 0, shield: 6, hearts: 3 },
+    { file: 'Gladiator4-1.png', level: 4, target: 'all',      atk: -1, rangeMod: 0, shield: 6, hearts: 5 },
+    { file: 'Gladiator4-2.png', level: 4, target: 'all',      atk:  1, rangeMod: 1, shield: 6, hearts: 6 },
+    { file: 'Gladiator4-3.png', level: 4, target: 'odd',      atk:  0, rangeMod: 0, shield: 6, hearts: 7 },
   ];
   const GLAD_TARGET_LABEL = { all: 'everyone', lowP: 'lowest', highP: 'highest', highOdd: 'highest odd',
     lowEven: 'lowest even', low2_6: 'pos 2–6', high7_12: 'pos 7–12', even: 'even pos', odd: 'odd pos' };
+  // For the sandbox gladiator picker: [{idx,label}] over every card (all levels).
+  function gladList() {
+    return GLAD_DECK.map((c, i) => {
+      const atkTxt = 'd6' + (c.atk > 0 ? '+' + c.atk : (c.atk < 0 ? String(c.atk) : ''));
+      const rng = c.rangeMod ? (' ±' + c.rangeMod + ' (2d6)') : '';
+      const label = 'L' + c.level + ' ' + c.file.replace('Gladiator', '').replace('.png', '')
+        + ' — ' + (GLAD_TARGET_LABEL[c.target] || c.target) + rng + ' · atk ' + atkTxt;
+      return { idx: i, label };
+    });
+  }
 
   function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
   // Deck: shuffle the 3 variants WITHIN each level, then stack level 1 (top) → level 4 (bottom).
@@ -2444,7 +2459,7 @@
                face: ci.face, str: st.str, speed: st.speed, pos: 2, alive: true, doubled: false, rage: false };
     });
     GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
-      targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atkMod: card.atkMod, shield: card.shield,
+      targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atk: card.atk, rangeMod: card.rangeMod, shield: card.shield,
       heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
       gladBonus: 0, attackVal: 0, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
       log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
@@ -2465,7 +2480,7 @@
   function colApplyAttack(raw) {
     const c = GAME.colosseum; if (!c) return;
     const targets = c.targetIds.map((id) => fighterOf(id)).filter(Boolean);
-    c.attackVal = raw + c.atkMod + c.gladBonus;
+    c.attackVal = raw + c.atk + c.gladBonus;   // ⚔ = d6 ±M (corner value), NOT the position-range roll
     c.saveQueue = targets.filter((f) => f.speed <= c.attackVal).map((f) => f.id);
     c.log.push('👹 Gladiator strikes for ' + c.attackVal + ' at ' + c.targetLabel);
     for (const f of targets) if (f.speed > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + f.speed + ')');
@@ -2614,7 +2629,7 @@
     const wrapF = (id) => { const f = fighterOf(id); return f ? fInfo(f) : null; };
     return {
       sub: c.sub, round: c.round,
-      glad: { file: c.file, level: c.level, target: c.targetLabel, atkMod: c.atkMod, shield: c.shield, hearts: c.hearts, heartsMax: c.heartsMax },
+      glad: { file: c.file, level: c.level, target: c.targetLabel, atk: c.atk, rangeMod: c.rangeMod, shield: c.shield, hearts: c.hearts, heartsMax: c.heartsMax },
       fighters: c.fighters.map((f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos,
                  alive: f.alive, str: f.str, speed: f.speed, doubled: f.doubled, rage: f.rage, targeted: c.targetIds.includes(f.id) })),
       attackVal: (c.sub === 'attack' || c.sub === 'buyB' || c.sub === 'counter') ? c.attackVal : null,
@@ -3271,14 +3286,15 @@
   // ---- sandbox: jump a fresh game straight to the start of a Colosseum round ----
   // Random gladiator, a random squad from each team, a random hero/plebe card per fighter,
   // and random 0–5 starting coin/⚡/☀ per faction. For quickly playtesting combat.
-  function simToColosseum(heroPool = []) {
+  // gladIdx: index into GLAD_DECK to force (any level), or -1/undefined for a random pick.
+  function simToColosseum(heroPool = [], gladIdx = -1) {
     initGame(heroPool);                                     // full board setup (round 1 / Upkeep)
     // initGame's minis stream in ASYNC (each STL loads in a loader.load callback — see addMini),
     // so `pieces` is still empty the instant this returns. Wait for the squad to arrive, THEN
     // build the arena; otherwise we'd seat nothing and land back at round-1 Upkeep.
     const target = SLOTS.filter((s) => s.role === 'hero-market').length || 20;
     const t0 = Date.now();
-    const build = () => buildColosseumSandbox(heroPool);
+    const build = () => buildColosseumSandbox(heroPool, gladIdx);
     const waitForMinis = () => {
       const n = pieces.filter((m) => m.userData.type === 'mini').length;
       if (n >= target || Date.now() - t0 > 6000) build();   // all loaded (or give up after 6s)
@@ -3288,7 +3304,7 @@
   }
 
   // Second half of the sandbox jump — runs once the minis have finished loading.
-  function buildColosseumSandbox(heroPool = []) {
+  function buildColosseumSandbox(heroPool = [], gladIdx = -1) {
     const r5 = () => Math.floor(Math.random() * 6);         // 0..5
     const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     // pick a random squad from each team (0..3), keep the total playable (2..8)
@@ -3322,14 +3338,20 @@
     GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;
     GAME.colWait = null; GAME.modWait = null; GAME.summaryOpen = false;
     selectedHeroId = null;
-    startColosseum();                                       // draws a random gladiator + opens combat
+    // Force the chosen gladiator on top of the deck (any level); random if none selected. Without
+    // this, the deck is level-1-on-top so the sim always drew a level-1 card.
+    if (!GAME.gladDeck || !GAME.gladDeck.length) initGladDeck();
+    const gi = (gladIdx != null && gladIdx >= 0 && gladIdx < GLAD_DECK.length)
+      ? gladIdx : Math.floor(Math.random() * GLAD_DECK.length);
+    GAME.gladDeck.unshift(gi);
+    startColosseum();                                       // draws GLAD_DECK[gi] + opens combat
     notifyFlow();
   }
 
   // ------------------------------------------------------------------ public API
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable, initGame, dealHand, simToColosseum,
+    setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onVPFlash: (cb) => { vpFlashCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },

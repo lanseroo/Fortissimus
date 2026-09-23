@@ -109,8 +109,15 @@
     PT.initGame(HEROES.map((h) => h[0]));
     dealEvents(randomEvents());
   });
+  // Populate the sandbox gladiator picker: "Random" + every card (all 4 levels).
+  const simGlad = document.getElementById('simGlad');
+  if (simGlad && PT.gladList) {
+    simGlad.innerHTML = '<option value="-1">Random gladiator</option>'
+      + PT.gladList().map((g) => '<option value="' + g.idx + '">' + g.label + '</option>').join('');
+  }
   document.getElementById('simColosseum').addEventListener('click', () => {
-    PT.simToColosseum(HEROES.map((h) => h[0]));         // fresh game → straight into a Colosseum round
+    const gi = simGlad ? parseInt(simGlad.value, 10) : -1;
+    PT.simToColosseum(HEROES.map((h) => h[0]), gi);     // fresh game → straight into a Colosseum round
     dealEvents(randomEvents());                         // seed the event slots (harmless for combat)
   });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
@@ -567,8 +574,11 @@
     if (cf) {
       colFight.hidden = false;
       const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
+      const gAtk = cf.glad.atk || 0;
+      const atkTxt = 'd6' + (gAtk > 0 ? '+' + gAtk : (gAtk < 0 ? '−' + Math.abs(gAtk) : ''));
+      const rngTxt = cf.glad.rangeMod ? (' <span class="colrng">±' + cf.glad.rangeMod + ' (2d6)</span>') : '';
       cfHead.innerHTML = '⚔ Gladiator <b>Lvl ' + cf.glad.level + '</b> · Round ' + cf.round
-        + ' · targets <b>' + cf.glad.target + '</b> · atk d6' + (cf.glad.atkMod ? ('+' + cf.glad.atkMod) : '')
+        + ' · targets <b>' + cf.glad.target + '</b>' + rngTxt + ' · atk <b>' + atkTxt + '</b>'
         + ' · Shield ' + cf.glad.shield;
       const pct = Math.max(0, Math.round(100 * cf.glad.hearts / cf.glad.heartsMax));
       cfHeartFill.style.width = pct + '%';
