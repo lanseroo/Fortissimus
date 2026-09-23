@@ -228,16 +228,6 @@
   /* blank (unrolled cup / unfilled hero slot) die — dashed empty square */
   .die.blank { color: transparent; border-style: dashed; background: #1c1d21; }
   .drawnDie { display: inline-flex; align-items: center; gap: 3px; }
-  .diebump {
-    width: 20px; height: 34px;
-    border-radius: 4px;
-    border: 1px solid #4a4d52;
-    background: #2a2c30; color: #f2f2f2;
-    cursor: pointer; font-size: 1rem; line-height: 1; padding: 0;
-  }
-  .diebump:hover:not(:disabled) { background: #3a3d42; }
-  .diebump:disabled { opacity: 0.35; cursor: default; }
-
   /* per-hero event dice list (left panel, Resolution / Colosseum) */
   #heroList { display: flex; flex-direction: column; gap: 8px; }
   .hero {
@@ -261,7 +251,7 @@
   }
   .hero-acts button:hover:not(:disabled) { background: #3a3d42; }
   .hero-acts button:disabled { opacity: 0.4; cursor: default; }
-  /* free-reroll die control (per-event §5 allowance), distinct from the ☀ ±1 bumps */
+  /* free-reroll die control (per-event §5 allowance) */
   .diereroll {
     width: 18px; height: 18px; line-height: 1; padding: 0; border-radius: 4px;
     border: 1px solid #4a6da0; background: #223247; color: #9fd2ff; cursor: pointer; font-size: 0.72rem;

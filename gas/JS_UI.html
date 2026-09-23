@@ -261,12 +261,10 @@
                 + '<span class="hero-cnt out">OUT · ' + h.roundsSurvived + 'R</span></div></div>';
             }
             const canReroll = h.rerollsLeft > 0;
-            // one die cell (±1 bump, glyph, free-reroll) at absolute index `i` in the hero's dice
+            // one die cell (glyph, free-reroll) at absolute index `i` in the hero's dice
             const dieCell = (v, i) =>
               '<span class="hdie">'
-              + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="-1" title="−1 (−1☀)"' + (r.sun < 1 || v <= 1 ? ' disabled' : '') + '>–</button>'
               + '<span class="die" style="color:' + col + '">' + DICE_GLYPH(v) + '</span>'
-              + '<button class="diebump" data-id="' + h.id + '" data-idx="' + i + '" data-dir="1" title="+1 (−1☀)"' + (r.sun < 1 || v >= 6 ? ' disabled' : '') + '>+</button>'
               + (canReroll ? '<button class="diereroll" data-id="' + h.id + '" data-idx="' + i + '" title="Free reroll (' + h.rerollsLeft + ' left)">↻</button>' : '')
               + '</span>';
             const blanks = (n) => Array.from({ length: Math.max(0, n) }, () => '<span class="die blank"></span>').join('');
@@ -835,11 +833,9 @@
     if (!b || b.disabled || b.dataset.idx === undefined) return;
     PT.drawFromCup(ownerOf(curFlow), +b.dataset.idx);   // draws into the selected hero
   });
-  // per-hero event dice: select a hero, roll/clear its dice, or ±1 bump a die (owner read live)
+  // per-hero event dice: select a hero, roll/clear its dice, or free-reroll a die (owner read live)
   heroList.addEventListener('click', (e) => {
     const owner = ownerOf(curFlow);
-    const bump = e.target.closest('.diebump');
-    if (bump) { PT.bumpHeroDie(+bump.dataset.id, +bump.dataset.idx, +bump.dataset.dir); return; }
     const rr = e.target.closest('.diereroll');
     if (rr) { PT.rerollHeroDie(+rr.dataset.id, +rr.dataset.idx); return; }
     const lj = e.target.closest('.hero-lj');

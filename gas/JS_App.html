@@ -1268,7 +1268,7 @@
   // the field by `score` in a win-direction (`dir`). Long Jump splits its dice into an approach
   // (may FOUL) + a jump. High Jump & Archery are MULTI-ROUND bar/window eliminations where the
   // winner is whoever survives the MOST rounds. `rerolls(stats)` is the count of FREE rerolls a
-  // hero gets (Sun ±1 bumps are separate). Podium rewards are shared/unchanged (see scoreEvent).
+  // hero gets. Podium rewards are shared/unchanged (see scoreEvent).
   const EVENT_RULES = {
     'WrestlingEvent.png': {
       name: 'Wrestling', dir: 'max', dice: 2, rerolls: () => 0,
@@ -1533,7 +1533,7 @@
     }
     return requiredFor(mini);
   }
-  // Reset a hero's free-reroll allowance for its current event/round (Sun ±1 bumps are separate).
+  // Reset a hero's free-reroll allowance for its current event/round.
   function seedRerolls(mini) {
     const rules = rulesFor(mini);
     mini.userData.rerollsLeft = (rules && rules.rerolls) ? rules.rerolls(heroStats(mini)) : 0;
@@ -2817,19 +2817,6 @@
     notifyFlow();
   }
 
-  // Set-die: spend 1☀ (from the hero's owner) to bump one of a hero's dice ±1, within 1-6.
-  function bumpHeroDie(heroId, idx, dir) {
-    const m = findMini(heroId); if (!m) return;
-    const arr = m.userData.eventDice; if (!arr || idx < 0 || idx >= arr.length) return;
-    const color = m.userData.color, r = GAME.res[color]; if (!r || r.sun < 1) return;
-    const nv = arr[idx] + (dir > 0 ? 1 : -1);
-    if (nv < 1 || nv > 6) return;
-    arr[idx] = nv;
-    adjustRes(color, 'sun', -1);               // notifies
-    renderHeroDice3D(m);
-    notifyFlow();
-  }
-
   function clearHeroDice(heroId) {
     const m = findMini(heroId); if (!m) return;
     m.userData.eventDice = [];
@@ -3414,7 +3401,7 @@
     onMarketBuy: (cb) => { marketBuyCb = cb; }, marketBuyInfo, buyMarketCard,
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
-    selectHero, drawFromCup, rollRandomDie, bumpHeroDie, clearHeroDice,
+    selectHero, drawFromCup, rollRandomDie, clearHeroDice,
     rerollHeroDie, toggleLongJumpExtra, commitLongJump,
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
