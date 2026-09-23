@@ -406,7 +406,23 @@
         const chariots = f.order.filter((c) => f.chariotUnlocked && f.chariotUnlocked[c])
           .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">🏇' + c + '</span>').join(' ');
         html += '<div class="colrow">Chariot: ' + (chariots || '—') + '</div>';
+        // §11: nations that completed the relic track can equip their faction Relic
+        const relics = f.order.filter((c) => f.relicUnlocked && f.relicUnlocked[c])
+          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">🏺' + c + '</span>').join(' ');
+        html += '<div class="colrow">Relic: ' + (relics || '—') + '</div>';
         flowRes.innerHTML += html;
+      }
+      // §11 faction legend: each nation's Relic / Favor / Blessing + unlock state
+      if (f.factions && f.order) {
+        let leg = '<div class="colhdr">Factions (§11)</div>';
+        for (const c of f.order) {
+          const fac = f.factions[c]; if (!fac) continue;
+          const rel = (f.relicUnlocked && f.relicUnlocked[c]) ? '🏺' : '·';
+          const fav = (f.favorUnlocked && f.favorUnlocked[c]) ? '★' : '·';
+          leg += '<div class="colrow" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' +
+            fac.name + ' — ' + rel + ' ' + fac.relic + ' / ' + fav + ' ' + fac.favor + ' / ✨ ' + fac.blessing + '</div>';
+        }
+        flowRes.innerHTML += leg;
       }
       // Recent game log (column rungs, Favor unlocks, owner-resolved prompts)
       if (f.log && f.log.length) {

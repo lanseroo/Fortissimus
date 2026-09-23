@@ -1061,6 +1061,19 @@
   ];
   const ALL_COLORS = NATIONS.map((n) => n.color);
 
+  // §11 factions — one per color. Each has a Relic (track-gated equip, own faction,
+  // returns after each event), a Favor (GLOBAL, unlocked at a column top rung), and a
+  // Blessing (fires when a hero enters Elysium). `blessAuto` is the automatic part we
+  // apply on Elysium entry: {vp} = race steps, {zap|sun|coin} = resources. Effects that
+  // need an owner choice (Relic equip, Favor deployment, Osiris) are PINNED — see logs.
+  const FACTIONS = {
+    Blue:   { name: 'Archaea',   relic: 'Helmet of Ares',      favor: 'Toll of Apollo', blessing: 'Glory of Athena',    blessAuto: { vp: 2 } },
+    Green:  { name: 'Aegyptus',  relic: 'Mask of Anubis',      favor: 'Gaze of Ra',     blessing: 'Ritual of Osiris',   blessAuto: null },          // Osiris is a pay-2☀/roll choice → PIN
+    Yellow: { name: 'Anatolia',  relic: 'Scepter of Sardis',   favor: 'Gordian Lock',   blessing: 'Flames of Chimaera', blessAuto: { zap: 3 } },
+    Purple: { name: 'Phoenicia', relic: 'Imperial Murex',      favor: 'Irony of Baal',  blessing: 'Grace of Astarte',   blessAuto: { sun: 1, zap: 1, coin: 1 } },
+  };
+  const factionOf = (color) => FACTIONS[color] || null;
+
   // Seat order = CLOCKWISE from the first player around the physical table: Blue (far
   // left) → Yellow (far right) → Purple (bottom-right) → Green (bottom-left). Drives
   // both the round-1 seat coin bonus and round-1 turn order.
@@ -1088,7 +1101,7 @@
                  marketVisited: {}, exchanged: {},
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
-                 columns: {}, favorUnlocked: {}, log: [],
+                 columns: {}, favorUnlocked: {}, relicUnlocked: {}, log: [],
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1125,7 +1138,8 @@
     // spaces/lap, faster) once the chariot track is completed (§7).
     for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0, lane: 'inner' };
     GAME.chariotUnlocked = {};
-    for (const c of ALL_COLORS) GAME.chariotUnlocked[c] = false;
+    GAME.relicUnlocked = {};
+    for (const c of ALL_COLORS) { GAME.chariotUnlocked[c] = false; GAME.relicUnlocked[c] = false; }
     GAME.rome = { chariotPos: 0, laps: 0 };   // §14.E black-chariot pressure clock (penance deferred)
   }
   // Order the inner-lane slots into a racing sequence: clockwise from the bottom-
@@ -1248,7 +1262,26 @@
     if (!next) return false;          // already at the top rung
     placeOnSlot(marker, next);
     if (track === 'chariot') checkChariotUnlock(color);
+    if (track === 'relic') checkRelicUnlock(color);
     return true;
+  }
+  // §11: completing the Relic track unlocks a nation's faction Relic. It can then be
+  // equipped (no cost) onto one deployed hero, returns after each event. The equip
+  // UI + per-faction relic effects (Ares/Anubis/Sardis/Murex) are owner-resolved and
+  // PINNED for now — this just flips the "unlocked & available to equip" flag.
+  const relicTopOrd = () => {
+    const ords = SLOTS.filter((o) => o.track === 'relic').map((o) => o.ord);
+    return ords.length ? Math.max(...ords) : 0;
+  };
+  function checkRelicUnlock(color) {
+    if (!GAME.relicUnlocked || GAME.relicUnlocked[color]) return;
+    const m = markerOnTrack(color, 'relic');
+    if (m && m.userData.slot && m.userData.slot.ord >= relicTopOrd()) {
+      GAME.relicUnlocked[color] = true;
+      const fac = factionOf(color);
+      logNote('🏺 ' + color + ' unlocked its Relic: ' + (fac ? fac.relic : '?') + ' (equip is owner-resolved — PIN).');
+      notifyFlow();
+    }
   }
   // §7: completing the chariot track (reaching its top rung) unlocks a nation's
   // chariot — its racer moves from the inner foot lane (24 spaces/lap) to the
@@ -2774,6 +2807,20 @@
   // HERO CARD goes to the underworld — survivors' cards sort onto their faction's Elysium slot (3 VP
   // each at end), the fallen's cards stack on the single common Tartarus pile. Action coins refund;
   // then the phase walk continues.
+  // §11 Blessing — fires when one of a nation's heroes enters Elysium (currently only
+  // Colosseum survival). The automatic reward (VP = race steps, or resources) applies
+  // now; Aegyptus / Ritual of Osiris is a pay-2☀-or-roll choice → PINNED (logged only).
+  function fireBlessing(color) {
+    const fac = factionOf(color); if (!fac) return;
+    const a = fac.blessAuto;
+    if (!a) { logNote('✨ ' + color + ' — ' + fac.blessing + ' (Elysium): owner choice — PIN.'); return; }
+    const parts = [];
+    if (a.vp)   { advanceRace(color, a.vp);         parts.push('+' + a.vp + ' VP'); }
+    if (a.zap)  { adjustRes(color, 'zap',  a.zap);  parts.push('+' + a.zap + '⚡'); }
+    if (a.sun)  { adjustRes(color, 'sun',  a.sun);  parts.push('+' + a.sun + '☀'); }
+    if (a.coin) { adjustRes(color, 'coin', a.coin); parts.push('+' + a.coin + '🪙'); }
+    logNote('✨ ' + color + ' — ' + fac.blessing + ': ' + parts.join(' '));
+  }
   function dismissColosseum() {
     const c = GAME.colosseum; if (!c) return;
     const elySlots = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png' && (s.accepts || []).includes('card')).slice(0, 4);
@@ -2786,6 +2833,7 @@
       if (f.alive) {
         GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
         if (card) { const slot = elySlots[SEAT_ORDER.indexOf(f.color) % 4] || elySlots[0]; if (slot) placeOnSlot(card, slot); card.userData.zone = 'elysium'; setCardFace(card, card.userData.face); }
+        fireBlessing(f.color);   // §11 Blessing on Elysium entry (auto part applied; choices PINNED)
       } else {
         GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
         if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
@@ -3110,6 +3158,8 @@
       columns: JSON.parse(JSON.stringify(GAME.columns)),
       favorUnlocked: { ...GAME.favorUnlocked },
       chariotUnlocked: { ...(GAME.chariotUnlocked || {}) },
+      relicUnlocked: { ...(GAME.relicUnlocked || {}) },
+      factions: FACTIONS,
       log: GAME.log.slice(-8),
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
