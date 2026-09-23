@@ -2199,21 +2199,20 @@
     removeGladiatorMarker();
     const g = new THREE.Group();
     const center = arenaStations().find((s) => s.r >= 8);
-    const R = center ? center.r : 8;
     if (center) g.position.set(center.x, MARKER_Y, center.z);
-    // A thin red ring around (not over) the card marks the gladiator's spot; NO filled disc on top.
-    const rim = new THREE.Mesh(new THREE.RingGeometry(R * 0.92, R * 1.06, 40), new THREE.MeshBasicMaterial({ color: 0x8a0f0f, side: THREE.DoubleSide }));
-    rim.rotation.x = -Math.PI / 2; rim.position.y = 0.005; rim.renderOrder = 6; g.add(rim);
+    // No rim/disc: the board already prints the red card rectangle. Size the card to FILL it —
+    // the rectangle measures ~16.2w × 20.7h world units; gladiator cards are portrait (aspect ~0.78),
+    // so a 20.5-tall card lands ~16.1 wide, snug inside the printed border.
+    const RECT_H = 20.5;
     if (file) {
       const cardG = new THREE.Group();
-      // Pre-mint the plane so we can set renderOrder ABOVE the rim — setCardFace then just
-      // re-textures children[0] (a bare disc used to render on top of the card and hide it).
+      // Pre-mint the plane so setCardFace just re-textures children[0] (aspect-fit, long edge = 22).
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(22, 22),
         new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false }));
       plane.rotation.x = -Math.PI / 2; plane.renderOrder = 10;
       cardG.add(plane);
       setCardFace(cardG, file);                 // re-textures the pre-minted plane, aspect-fit
-      cardG.scale.setScalar((R * 1.55) / 22);   // fit the card inside the rim
+      cardG.scale.setScalar(RECT_H / 22);       // fill the printed red rectangle
       cardG.position.y = 0.02;
       g.add(cardG);
     }
@@ -2473,6 +2472,26 @@
     colAutoResolveSaves();
     if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
   }
+  // A hero fell: mark dead, pull its mini off the board AT ONCE, and lay its tied hero card face-up
+  // on the common Tartarus pile (every faction's dead stack there). Booking GAME.tartarus here (and
+  // removing the mini from `pieces`) lets dismissColosseum skip the now-absent fighter at fight's end
+  // — no double relocation. `f.dead` guards against a second call for the same fighter.
+  function killFighter(f) {
+    if (!f || f.dead) return;
+    f.alive = false; f.dead = true;
+    GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id });
+    const m = findMini(f.id);
+    if (m) {
+      const cs = cardSlotOf(m);
+      const card = cs && cs.occupants.slice().reverse().find((o) => o !== m && o.userData.type === 'card');
+      const uw = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png');
+      const elySlots = uw.filter((s) => (s.accepts || []).includes('card')).slice(0, 4);
+      const tarSlot = uw.find((s) => !elySlots.includes(s));
+      if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
+      removePiece(m);
+    }
+    placeAllFighters();
+  }
   // Auto-kill the head of the save queue while its owner has no ☀ to spend (nothing to decide).
   function colAutoResolveSaves() {
     const c = GAME.colosseum;
@@ -2480,14 +2499,14 @@
       const f = fighterOf(c.saveQueue[0]);
       if (!f) { c.saveQueue.shift(); continue; }
       if ((GAME.res[f.color]?.sun || 0) >= 1) break;
-      f.alive = false; c.log.push('✝ ' + symName(f) + ' falls (no ☀)'); c.saveQueue.shift();
+      c.log.push('✝ ' + symName(f) + ' falls (no ☀)'); killFighter(f); c.saveQueue.shift();
     }
   }
   function colResolveSave(miniId, spend) {
     const c = GAME.colosseum; if (!c || c.sub !== 'attack' || c.saveQueue[0] !== miniId) return;
     const f = fighterOf(miniId);
     if (f && spend && (GAME.res[f.color]?.sun || 0) >= 1) { adjustRes(f.color, 'sun', -1); c.log.push('☀ ' + f.color + ' saves ' + symName(f)); }
-    else if (f) { f.alive = false; c.log.push('✝ ' + symName(f) + ' falls'); }
+    else if (f) { c.log.push('✝ ' + symName(f) + ' falls'); killFighter(f); }
     c.saveQueue.shift();
     colAutoResolveSaves();
     if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
