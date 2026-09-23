@@ -1645,6 +1645,8 @@
     mini.userData.locked = false;
     mini.userData.eventDice = [];
     mini.userData.diceAdj = 0;
+    mini.userData.eliminated = false; mini.userData.roundsSurvived = 0;   // home resets per-event status
+    mini.userData.ljExtra = false; mini.userData.ljStage = 'approach'; mini.userData.rerollsLeft = 0;
     if (mini.userData.diceGroup) renderHeroDice3D(mini);
     const hc = homeCircleOf(mini);
     if (hc) placeOnSlot(mini, hc);
@@ -2005,6 +2007,16 @@
       if (steps) advanceRomeChariot(steps);
       if (rp !== 0) GAME.romeLostRound = true;       // §14.D — Rome off the top burns a gladiator
     }
+    // The event is resolved and its final placings are captured — nobody is "eliminated" anymore,
+    // they just placed where they placed. Clear the per-event status (multi-round elimination +
+    // Long Jump) now so no mini carries an OUT flag past the event that set it. This is what kept a
+    // ticket-winning eliminated hero reading OUT (undiceable) in the Colosseum. (D1)
+    for (const m of ranked) {
+      if (m.isRome) continue;
+      m.userData.eliminated = false; m.userData.roundsSurvived = 0;
+      m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
+    }
+
     // Rome never queues a waiting-for-Colosseum decision.
     GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0 && !m.isRome).map((m) => m.userData.id);
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
@@ -2052,8 +2064,6 @@
       placeOnSlot(m, slot);
       m.userData.eventDice = [];
       m.userData.diceAdj = 0;
-      m.userData.eliminated = false; m.userData.roundsSurvived = 0;   // arena fighters are never OUT (D1)
-      m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
       if (m.userData.diceGroup) renderHeroDice3D(m);
       i++;
     }
