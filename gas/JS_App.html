@@ -1078,10 +1078,12 @@
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
                  eventIndex: 0, evtTurnIndex: 0, eventRound: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
                  summaryOpen: false, eventKeys: [], pendingTurnEnd: false, marketPool: [],
+                 marketVisited: {}, exchanged: {},
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
+  let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
   let vpFlashCb = null;                          // JS_UI VP-banner flash (set via PT.onVPFlash)
   // Flash the VP banner on screen with the earned value (called wherever VPs are rewarded).
   function flashVP(color, amount) { if (amount > 0 && vpFlashCb) vpFlashCb({ color, amount }); }
@@ -1352,6 +1354,7 @@
   function resetCup(color) {
     GAME.cup[color] = new Array(CUP_START).fill(null);
     GAME.cupRolled[color] = false;
+    GAME.exchanged[color] = {};                  // ⚡/☀ → coin trade resets: once per resource per round
   }
   // Seed every faction's cup (all blank) at game setup.
   function initCup() { for (const c of ALL_COLORS) resetCup(c); }
@@ -1363,7 +1366,13 @@
     const arr = GAME.cup[color]; if (!arr || GAME.cupRolled[color]) return;
     for (let i = 0; i < arr.length; i++) arr[i] = rollFace();
     GAME.cupRolled[color] = true;
-    if (curPhase() === 'Upkeep' && color === curPlayer()) { nextPlayer(); return; }  // roll = end turn
+    if (curPhase() === 'Upkeep' && color === curPlayer()) {
+      // Rolling ends your turn. Once EVERY seated player has rolled, auto-advance the phase
+      // instead of looping back to the first player (D2).
+      if (GAME.order.every((c) => !!GAME.cupRolled[c])) nextPhase();
+      else nextPlayer();
+      return;
+    }
     notifyFlow();
   }
 
@@ -1380,8 +1389,12 @@
   function exchangeForCoin(color, kind) {
     if (kind !== 'zap' && kind !== 'sun') return;
     const r = GAME.res[color]; if (!r || r[kind] < 1) return;
+    const ex = GAME.exchanged[color] || (GAME.exchanged[color] = {});
+    if (ex[kind]) return;                       // this resource's trade is spent for the round (D6)
+    ex[kind] = true;
     adjustRes(color, kind, -1);                // notifies
     adjustRes(color, 'coin', COIN_PER_EXCHANGE);
+    notifyFlow();                              // refresh the (now-disabled) exchange button
   }
 
   // ---- per-hero event dice ----
@@ -1609,6 +1622,11 @@
     mini.userData.locked = true;
     mini.userData.eventDice = [];
     mini.userData.diceAdj = 0;
+    // Drop any multi-round event state (a hero eliminated in Archery/High Jump this round can win
+    // a Colosseum ticket while still flagged eliminated → it'd read OUT in the arena and could never
+    // be diced, deadlocking the Colosseum dice-walk). A fresh fighter is never eliminated. (D1)
+    mini.userData.eliminated = false; mini.userData.roundsSurvived = 0;
+    mini.userData.ljExtra = false; mini.userData.ljStage = 'approach'; mini.userData.rerollsLeft = 0;
     if (mini.userData.diceGroup) renderHeroDice3D(mini);
     const cs = cardSlotOf(mini);
     if (cs) placeOnSlot(mini, cs);                          // lands on top of its card
@@ -2034,6 +2052,8 @@
       placeOnSlot(m, slot);
       m.userData.eventDice = [];
       m.userData.diceAdj = 0;
+      m.userData.eliminated = false; m.userData.roundsSurvived = 0;   // arena fighters are never OUT (D1)
+      m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
       if (m.userData.diceGroup) renderHeroDice3D(m);
       i++;
     }
@@ -2941,6 +2961,7 @@
       rome: GAME.rome ? { chariotPos: GAME.rome.chariotPos, laps: GAME.rome.laps, act: romeAct() + 1 } : null,
       cup: JSON.parse(JSON.stringify(GAME.cup)),
       cupRolled: { ...GAME.cupRolled },
+      exchanged: JSON.parse(JSON.stringify(GAME.exchanged)),
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
       eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
@@ -2988,10 +3009,12 @@
       for (const c of ALL_COLORS) { grantIncome(c); dealHand(c, 3); resetCup(c); }
       clearAllHeroDice();                       // last round's played dice are spent
       selectedHeroId = null;
+      // Deal a fresh random event trio for each new round (round 1's trio comes from New game). (D5)
+      if (GAME.round > 1 && newRoundCb) newRoundCb();
     }
     // Leaving events for the Market: every mini that competed (or sat at the barracks) returns
     // home and its hero card is discarded — unless it's waiting for the Colosseum (kept locked).
-    if (curPhase() === 'Market' && forward) { returnPlayedMinisHome(); sweepFreeCards(); restockMarket(); }
+    if (curPhase() === 'Market' && forward) { GAME.marketVisited = {}; returnPlayedMinisHome(); sweepFreeCards(); restockMarket(); }
     const phase = curPhase();
     if (phase === 'Resolution & Podiums' || phase === 'Colosseum') {
       // on forward entry to the Colosseum, seat every committed (waiting) mini into the arena
@@ -3010,6 +3033,12 @@
   function stepPlayer(dir) {
     if (!GAME.started || GAME.over || !isPerPlayer()) return;
     const n = GAME.order.length;
+    // Market: passing forward means "I'm done shopping." Once everyone has had their turn,
+    // advance the phase instead of looping back to the first shopper (D3).
+    if (curPhase() === 'Market' && dir === 1) {
+      GAME.marketVisited[curPlayer()] = true;
+      if (GAME.order.every((c) => !!GAME.marketVisited[c])) { nextPhase(); return; }
+    }
     GAME.turnIndex = (GAME.turnIndex + dir + n) % n;
     activeColorName = curPlayer();
     if (curPhase() === 'Market') restockMarket();   // refresh the shop for the next shopper
@@ -3368,6 +3397,7 @@
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList,
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
+    onNewRound: (cb) => { newRoundCb = cb; },
     onVPFlash: (cb) => { vpFlashCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
     onMiniPlace: (cb) => { miniPlaceCb = cb; }, sendMiniTo,

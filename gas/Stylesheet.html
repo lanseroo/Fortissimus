@@ -328,6 +328,12 @@
   .cwbtn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
   .cwbtn .psym { width: 15px; height: 15px; flex: 0 0 auto; }
   .cwbtn .cwstat { font-size: 0.78rem; opacity: 0.85; font-weight: 600; }
+  /* release picker: hero card thumbnail + prominent Str/Speed so the choice is legible */
+  .cwrel { flex-direction: column; gap: 4px; padding: 8px 10px; }
+  .cwrel .cwface { width: 46px; height: auto; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.5); display: block; }
+  .cwrel .cwmeta { display: inline-flex; align-items: center; gap: 5px; }
+  .cwrel .cwstat { font-size: 0.9rem; opacity: 1; }
+  .cwrel .cwrelx { font-size: 0.72rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.04em; }
   /* modWait (Cheer/Jeer) modal reuses the barracks look; one row per hero target. */
   #modalBox #modWait { margin: 0; padding: 0; border: 0; }
   #modalBox #modWait[hidden] { display: none; }

@@ -109,6 +109,8 @@
     PT.initGame(HEROES.map((h) => h[0]));
     dealEvents(randomEvents());
   });
+  // Each new round the app asks for a fresh random event trio (D5).
+  if (PT.onNewRound) PT.onNewRound(() => dealEvents(randomEvents()));
   // Populate the sandbox gladiator picker: "Random" + every card (all 4 levels).
   const simGlad = document.getElementById('simGlad');
   if (simGlad && PT.gladList) {
@@ -232,8 +234,11 @@
     // economy (Upkeep only): roll the cup ONCE, buy dice only before that roll.
     econ.hidden = !isUpkeep;
     if (isUpkeep) {
-      exZapBtn.disabled = r.zap < 1;
-      exSunBtn.disabled = r.sun < 1;
+      const ex = (f.exchanged && f.exchanged[owner]) || {};        // ⚡/☀ trades spent this round (D6)
+      exZapBtn.disabled = r.zap < 1 || !!ex.zap || rolled;
+      exSunBtn.disabled = r.sun < 1 || !!ex.sun || rolled;
+      exZapBtn.title = ex.zap ? 'Already traded ⚡ this round' : 'Spend 1⚡ for 2🪙 (once per round)';
+      exSunBtn.title = ex.sun ? 'Already traded ☀ this round' : 'Spend 1☀ for 2🪙 (once per round)';
       addDieBtn.disabled = r.zap < 1 || rolled;
       rollCupBtn.disabled = rolled;
     }
@@ -509,9 +514,14 @@
       } else { // release
         cwLine.innerHTML = s.color + ' at ' + s.options.length + '-mini Colosseum cap — '
           + 'release one waiting hero to make room:';
-        cwBtns.innerHTML = s.options.map((o) =>
-          '<button class="cwbtn" data-action="release" data-id="' + o.miniId + '">'
-            + sym(o.symImg) + '<span class="cwstat">' + (o.stats || '') + '</span> · Release</button>').join('');
+        cwBtns.innerHTML = s.options.map((o) => {
+          const face = o.face ? '<img class="cwface" src="' + window.ASSET_BASE + o.face + '" alt="">' : '';
+          return '<button class="cwbtn cwrel" data-action="release" data-id="' + o.miniId + '">'
+            + face
+            + '<span class="cwmeta">' + sym(o.symImg)
+            +   '<span class="cwstat">' + (o.stats || 'Plebe') + '</span></span>'
+            + '<span class="cwrelx">Release</span></button>';
+        }).join('');
       }
     } else {
       colWait.hidden = true;
