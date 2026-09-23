@@ -402,6 +402,10 @@
         const stars = f.order.filter((c) => f.favorUnlocked && f.favorUnlocked[c])
           .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">★' + c + '</span>').join(' ');
         html += '<div class="colrow">Favor: ' + (stars || '—') + '</div>';
+        // §7: nations that completed the chariot track race the faster outer lane
+        const chariots = f.order.filter((c) => f.chariotUnlocked && f.chariotUnlocked[c])
+          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">🏇' + c + '</span>').join(' ');
+        html += '<div class="colrow">Chariot: ' + (chariots || '—') + '</div>';
         flowRes.innerHTML += html;
       }
       // Recent game log (column rungs, Favor unlocks, owner-resolved prompts)

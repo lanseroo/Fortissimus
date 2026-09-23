@@ -1121,7 +1121,11 @@
   let RACE_LANE = [];                 // inner-lane slots ordered in racing direction (start/finish first)
   let OUTER_LANE = [];                // outer-lane slots (Rome's black chariot) in racing direction
   function initRace() {
-    for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0 };
+    // lane 'inner' = on foot (24 spaces/lap); 'outer' = a player chariot (16
+    // spaces/lap, faster) once the chariot track is completed (§7).
+    for (const c of ALL_COLORS) GAME.race[c] = { pos: 0, laps: 0, lane: 'inner' };
+    GAME.chariotUnlocked = {};
+    for (const c of ALL_COLORS) GAME.chariotUnlocked[c] = false;
     GAME.rome = { chariotPos: 0, laps: 0 };   // §14.E black-chariot pressure clock (penance deferred)
   }
   // Order the inner-lane slots into a racing sequence: clockwise from the bottom-
@@ -1140,9 +1144,11 @@
   const markerOnTrack = (color, track) =>
     pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
                        p.userData.slot && p.userData.slot.track === track);
+  // A nation's racer marker, whether on foot (inner lane) or in a chariot (outer
+  // lane after the chariot track is completed). Rome's black chariot has no color.
   const raceMarkerOf = (color) =>
     pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
-                       p.userData.slot && p.userData.slot.lane === 'inner');
+                       p.userData.slot && (p.userData.slot.lane === 'inner' || p.userData.slot.lane === 'outer'));
   function placeOnTrackOrd(color, track, ord) {
     const m = markerOnTrack(color, track);
     const slot = SLOTS.find((o) => o.track === track && o.ord === ord);
@@ -1153,15 +1159,19 @@
   // One space holds one runner: after a forward move, if the resting space already
   // has another player's marker, hop forward to the next empty space (banking laps).
   function advanceRace(color, n = 1, opts) {
-    const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
+    const st = GAME.race[color]; if (!st) return;
+    // Race on the lane this nation currently occupies: the inner foot lane, or the
+    // shorter outer chariot lane once its chariot track is completed (§7).
+    const LANE = (st.lane === 'outer' && OUTER_LANE.length) ? OUTER_LANE : RACE_LANE;
+    if (!LANE.length) return;
     const m = raceMarkerOf(color); if (!m) return;
-    const L = RACE_LANE.length;
+    const L = LANE.length;
     const lapsBefore = st.laps;
     // pos 0 = behind the start/finish line (pre-race); pos 1..L = spaces 1..L.
     // A lap banks only when crossing the line (pos wraps L -> 1), so the very
     // first VP just steps onto space 1 with NO lap credit. pos 0 renders on the
     // last space (RACE_LANE[L-1]), immediately behind the line.
-    const slotForPos = (p) => RACE_LANE[(p <= 0 ? L : p) - 1];
+    const slotForPos = (p) => LANE[(p <= 0 ? L : p) - 1];
     const stepFwd = () => { st.pos++; if (st.pos > L) { st.pos = 1; if (st.laps < LAP_MAX) st.laps++; } };
     const occupiedByOther = (p) => slotForPos(p).occupants.some(
       (q) => q !== m && q.userData.type === 'marker' && q.userData.color !== color);
@@ -1237,7 +1247,34 @@
     const next = SLOTS.find((o) => o.track === track && o.ord === marker.userData.slot.ord + 1);
     if (!next) return false;          // already at the top rung
     placeOnSlot(marker, next);
+    if (track === 'chariot') checkChariotUnlock(color);
     return true;
+  }
+  // §7: completing the chariot track (reaching its top rung) unlocks a nation's
+  // chariot — its racer moves from the inner foot lane (24 spaces/lap) to the
+  // shorter outer lane (16 spaces/lap), so laps come faster. Progress carries over
+  // proportionally (banked laps kept; the current partial lap is mapped by ratio).
+  // PIN: exact carry-over rule (proportional vs. reset-to-line vs. keep-distance).
+  const chariotTopOrd = () => {
+    const ords = SLOTS.filter((o) => o.track === 'chariot').map((o) => o.ord);
+    return ords.length ? Math.max(...ords) : 0;
+  };
+  function checkChariotUnlock(color) {
+    if (!GAME.chariotUnlocked || GAME.chariotUnlocked[color]) return;
+    const m = markerOnTrack(color, 'chariot');
+    if (m && m.userData.slot && m.userData.slot.ord >= chariotTopOrd()) unlockChariot(color);
+  }
+  function unlockChariot(color) {
+    GAME.chariotUnlocked[color] = true;
+    const st = GAME.race[color];
+    if (st && RACE_LANE.length && OUTER_LANE.length) {
+      st.lane = 'outer';
+      st.pos = Math.max(1, Math.round((st.pos / RACE_LANE.length) * OUTER_LANE.length));
+      const m = raceMarkerOf(color);
+      if (m) placeOnSlot(m, OUTER_LANE[(st.pos <= 0 ? OUTER_LANE.length : st.pos) - 1]);
+    }
+    logNote('🏇 ' + color + ' completed the Chariot track — now racing the outer lane (16 spaces/lap).');
+    notifyFlow();
   }
   function openBarracks(color) {
     advanceRace(color, 1);            // the "+1 VP" = one step forward on the race track
@@ -3072,6 +3109,7 @@
       exchanged: JSON.parse(JSON.stringify(GAME.exchanged)),
       columns: JSON.parse(JSON.stringify(GAME.columns)),
       favorUnlocked: { ...GAME.favorUnlocked },
+      chariotUnlocked: { ...(GAME.chariotUnlocked || {}) },
       log: GAME.log.slice(-8),
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
