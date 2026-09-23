@@ -93,9 +93,10 @@
       (u, i) => ({ u, v: 0.522, accepts: ['marker'], r: 4.5, track: 'lap', ord: i, ...(i === 0 ? { role: 'lap-start' } : {}) })),
     ...colSlots(0.038, 0.42, 0.84, 4, ['marker'], 5).map((s, i) => ({ ...s, track: 'relic',   ord: 3 - i, ...(i === 3 ? { role: 'relic-start' }   : {}) })),   // relic track (4 rungs)
     ...colSlots(0.958, 0.40, 0.86, 5, ['marker'], 5).map((s, i) => ({ ...s, track: 'chariot', ord: 4 - i, ...(i === 4 ? { role: 'chariot-start' } : {}) })),   // chariot track (5 rungs)
-    // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker
+    // era/round track (bottom): I II III [flag] IV V [flag] VI [flag] — black round marker.
+    // ord 0-8 = printed cell order; the black round token hops here as the round advances.
     ...[0.298, 0.343, 0.391, 0.437, 0.487, 0.540, 0.587, 0.643, 0.687].map(
-      (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, ...(i === 0 ? { role: 'era-start' } : {}) })),
+      (u, i) => ({ u, v: 0.945, accepts: ['round'], r: 4.5, track: 'era', ord: i, ...(i === 0 ? { role: 'era-start' } : {}) })),
     ...stadiumSlots(0.490, 0.518, 0.249, 0.130, 0.225, 4, 4, ['chariot'], 4).map((s) => ({ ...s, lane: 'outer' })),  // outer lane (16) — Rome's black chariot races
     ...stadiumSlots(0.490, 0.518, 0.249, 0.075, 0.125, 8, 4, ['marker'], 4).map((s) => ({ ...s, lane: 'inner' })),   // inner lane (24) — on-foot markers race here
   ];
@@ -1167,6 +1168,18 @@
     const m = markerOnTrack(color, track);
     const slot = SLOTS.find((o) => o.track === track && o.ord === ord);
     if (m && slot) placeOnSlot(m, slot);
+  }
+  // Bottom era/round track has 9 printed cells (I II III [flag] IV V [flag] VI [flag]);
+  // map each play round (1-6) to its cell, skipping the era-boundary flag cells, and hop
+  // the black round token there. Call this whenever GAME.round changes.
+  const ERA_ROUND_ORD = { 1: 0, 2: 1, 3: 2, 4: 4, 5: 5, 6: 7 };
+  function moveRoundMarker() {
+    const tok = pieces.find((p) => p.userData.type === 'round');
+    if (!tok) return;
+    const ord = ERA_ROUND_ORD[GAME.round];
+    if (ord == null) return;
+    const slot = SLOTS.find((s) => s.track === 'era' && s.ord === ord);
+    if (slot) placeOnSlot(tok, slot);
   }
   // Move a nation's on-foot marker n steps along the lane (n may be negative for a
   // manual correction); bank/unbank laps on the 0-6 bar as it crosses the line.
@@ -3273,6 +3286,7 @@
   function enterPhase(forward) {
     GAME.turnIndex = 0;
     if (!GAME.started || GAME.over) { return; }
+    moveRoundMarker();   // hop the bottom era/round token to the current round's cell
     if (curPhase() === 'Upkeep' && forward) {
       for (const c of ALL_COLORS) { grantIncome(c); dealHand(c, 3); resetCup(c); }
       clearAllHeroDice();                       // last round's played dice are spent
@@ -3647,6 +3661,7 @@
     // "Resolve event" gate — seat the squad, then hand off to startColosseum directly).
     GAME.round = 3; GAME.order = computeOrder(GAME.round); GAME.turnIndex = 0;
     GAME.phaseIndex = phasesFor(GAME.round).indexOf('Colosseum');
+    moveRoundMarker();                                      // seat the round token at round 3
     seatWaitingIntoArena();                                 // move the waiting minis into the arena
     GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
     GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;

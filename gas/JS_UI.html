@@ -149,6 +149,7 @@
   const flowOrder = document.getElementById('flowOrder');
   const flowRes = document.getElementById('flowRes');
   const topStatus = document.getElementById('topStatus');
+  const gameLog = document.getElementById('gameLog');
   const toolbar = document.getElementById('toolbar');
   const ppTurn = document.getElementById('ppTurn');
   const turnbar = document.getElementById('turnbar');
@@ -397,8 +398,9 @@
         + (i + 1) + '. ' + c + '</span>').join('');
     }
 
-    // Whole-game status now lives in the TOP bar (#topStatus) as side-by-side sections:
-    // resources · columns/tracks · faction abilities · recent log. flowRes stays empty.
+    // TOP bar (#topStatus): resources + the column-rung matrix / track unlocks.
+    // (The faction ability legend was dropped — it never changed and read as clutter.
+    // The running game log moved to its own scrollable box in the RIGHT panel below.)
     flowRes.innerHTML = '';
     if (f.started && f.res) {
       const secs = [];
@@ -417,46 +419,50 @@
       }
       secs.push('<div class="tsSec">' + resHtml + '</div>');
 
-      // columns (§8) + track unlock rows (Favor / Chariot / Relic)
+      // columns (§8): a compact per-god × per-player rung MATRIX of 6-segment meters,
+      // plus Favor / Chariot / Relic unlock badges beneath.
       if (f.columns) {
         const GODS = { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
-        let html = '<div class="tsh">Columns — rung /6</div>';
+        let html = '<div class="tsh">Columns — rung /6</div><div class="colsum">';
+        // header: blank corner + a player color dot per column
+        html += '<span></span>' + f.order.map((c) =>
+          '<span class="pdot" style="background:' + (FLOW_COLORS[c] || '#ccc') + '" title="' + c + '"></span>').join('');
         for (const cn of [1, 2, 3]) {
-          const cells = f.order.map((c) =>
-            '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + ((f.columns[c] && f.columns[c][cn]) || 0) + '</span>'
-          ).join(' ');
-          html += '<div class="colrow">' + GODS[cn] + ': ' + cells + '</div>';
+          html += '<span class="cg">' + GODS[cn] + '</span>';
+          html += f.order.map((c) => {
+            const rung = (f.columns[c] && f.columns[c][cn]) || 0;
+            const segs = [0, 1, 2, 3, 4, 5].map((i) =>
+              '<span class="rseg"' + (i < rung
+                ? ' style="background:' + (FLOW_COLORS[c] || '#ccc') + '"' : '') + '></span>').join('');
+            return '<span class="rmeter" title="' + c + ' ' + rung + '/6">' + segs + '</span>';
+          }).join('');
         }
+        html += '</div>';
         const badges = (pred, glyph) => f.order.filter((c) => pred && pred[c])
           .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + glyph + c + '</span>').join(' ') || '—';
-        html += '<div class="colrow">Favor: ' + badges(f.favorUnlocked, '★') + '</div>';
-        html += '<div class="colrow">Chariot: ' + badges(f.chariotUnlocked, '🏇') + '</div>';
-        html += '<div class="colrow">Relic: ' + badges(f.relicUnlocked, '🏺') + '</div>';
+        html += '<div class="colbadges">'
+          + '<div><span class="cbk">★ Favor</span> ' + badges(f.favorUnlocked, '') + '</div>'
+          + '<div><span class="cbk">🏇 Chariot</span> ' + badges(f.chariotUnlocked, '') + '</div>'
+          + '<div><span class="cbk">🏺 Relic</span> ' + badges(f.relicUnlocked, '') + '</div></div>';
         secs.push('<div class="tsSec">' + html + '</div>');
-      }
-
-      // §11 faction legend: each nation's Relic / Favor / Blessing + unlock state
-      if (f.factions && f.order) {
-        let leg = '<div class="tsh">Factions (§11)</div>';
-        for (const c of f.order) {
-          const fac = f.factions[c]; if (!fac) continue;
-          const rel = (f.relicUnlocked && f.relicUnlocked[c]) ? '🏺' : '·';
-          const fav = (f.favorUnlocked && f.favorUnlocked[c]) ? '★' : '·';
-          leg += '<div class="colrow" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' +
-            fac.name + ' — ' + rel + ' ' + fac.relic + ' / ' + fav + ' ' + fac.favor + ' / ✨ ' + fac.blessing + '</div>';
-        }
-        secs.push('<div class="tsSec tswide">' + leg + '</div>');
-      }
-
-      // recent game log (column rungs, Favor unlocks, blessings, owner-resolved prompts)
-      if (f.log && f.log.length) {
-        secs.push('<div class="tsSec tslog"><div class="tsh">Log</div>'
-          + f.log.map((l) => '<div>' + l + '</div>').join('') + '</div>');
       }
 
       topStatus.innerHTML = secs.join('');
     } else {
       topStatus.innerHTML = '';
+    }
+
+    // Running game log — its own scrollable box on the lower-right (column rungs, Favor
+    // unlocks, blessings, owner-resolved prompts).
+    if (gameLog) {
+      if (f.started && f.log && f.log.length) {
+        gameLog.hidden = false;
+        gameLog.innerHTML = '<div class="glh">Log</div>'
+          + f.log.map((l) => '<div>' + l + '</div>').join('');
+      } else {
+        gameLog.hidden = true;
+        gameLog.innerHTML = '';
+      }
     }
 
     // turn bar: per-player phases (Upkeep/Blind Placement/Market) OR the guided event walk.
