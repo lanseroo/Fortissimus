@@ -626,7 +626,8 @@
         btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';
       } else if (cf.sub === 'attack' && cf.save) {
         const s = cf.save, scol = FLOW_COLORS[s.color] || '#ccc';
-        body = '<div class="colatk">👹 Gladiator strikes for <b>' + cf.attackVal + '</b> — '
+        const reach = cf.range ? ' <span class="colrng">(reach ' + cf.range.lo + '–' + cf.range.hi + ')</span>' : '';
+        body = '<div class="colatk">👹 Gladiator strikes for <b>' + cf.attackVal + '</b>' + reach + ' — '
           + '<span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span> (Speed ' + s.speed + ') must save or fall.</div>';
         btns = '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="1"' + (s.canAfford ? '' : ' disabled') + '>Save (1☀)</button>'
           + '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="0">Let fall ✝</button>';

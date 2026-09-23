@@ -2106,17 +2106,20 @@
   function colBurnGladiator() { if (GAME.gladDeck.length) GAME.gladDiscard.push(GAME.gladDeck.shift()); }
 
   // Which alive fighters a gladiator card strikes (by their arena position).
-  function gladTargets(card, alive) {
-    const t = card.target, at = (pred) => alive.filter((f) => pred(f.pos));
-    if (t === 'all') return alive.slice();
+  // `range` (optional {lo,hi}) = the 2d6 position window rolled for dice-cards. The descriptor is
+  // applied only to fighters WHOSE POSITION FALLS INSIDE that window; no range → the whole board.
+  function gladTargets(card, alive, range) {
+    const pool = range ? alive.filter((f) => f.pos >= range.lo && f.pos <= range.hi) : alive;
+    const t = card.target, at = (pred) => pool.filter((f) => pred(f.pos));
+    if (t === 'all') return pool.slice();
     if (t === 'odd') return at((p) => p % 2 === 1);
     if (t === 'even') return at((p) => p % 2 === 0);
     if (t === 'low2_6') return at((p) => p <= 6);
     if (t === 'high7_12') return at((p) => p >= 7);
-    if (t === 'lowP') { if (!alive.length) return []; const m = Math.min(...alive.map((f) => f.pos)); return at((p) => p === m); }
-    if (t === 'highP') { if (!alive.length) return []; const m = Math.max(...alive.map((f) => f.pos)); return at((p) => p === m); }
-    if (t === 'highOdd') { const o = alive.filter((f) => f.pos % 2 === 1); if (!o.length) return []; const m = Math.max(...o.map((f) => f.pos)); return o.filter((f) => f.pos === m); }
-    if (t === 'lowEven') { const e = alive.filter((f) => f.pos % 2 === 0); if (!e.length) return []; const m = Math.min(...e.map((f) => f.pos)); return e.filter((f) => f.pos === m); }
+    if (t === 'lowP') { if (!pool.length) return []; const m = Math.min(...pool.map((f) => f.pos)); return at((p) => p === m); }
+    if (t === 'highP') { if (!pool.length) return []; const m = Math.max(...pool.map((f) => f.pos)); return at((p) => p === m); }
+    if (t === 'highOdd') { const o = pool.filter((f) => f.pos % 2 === 1); if (!o.length) return []; const m = Math.max(...o.map((f) => f.pos)); return o.filter((f) => f.pos === m); }
+    if (t === 'lowEven') { const e = pool.filter((f) => f.pos % 2 === 0); if (!e.length) return []; const m = Math.min(...e.map((f) => f.pos)); return e.filter((f) => f.pos === m); }
     return [];
   }
 
@@ -2461,7 +2464,7 @@
     GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
       targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atk: card.atk, rangeMod: card.rangeMod, shield: card.shield,
       heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
-      gladBonus: 0, attackVal: 0, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
+      gladBonus: 0, attackVal: 0, range: null, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
       log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
     addGladiatorMarker(card.file);
     // Minis start OFF the board and are brought in one by one as their dice settle.
@@ -2469,9 +2472,20 @@
   }
   function colStartAttack() {
     const c = GAME.colosseum; c.sub = 'attack';
+    const card = GLAD_DECK[c.idx];
+    // Dice-cards ("🎲🎲 ±N" in the position text) roll 2d6 for a window of positions the gladiator
+    // can reach this strike; the descriptor is then applied only to held positions inside it.
+    if (card.rangeMod > 0) {
+      const C = rollFace() + rollFace();
+      c.range = { lo: C - card.rangeMod, hi: C + card.rangeMod, center: C };
+      c.log.push('🎯 Reach 2d6=' + C + ' → positions ' + Math.max(2, c.range.lo) + '–' + Math.min(12, c.range.hi));
+    } else {
+      c.range = null;
+    }
     const alive = c.fighters.filter((f) => f.alive);
-    const targets = gladTargets(GLAD_DECK[c.idx], alive);
+    const targets = gladTargets(card, alive, c.range);
     c.targetIds = targets.map((f) => f.id);       // set now so stations glow red during the tumble
+    if (c.range && !targets.length) c.log.push('💨 No hero in reach — the gladiator strikes only air');
     const raw = rollFace();
     GAME.colAnimating = true; notifyFlow();
     const center = arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 };
@@ -2633,6 +2647,7 @@
       fighters: c.fighters.map((f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos,
                  alive: f.alive, str: f.str, speed: f.speed, doubled: f.doubled, rage: f.rage, targeted: c.targetIds.includes(f.id) })),
       attackVal: (c.sub === 'attack' || c.sub === 'buyB' || c.sub === 'counter') ? c.attackVal : null,
+      range: c.range ? { lo: Math.max(2, c.range.lo), hi: Math.min(12, c.range.hi), center: c.range.center } : null,
       window: GAME.colAct ? GAME.colAct.window : null,
       buyer, buyerActions: buyer ? colActionState(buyer) : [],
       save: (c.sub === 'attack' && c.saveQueue.length) ? (() => { const f = fighterOf(c.saveQueue[0]); return f ? { ...fInfo(f), speed: f.speed, canAfford: (GAME.res[f.color]?.sun || 0) >= 1 } : null; })() : null,
