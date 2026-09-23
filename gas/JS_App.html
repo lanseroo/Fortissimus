@@ -1082,14 +1082,15 @@
 
   // Tunable rules numbers (rules still WIP — keep as constants, not hard-coded logic).
   // Income Track (§11): 5 rungs (levels 0-4). Each per-round collection pays the resources at the
-  // player's CURRENT rung. Winning an event (1st) / some column rungs move the marker up one rung.
-  // Starts ~3🪙/2⚡ → up to ~5🪙 + ⚡ + ☀ (rules-draft §11).
+  // player's CURRENT rung, AND the rung sets the base number of free cup dice that round. Winning an
+  // event (1st) / some column rungs move the marker up one rung.
+  // Starts ~3🪙/2⚡/3 dice → up to ~5🪙 + ⚡ + ☀ + 5 dice (rules-draft §11).
   const INCOME_LEVELS = [
-    { coin: 3, zap: 2, sun: 0 },   // rung 1 (start)
-    { coin: 4, zap: 2, sun: 0 },   // rung 2
-    { coin: 4, zap: 2, sun: 1 },   // rung 3
-    { coin: 5, zap: 2, sun: 1 },   // rung 4
-    { coin: 5, zap: 3, sun: 1 },   // rung 5 (max)
+    { coin: 3, zap: 2, sun: 0, dice: 3 },   // rung 1 (start)
+    { coin: 4, zap: 2, sun: 0, dice: 3 },   // rung 2
+    { coin: 4, zap: 2, sun: 1, dice: 4 },   // rung 3
+    { coin: 5, zap: 2, sun: 1, dice: 4 },   // rung 4
+    { coin: 5, zap: 3, sun: 1, dice: 5 },   // rung 5 (max)
   ];
   const INCOME_MAX = INCOME_LEVELS.length - 1;        // top rung index
   const START_INCOME  = INCOME_LEVELS[0];             // round-1 base income (matches setup tokens)
@@ -1138,6 +1139,9 @@
     const inc = INCOME_LEVELS[lvl];
     r.coin += inc.coin; r.zap += inc.zap; r.sun += inc.sun;
   };
+  // Base free cup dice for a color this round = the dice count at its current income rung.
+  const cupBaseFor = (color) =>
+    INCOME_LEVELS[Math.min(GAME.income[color] || 0, INCOME_MAX)].dice;
   // A faction's income token: the 'income' piece resting on one of that mat's income slots.
   const incomeTokenOf = (color) =>
     pieces.find((p) => p.userData.type === 'income' && p.userData.slot && p.userData.slot.owner === color);
@@ -1156,7 +1160,8 @@
     if (tok && slot) placeOnSlot(tok, slot);
     const inc = INCOME_LEVELS[lvl];
     logNote('△ ' + color + ' income upgraded to rung ' + (lvl + 1) + ' ('
-      + inc.coin + '🪙 / ' + inc.zap + '⚡' + (inc.sun ? ' / ' + inc.sun + '☀' : '') + ' per round).');
+      + inc.coin + '🪙 / ' + inc.zap + '⚡' + (inc.sun ? ' / ' + inc.sun + '☀' : '')
+      + ' + ' + inc.dice + ' dice per round).');
     notifyFlow();
   }
   const curPhase = () => phasesFor(GAME.round)[GAME.phaseIndex];
@@ -1547,7 +1552,9 @@
   // Played dice live on the MINI they were played for (`mini.userData.eventDice = [values]`)
   // and render publicly beside that mini on the table. Each competing mini needs a
   // fixed-per-event number of dice before the event can continue.
-  const CUP_START       = 3;   // blank dice each faction's cup holds at round start
+  // Base cup dice now come from the income track (INCOME_LEVELS[rung].dice via cupBaseFor);
+  // CUP_START is just the rung-1 reference value.
+  const CUP_START       = INCOME_LEVELS[0].dice;
   const COIN_PER_EXCHANGE = 2; // ⚡ or ☀ → this many 🪙 (Upkeep exchange)
   const DICE_PER_EVENT_DEFAULT = 2;   // required dice per competing hero (tunable, rules WIP)
   const COLOSSEUM_DICE = 2;           // required dice per Colosseum fighter (tunable)
@@ -1638,9 +1645,9 @@
   const rollFace = () => 1 + Math.floor(Math.random() * 6);
   let selectedHeroId = null;          // which competing mini the panel actions target
 
-  // Reset one color's cup to CUP_START blank (unrolled) dice for a new round.
+  // Reset one color's cup to its income-rung base of blank (unrolled) dice for a new round.
   function resetCup(color) {
-    GAME.cup[color] = new Array(CUP_START).fill(null);
+    GAME.cup[color] = new Array(cupBaseFor(color)).fill(null);
     GAME.cupRolled[color] = false;
     GAME.exchanged[color] = {};                  // ⚡/☀ → coin trade resets: once per resource per round
   }
