@@ -389,6 +389,25 @@
         flowRes.innerHTML += '<div class="resrow" style="color:' + FLOW_COLORS.Rome + '">'
           + '🏛 Rome chariot — Act ' + f.rome.act + ' · lap ' + f.rome.laps + ' · step ' + f.rome.chariotPos + '</div>';
       }
+      // Column standings (§8): each active god's per-player rung (/6) + Favor unlocks
+      if (f.columns) {
+        const GODS = { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
+        let html = '<div class="colhdr">Columns — rung /6</div>';
+        for (const cn of [1, 2, 3]) {
+          const cells = f.order.map((c) =>
+            '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + ((f.columns[c] && f.columns[c][cn]) || 0) + '</span>'
+          ).join(' ');
+          html += '<div class="colrow">' + GODS[cn] + ': ' + cells + '</div>';
+        }
+        const stars = f.order.filter((c) => f.favorUnlocked && f.favorUnlocked[c])
+          .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">★' + c + '</span>').join(' ');
+        html += '<div class="colrow">Favor: ' + (stars || '—') + '</div>';
+        flowRes.innerHTML += html;
+      }
+      // Recent game log (column rungs, Favor unlocks, owner-resolved prompts)
+      if (f.log && f.log.length) {
+        flowRes.innerHTML += '<div class="gamelog">' + f.log.map((l) => '<div>' + l + '</div>').join('') + '</div>';
+      }
     } else {
       flowRes.innerHTML = '';
     }

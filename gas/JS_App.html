@@ -108,11 +108,17 @@
   // 7 rungs each: 6 reward cells + the bottom start rung (same pitch).
   // Bottom (7th) rung of each pillar is that column's start — tagged so game
   // setup can seat every nation's marker there.
-  const columnStart = (s, i) => (i === 6 ? { ...s, role: 'column-start' } : s);
+  // Tag each rung with its column NUMBER (= the feeding event number, §5 "event# = column#")
+  // and an `ord` that rises up the pillar: bottom (i===6) = ord 0 (start), top (i===0) = ord 6.
+  // colNum 1=Fortuna(right) 2=Bacchus(left) 3=Mercury(center) — the 3 printed front-face gods.
+  const columnRung = (colNum) => (s, i) => ({
+    ...s, colNum, ord: 6 - i,
+    ...(i === 6 ? { role: 'column-start' } : {}),
+  });
   const COLUMN_SLOTS = [
-    ...colSlots(0.149, 0.175, 0.781, 7, ['marker'], 5).map(columnStart),   // left  = Column2 (Bacchus)
-    ...colSlots(0.501, 0.180, 0.782, 7, ['marker'], 5).map(columnStart),   // center= Column3 (Mercury)
-    ...colSlots(0.855, 0.241, 0.817, 7, ['marker'], 5).map(columnStart),   // right = Column1 (Fortuna)
+    ...colSlots(0.149, 0.175, 0.781, 7, ['marker'], 5).map(columnRung(2)),   // left  = Column2 (Bacchus)
+    ...colSlots(0.501, 0.180, 0.782, 7, ['marker'], 5).map(columnRung(3)),   // center= Column3 (Mercury)
+    ...colSlots(0.855, 0.241, 0.817, 7, ['marker'], 5).map(columnRung(1)),   // right = Column1 (Fortuna)
   ];
 
   // Underworld: Elysium 2x2 per-color card slots + single Tartarus slot.
@@ -322,6 +328,7 @@
       SLOTS.push({ x, y: by, z, r, accepts: s.accepts || CARD, color, owner: b.color || null, role: s.role || null,
                    coin: !!s.coin, event: b.slotsDef === EVENT_GRID, boardKey: b.file || (b.market ? 'market' : null),
                    track: s.track || null, ord: (s.ord ?? null), bx: b.x, lane: s.lane || null,
+                   colNum: (s.colNum ?? null),
                    sym: (s.sym ?? null), action: s.action || null, marker, occupants: [] });
     }
   }
@@ -1081,12 +1088,15 @@
                  marketVisited: {}, exchanged: {},
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
+                 columns: {}, favorUnlocked: {}, log: [],
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
   let vpFlashCb = null;                          // JS_UI VP-banner flash (set via PT.onVPFlash)
   // Flash the VP banner on screen with the earned value (called wherever VPs are rewarded).
   function flashVP(color, amount) { if (amount > 0 && vpFlashCb) vpFlashCb({ color, amount }); }
+  // Rolling game log (column rungs, Favor unlocks, owner-resolved prompts). Last ~8 shown in panel.
+  function logNote(msg) { GAME.log.push(msg); if (GAME.log.length > 60) GAME.log.shift(); }
 
   // ---- per-player resources (coin / ⚡ / ☀), tracked as numbers ----
   function initRes() { for (const c of ALL_COLORS) GAME.res[c] = { coin: seatBonusOf(c), zap: 0, sun: 0 }; }
@@ -1146,6 +1156,7 @@
     const st = GAME.race[color]; if (!st || !RACE_LANE.length) return;
     const m = raceMarkerOf(color); if (!m) return;
     const L = RACE_LANE.length;
+    const lapsBefore = st.laps;
     // pos 0 = behind the start/finish line (pre-race); pos 1..L = spaces 1..L.
     // A lap banks only when crossing the line (pos wraps L -> 1), so the very
     // first VP just steps onto space 1 with NO lap credit. pos 0 renders on the
@@ -1161,6 +1172,12 @@
     placeOnTrackOrd(color, 'lap', st.laps);
     placeOnSlot(m, slotForPos(st.pos));
     if (n > 0 && !(opts && opts.silent)) flashVP(color, n);   // celebrate a VP gain
+    // Each completed lap advances one active column (§7). Skip when called from a column rung
+    // (noColumn) or the end-game silent tally (silent), and only during live play.
+    const lapsGained = st.laps - lapsBefore;
+    if (lapsGained > 0 && GAME.started && !GAME.over && !(opts && (opts.noColumn || opts.silent))) {
+      grantLapColumns(color, lapsGained);
+    }
     notifyFlow();
   }
 
@@ -1248,6 +1265,91 @@
     // A barracks commit during Blind Placement ends the turn once its reward is done.
     if (GAME.pendingTurnEnd) { GAME.pendingTurnEnd = false; nextPlayer(); }
     else notifyFlow();
+  }
+
+  // ---- Pillars / Columns (§8) ---------------------------------------------------------------
+  // 3 active columns (the printed front-face gods). Each player has a marker per column that
+  // climbs 6 reward rungs (ord 1..6); the 6th (top) rung is an end-of-game ×2-VP conversion and
+  // unlocks that player's faction Favor. Advance sources: event 1st & 2nd place (the event's own
+  // column, event#=column#) and each completed race lap (§7). colNum 1=Fortuna 2=Bacchus 3=Mercury.
+  const COL_FOR_SLOT = [2, 3, 1];   // event slot 0(left)/1(center)/2(right) → column number
+  // Per-god rung rewards. ord 1..5 resolve immediately; ord 6 = top (Favor + end-game scoring).
+  // `race` = advanceRace steps (the score); flat coin/zap/sun via adjustRes; income = grantIncome.
+  // `draft`/`manual` are surfaced as owner-resolved log prompts (those sub-systems aren't automated
+  // yet — PIN). `top` names the end-game conversion applied in columnTopVP().
+  const COLUMN_GODS = {
+    1: { name: 'Fortuna', top: 'strElysium', rungs: {
+           1: { sun: 1 }, 2: { draft: 1 }, 3: { income: true }, 4: { draft: 2 }, 5: { draft: 3 } } },
+    2: { name: 'Bacchus', top: 'pin', rungs: {
+           1: { manual: '⚡→☀ ×2' }, 2: { manual: 'send a hand card → Elysium' },
+           3: { manual: 'discard a card +1🪙 → income' }, 4: { manual: '🪙→☀ ×2' },
+           5: { manual: '1☀ → 5 race steps (×3)' } } },
+    3: { name: 'Mercury', top: 'spdElysium', rungs: {
+           1: { race: 3 }, 2: { race: 4 }, 3: { race: 5 }, 4: { draft: 1 }, 5: { race: 10 } } },
+  };
+  const godName = (colNum) => (COLUMN_GODS[colNum] ? COLUMN_GODS[colNum].name : 'Column ' + colNum);
+  const markerOnColumn = (color, colNum) =>
+    pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
+                       p.userData.slot && p.userData.slot.colNum === colNum);
+  // Apply the reward for one rung a marker just reached.
+  function grantColumnRung(color, colNum, ord) {
+    if (ord >= 6) {                       // top rung: Favor unlock + deferred ×2 scoring
+      if (!GAME.favorUnlocked[color]) {
+        GAME.favorUnlocked[color] = true;
+        logNote('★ ' + color + ' unlocked Faction Favor (reached ' + godName(colNum) + ' top rung).');
+      }
+      logNote('▲ ' + color + ' reached ' + godName(colNum) + ' TOP — ×2 VP conversion at end of game.');
+      return;
+    }
+    const rw = (COLUMN_GODS[colNum] && COLUMN_GODS[colNum].rungs[ord]) || {};
+    if (rw.race)   advanceRace(color, rw.race, { noColumn: true });   // noColumn: don't re-trigger lap→column
+    if (rw.sun)    adjustRes(color, 'sun', rw.sun);
+    if (rw.zap)    adjustRes(color, 'zap', rw.zap);
+    if (rw.coin)   adjustRes(color, 'coin', rw.coin);
+    if (rw.income) { grantIncome(color); notifyFlow(); }
+    if (rw.draft)  logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + rw.draft + ' market hero' + (rw.draft > 1 ? 's' : '') + ' — resolve manually.');
+    if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
+  }
+  // Advance a nation up one column by n rungs (capped at the top, ord 6), moving the marker and
+  // resolving each rung passed. Returns the number of rungs actually climbed.
+  function moveUpColumn(color, colNum, n = 1) {
+    const st = GAME.columns[color]; if (!st) return 0;
+    const before = st[colNum] || 0;
+    const target = Math.min(6, before + n);
+    if (target === before) return 0;                      // already at top
+    for (let ord = before + 1; ord <= target; ord++) { st[colNum] = ord; grantColumnRung(color, colNum, ord); }
+    const m = markerOnColumn(color, colNum);
+    const dest = SLOTS.find((o) => o.colNum === colNum && o.ord === target);
+    if (m && dest) placeOnSlot(m, dest);
+    notifyFlow();
+    return target - before;
+  }
+  // Each completed race lap advances one active column (§7). PIN: rules say "your choice"; until a
+  // picker UI exists this auto-advances the column the player is HIGHEST on (accelerates a top-rung
+  // / Favor), ties → lowest colNum, skipping any already at the top.
+  function grantLapColumns(color, laps) {
+    for (let i = 0; i < laps; i++) {
+      const st = GAME.columns[color] || {};
+      let best = null;
+      for (const cn of [1, 2, 3]) {
+        const v = st[cn] || 0;
+        if (v >= 6) continue;
+        if (best === null || v > (st[best] || 0)) best = cn;
+      }
+      if (best === null) return;                          // all three columns topped
+      logNote('🏁 ' + color + ' completed a lap → ' + godName(best) + ' column +1.');
+      moveUpColumn(color, best, 1);
+    }
+  }
+  // End-game top-rung ×2 conversions (§8): Fortuna = Strength in Elysium ×2, Mercury = Speed in
+  // Elysium ×2. Bacchus top has no printed conversion (PIN) — Favor unlock only, 0 VP here.
+  function columnTopVP(color) {
+    const st = GAME.columns[color] || {};
+    const ely = GAME.elysium.filter((e) => e.color === color);
+    let vp = 0;
+    if ((st[1] || 0) >= 6) vp += 2 * ely.reduce((a, e) => a + (e.str || 0), 0);    // Fortuna
+    if ((st[3] || 0) >= 6) vp += 2 * ely.reduce((a, e) => a + (e.speed || 0), 0);  // Mercury
+    return vp;
   }
 
   // ---- dice cup (private, panel-only) + per-hero event dice (public) ----
@@ -1991,10 +2093,19 @@
       // clears eventDice (sendToWaiting), which would otherwise collapse the recomputed score.
       const total = disp(m);
       const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
+      const colNum = COL_FOR_SLOT[k];        // event# = column# (§5): slot 0/1/2 → column 2/3/1
       let reward = '—';
-      if (pl === 0)      { grantTicket(m); reward = '🎟 ticket'; }
-      else if (pl === 2) { advanceRace(m.userData.color, 1); reward = '+1 VP 🏁'; }
-      // pl === 1 (2nd): column +1 only → Chunk B (nothing automated in Chunk A).
+      if (pl === 0) {                         // 1st: Colosseum pass + income-track upgrade + column +1
+        grantTicket(m);
+        if (colNum) moveUpColumn(m.userData.color, colNum, 1);
+        logNote('▶ ' + m.userData.color + ' won ' + labelForEvent(k) + ' — income-track upgrade (resolve manually).');
+        reward = '🎟 ticket · ' + godName(colNum) + ' +1';
+      } else if (pl === 1) {                  // 2nd: column +1 only
+        if (colNum) moveUpColumn(m.userData.color, colNum, 1);
+        reward = godName(colNum) + ' +1';
+      } else if (pl === 2) {                  // 3rd: +1 VP (a race step)
+        advanceRace(m.userData.color, 1); reward = '+1 VP 🏁';
+      }
       grantSponsorReward(m, sw);
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, total, place: pl + 1, reward, sponsor: fmtSponsor(sw) };
@@ -2636,10 +2747,10 @@
       const cs = cardSlotOf(m);
       const card = cs && cs.occupants.slice().reverse().find((o) => o !== m && o.userData.type === 'card');
       if (f.alive) {
-        GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id });
+        GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
         if (card) { const slot = elySlots[SEAT_ORDER.indexOf(f.color) % 4] || elySlots[0]; if (slot) placeOnSlot(card, slot); card.userData.zone = 'elysium'; setCardFace(card, card.userData.face); }
       } else {
-        GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id });
+        GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
         if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
       }
       // mini goes home, unlocked and reset (visible again in case it entered/left mid-roll)
@@ -2694,7 +2805,7 @@
   function scoreEndGame() {
     if (GAME.result) return;
     for (const color of ALL_COLORS) {
-      const bonus = (GAME.pendingVP[color] || 0) + 3 * elysiumCountOf(color);
+      const bonus = (GAME.pendingVP[color] || 0) + 3 * elysiumCountOf(color) + columnTopVP(color);
       if (bonus) advanceRace(color, bonus, { silent: true });   // end screen tallies these; no flash barrage
     }
     const standings = ALL_COLORS.map((color) => ({
@@ -2959,6 +3070,9 @@
       cup: JSON.parse(JSON.stringify(GAME.cup)),
       cupRolled: { ...GAME.cupRolled },
       exchanged: JSON.parse(JSON.stringify(GAME.exchanged)),
+      columns: JSON.parse(JSON.stringify(GAME.columns)),
+      favorUnlocked: { ...GAME.favorUnlocked },
+      log: GAME.log.slice(-8),
       rollGateOk,
       heroes, selectedHeroId, eventGateOk: eventGateOk(),
       eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
@@ -3122,6 +3236,8 @@
     initGladDeck();
     GAME.colosseum = null; GAME.colAct = null; GAME.romeLostRound = false;
     GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
+    GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = [];
+    for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; }
     GAME.pendingVP = {}; GAME.elysium = []; GAME.tartarus = []; GAME.result = null;
     enterPhase(true);
     notifyFlow();
