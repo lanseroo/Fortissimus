@@ -193,6 +193,7 @@
   const pbLine = document.getElementById('pbLine');
   const pbBody = document.getElementById('pbBody');
   const pbBtns = document.getElementById('pbBtns');
+  let lastDraftShown = false;   // tracks the draft-prompt zoom-to-market transition
   const standings = document.getElementById('standings');
 
   // ---- left player panel (current player's cup / economy / competition) ----
@@ -769,6 +770,16 @@
           + '<span class="pbnext">' + (c.topped ? 'TOPPED' : '→ ' + c.nextLabel) + '</span></button>'
         ).join('');
         pbBtns.innerHTML = '';
+      } else if (pr.type === 'draft') {
+        pbLine.innerHTML = '🎟 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
+          + ': draft a <b>FREE</b> market hero (' + pr.remaining + ' left)' + queued;
+        pbBody.innerHTML = pr.heroes.length
+          ? '<div class="pbdraft">' + pr.heroes.map((h) =>
+              '<button class="pbhero" data-draft="' + h.cardId + '" title="Take this hero for free">'
+              + '<img src="' + window.ASSET_BASE + h.face + '" alt="">'
+              + '<span class="pbhstat">Str ' + h.str + ' · Spd ' + h.speed + '</span></button>').join('') + '</div>'
+          : '<div class="pbwarn">No market heroes on display.</div>';
+        pbBtns.innerHTML = '<button data-draftskip="1">' + (pr.heroes.length ? 'Skip remaining' : 'Close') + '</button>';
       } else {   // trade
         pbLine.innerHTML = '🍇 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
           + ': trade <b>' + pr.label + '</b> (max ×' + pr.max + ')' + queued;
@@ -783,6 +794,14 @@
       }
     } else {
       promptBox.hidden = true;
+    }
+
+    // Zoom to the market when a free-hero draft prompt first appears (so the player can see the
+    // display it's pulling from); reset once it's gone so the next draft re-zooms.
+    if (pr && pr.type === 'draft') {
+      if (!lastDraftShown) { lastDraftShown = true; if (PT.focusMarket) PT.focusMarket(); }
+    } else {
+      lastDraftShown = false;
     }
 
     modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg || pr);   // combat renders in the left panel, not the modal
@@ -991,12 +1010,16 @@
   // event summary modal: dismiss it to advance the guided walk to the next event/phase.
   esNext.addEventListener('click', () => PT.dismissEventSummary());
 
-  // decision-prompt modal: lap→column pick (pbBody) + Bacchus trade accept/decline (pbBtns).
+  // decision-prompt modal: lap→column pick / free-hero draft (pbBody) + trade or skip (pbBtns).
   pbBody.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-colpick]'); if (!btn || btn.disabled) return;
-    PT.resolveColPick(Number(btn.dataset.colpick));
+    const cp = e.target.closest('button[data-colpick]');
+    if (cp && !cp.disabled) { PT.resolveColPick(Number(cp.dataset.colpick)); return; }
+    const dh = e.target.closest('button[data-draft]');
+    if (dh && !dh.disabled) { PT.resolveDraft(Number(dh.dataset.draft)); return; }
   });
   pbBtns.addEventListener('click', (e) => {
+    const skip = e.target.closest('button[data-draftskip]');
+    if (skip) { PT.dismissPrompt(); return; }
     const btn = e.target.closest('button[data-trade]'); if (!btn || btn.disabled) return;
     const n = Number(btn.dataset.trade);
     if (n <= 0) PT.dismissPrompt(); else PT.resolveTrade(n);

@@ -433,6 +433,14 @@
   .pbtrade { font-size: 0.86rem; color: #d6dbe2; }
   .pbwarn { font-size: 0.8rem; color: #e08a8a; margin-top: 4px; }
   #pbBtns { flex-wrap: wrap; }
+  /* free-hero draft picker */
+  .pbdraft { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pbhero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px;
+            border-radius: 8px; border: 1px solid #3a3d42; background: #2b2e33; color: #eee; cursor: pointer; }
+  .pbhero:hover:not(:disabled) { background: #3a3d42; border-color: #ffd479; }
+  .pbhero:disabled { opacity: 0.4; cursor: default; }
+  .pbhero img { width: 72px; height: auto; border-radius: 5px; display: block; }
+  .pbhero .pbhstat { font-size: 0.74rem; opacity: 0.85; }
 
   /* event summary (post-resolution recap) */
   #modalBox #eventSummary { margin: 0; padding: 0; border: 0; }

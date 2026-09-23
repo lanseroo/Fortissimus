@@ -1446,7 +1446,7 @@
     if (rw.zap)    adjustRes(color, 'zap', rw.zap);
     if (rw.coin)   adjustRes(color, 'coin', rw.coin);
     if (rw.income) upgradeIncome(color);   // move the income marker up one rung
-    if (rw.draft)  logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + rw.draft + ' market hero' + (rw.draft > 1 ? 's' : '') + ' — resolve manually.');
+    if (rw.draft)  grantDraft(color, rw.draft, colNum, ord);   // pick N free market heroes (picker prompt)
     if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
     if (rw.trade)  pushPrompt({ type: 'trade', color, colNum, ord, label: rw.label || 'trade',
                                 give: rw.trade.give, get: rw.trade.get, max: rw.trade.max || 1 });
@@ -1482,6 +1482,36 @@
   // blessings) simply enqueue; the modal shows the head prompt whenever no higher-priority modal
   // (barracks / colWait / modWait / event summary / end game) is open.
   function pushPrompt(p) { GAME.prompts.push(p); notifyFlow(); }
+  // Free "draft a market hero" reward (Fortuna rungs 2/4/5, Mercury rung 4): top up the market
+  // display, then queue a picker prompt so the player takes N heroes FREE off the board. The UI
+  // zooms to the market (focusMarket) when the prompt appears.
+  function grantDraft(color, count, colNum, ord) {
+    restockMarket();   // make sure the 3-slot display is full so there's something to pick
+    logNote('🎟 ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + count + ' FREE market hero' + (count > 1 ? 's' : '') + '.');
+    pushPrompt({ type: 'draft', color, remaining: count, colNum, ord });
+  }
+  // The market-hero cards currently on display, with stats parsed off each face (S_P_Hero.png).
+  function draftHeroesAvail() {
+    return slotsByRole('market-hero').flatMap((s) =>
+      s.occupants.filter((o) => o.userData.type === 'card' && o.userData.cardKind === 'hero').map((c) => {
+        const m = /^(\d)_(\d)_Hero/.exec(c.userData.face || '');
+        return { cardId: c.userData.id, face: c.userData.face, str: m ? +m[1] : 1, speed: m ? +m[2] : 1 };
+      }));
+  }
+  // Take one displayed market hero for free → buyer's discard; refill the slot; decrement the draft.
+  function resolveDraft(cardId) {
+    const p = GAME.prompts[0]; if (!p || p.type !== 'draft') return;
+    const c = findCard(cardId); if (!c) return;
+    const s = c.userData.slot; if (!s || s.role !== 'market-hero') return;
+    c.userData.owner = p.color; c.userData.cardKind = 'hero'; c.userData.zone = 'discard';
+    const disc = discardSlotOf(p.color);
+    if (disc) { placeOnSlot(c, disc); setCardFace(c, c.userData.face); }
+    const m = /^(\d)_(\d)_Hero/.exec(c.userData.face || '');
+    logNote('🎟 ' + p.color + ' drafted a free ' + (m ? m[1] + '/' + m[2] : '') + ' hero.');
+    restockMarket();                              // keep the display at 3 for the next pick
+    if (--p.remaining <= 0) GAME.prompts.shift(); // done → next queued prompt
+    notifyFlow();
+  }
   function resolveColPick(colNum) {
     const p = GAME.prompts[0]; if (!p || p.type !== 'colpick') return;
     if (![1, 2, 3].includes(colNum)) return;
@@ -1525,6 +1555,10 @@
         return { colNum: cn, name: godName(cn), rung, topped: rung >= 6, nextLabel: describeRung(cn, rung + 1) };
       });
       return { type: 'colpick', color: p.color, pending: GAME.prompts.length, cols };
+    }
+    if (p.type === 'draft') {
+      return { type: 'draft', color: p.color, remaining: p.remaining, pending: GAME.prompts.length,
+               god: godName(p.colNum), ord: p.ord, heroes: draftHeroesAvail() };
     }
     // trade: how many times (0..max) can this player currently afford?
     let affordN = 0;
@@ -3769,7 +3803,7 @@
     colBuy, colRest, colActPass, colResolveSave, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
-    resolveColPick, resolveTrade, dismissPrompt,
+    resolveColPick, resolveTrade, resolveDraft, dismissPrompt, focusMarket,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;
