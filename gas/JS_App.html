@@ -227,9 +227,9 @@
   // COLUMN_SLOTS rungs can be checked against the real cells. Toggleable.
   // Ordered left->center->right to match the strips: Column 2, 3, then 1.
   const COLUMN_OVERLAYS = [
-    { file: 'Column2_1.png', u: 0.149 },
-    { file: 'Column3_1.png', u: 0.501 },
-    { file: 'Column1_1.png', u: 0.855 },
+    { file: 'Column2_1.png', u: 0.149, colNum: 2 },
+    { file: 'Column3_1.png', u: 0.501, colNum: 3 },
+    { file: 'Column1_1.png', u: 0.855, colNum: 1 },
   ];
 
   const container = document.getElementById('viewer');
@@ -398,6 +398,18 @@
   // ---- drawn-column overlays (togglable rung-check art) ----
   const columnGroup = new THREE.Group();
   scene.add(columnGroup);
+  const colOverlayMesh = {};              // colNum → overlay mesh, so faces can be swapped per game
+  function loadColFace(mesh, file, bh) {
+    new THREE.TextureLoader().load(ASSET_BASE + file, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const aspect = (t.image.width || 1) / (t.image.height || 1);
+      mesh.geometry.dispose();
+      mesh.geometry = new THREE.PlaneGeometry(bh * aspect, bh);  // match board height
+      mesh.material.map = t;
+      mesh.material.needsUpdate = true;
+    });
+  }
   function buildColumnOverlays() {
     const cb = LAYOUT.find((b) => b.file === 'ColumnBoard.png');
     if (!cb) return;
@@ -409,16 +421,18 @@
       );
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(cb.x + (c.u - 0.5) * bw, 0.08, cb.z);
+      mesh.userData.bh = bh;
       columnGroup.add(mesh);
-      new THREE.TextureLoader().load(ASSET_BASE + c.file, (t) => {
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-        const aspect = (t.image.width || 1) / (t.image.height || 1);
-        mesh.geometry.dispose();
-        mesh.geometry = new THREE.PlaneGeometry(bh * aspect, bh);  // match board height
-        mesh.material.map = t;
-        mesh.material.needsUpdate = true;
-      });
+      colOverlayMesh[c.colNum] = mesh;
+      loadColFace(mesh, c.file, bh);
+    }
+  }
+  // Show the chosen face (side 0/1 → Column{colNum}_{1|2}.png) on each pillar for this game.
+  function refreshColumnFaces() {
+    for (const cn of [1, 2, 3]) {
+      const mesh = colOverlayMesh[cn]; if (!mesh) continue;
+      const side = (GAME.godSide && GAME.godSide[cn]) || 0;
+      loadColFace(mesh, 'Column' + cn + '_' + (side + 1) + '.png', mesh.userData.bh);
     }
   }
 
@@ -1403,12 +1417,14 @@
   // `race` = advanceRace steps (the score); flat coin/zap/sun via adjustRes; income = grantIncome.
   // `draft`/`manual` are surfaced as owner-resolved log prompts (those sub-systems aren't automated
   // yet — PIN). `top` names the end-game conversion applied in columnTopVP().
-  // Pool of 6 gods. Each New game randomly assigns 3 of them to the physical column tracks
-  // (colNum 1/2/3) via pickGods()→GAME.gods; colGod(colNum) reads the active one. All rung
-  // rewards reuse the existing vocabulary (race/sun/zap/coin/income/draft/trade/elyscard) so no
-  // new grant code is needed. `top` names the end-game conversion applied in columnTopVP:
-  //   strElysium = Str-in-Elysium ×2 · spdElysium = Spd-in-Elysium ×2 ·
-  //   countElysium = +3 VP per Elysium hero · pin = Favor unlock only (0 VP).
+  // The 3 physical column pillars are DOUBLE-SIDED (per the printed board): each has two god
+  // faces, and each New game flips a random side up. The pairs (matching Column{N}_1/_2 art):
+  //   col1 Fortuna | Vulcan · col2 Bacchus | Fauna · col3 Mercury | Pluto.
+  // pickGods() sets GAME.gods[colNum] (the active def) + GAME.godSide[colNum] (0/1 → art _1/_2);
+  // colGod(colNum) reads the active one. `top` names the end-game conversion applied in
+  // columnTopVP: strElysium = Str-in-Elysium ×2 · spdElysium = Spd-in-Elysium ×2 ·
+  //   relicComplete15 / chariotComplete15 = +15 VP if that side-track is completed ·
+  //   tartarusCount2 = +2 VP per card in your Tartarus pile · pin = Favor unlock only (0 VP).
   const GOD_POOL = {
     fortuna: { name: 'Fortuna', top: 'strElysium', rungs: {
            1: { sun: 1 }, 2: { draft: 1 }, 3: { income: true }, 4: { draft: 2 }, 5: { draft: 3 } } },
@@ -1420,23 +1436,29 @@
            5: { trade: { give: { sun: 1 },                  get: { race: 5 }, max: 3 }, label: '1☀ → 5 race steps' } } },
     mercury: { name: 'Mercury', top: 'spdElysium', rungs: {
            1: { race: 3 }, 2: { race: 4 }, 3: { race: 5 }, 4: { draft: 1 }, 5: { race: 10 } } },
-    // --- new gods (v101) ---------------------------------------------------------------------
-    mars:    { name: 'Mars',    top: 'strElysium', rungs: {   // war: suns (Colosseum) + race
-           1: { sun: 1 }, 2: { race: 3 }, 3: { sun: 2 }, 4: { race: 5 }, 5: { sun: 3 } } },
-    neptune: { name: 'Neptune', top: 'spdElysium', rungs: {   // tides: dice (⚡) + draft
-           1: { zap: 1 }, 2: { draft: 1 }, 3: { zap: 2 }, 4: { race: 5 }, 5: { draft: 2 } } },
-    jupiter: { name: 'Jupiter', top: 'countElysium', rungs: { // king: mixed economy + big finish
-           1: { coin: 2 }, 2: { income: true }, 3: { race: 4 }, 4: { sun: 1 }, 5: { race: 8 } } },
+    // --- alternate faces (v102): the printed second side of each pillar --------------------
+    vulcan:  { name: 'Vulcan',  top: 'relicComplete15', rungs: {   // Master Smith: ⚡ + free Relic upgrades
+           1: { zap: 3 }, 2: { zap: 2, sun: 1 }, 3: { relicFree: true }, 4: { sun: 3 },
+           5: { trade: { give: { sun: 1 }, get: { race: 5 }, max: 3 }, label: '1☀ → 5 race steps' } } },
+    fauna:   { name: 'Fauna',   top: 'chariotComplete15', rungs: {  // Hero engine: drafts + free Chariot upgrade
+           1: { draft: 1 }, 2: { chariotFree: true }, 3: { draft: 1 },
+           4: { elyscard: true, label: 'send a hand card → Elysium' }, 5: { income: true } } },
+    pluto:   { name: 'Pluto',   top: 'tartarusCount2', rungs: {     // Underworld: Tartarus scaling + big dumps
+           1: { trade: { give: { zap: 1 }, get: { race: 3 }, max: 3 }, label: '1⚡ → 3 race steps' },
+           2: { incomeCollect: true }, 3: { tartarusRace: 2 }, 4: { draft: 2 },
+           5: { trade: { give: { sun: 1 }, get: { race: 10 }, max: 3 }, label: '1☀ → 10 race steps' } } },
   };
-  const DEFAULT_GODS = ['fortuna', 'bacchus', 'mercury'];   // colNum 1/2/3 order before selection
-  // Randomly assign 3 of the 6 pool gods to the physical column tracks (colNum 1/2/3).
+  // Each pillar's two faces, indexed 0/1 → art Column{colNum}_{1|2}.png.
+  const COLUMN_SIDES = { 1: ['fortuna', 'vulcan'], 2: ['bacchus', 'fauna'], 3: ['mercury', 'pluto'] };
+  const DEFAULT_GODS = ['fortuna', 'bacchus', 'mercury'];   // side-0 of each pillar, pre-selection
+  // Flip a random side up on each of the 3 pillars; set GAME.gods (def) + GAME.godSide (0/1).
   function pickGods() {
-    const ids = Object.keys(GOD_POOL);
-    for (let i = ids.length - 1; i > 0; i--) {             // Fisher–Yates
-      const j = Math.floor(Math.random() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]];
+    const map = {}, side = {};
+    for (const cn of [1, 2, 3]) {
+      const s = Math.random() < 0.5 ? 0 : 1;
+      side[cn] = s; map[cn] = GOD_POOL[COLUMN_SIDES[cn][s]];
     }
-    const map = {};
-    ids.slice(0, 3).forEach((id, i) => { map[i + 1] = GOD_POOL[id]; });
+    GAME.godSide = side;
     return map;
   }
   // Active god on a physical column this game (falls back to the default trio pre-selection).
@@ -1451,9 +1473,13 @@
     if (rw.zap)    return '+' + rw.zap + '⚡';
     if (rw.coin)   return '+' + rw.coin + '🪙';
     if (rw.income) return 'income upgrade';
+    if (rw.incomeCollect) return 'collect income';
     if (rw.draft)  return 'draft ' + rw.draft + ' hero' + (rw.draft > 1 ? 's' : '');
     if (rw.trade)  return (rw.label || 'trade') + ' (trade)';
     if (rw.elyscard) return rw.label || 'card → Elysium';
+    if (rw.relicFree)   return 'free 🏺 relic upgrade';
+    if (rw.chariotFree) return 'free 🏇 chariot upgrade';
+    if (rw.tartarusRace) return '+' + rw.tartarusRace + ' race / Tartarus card';
     if (rw.manual) return rw.manual;
     return '—';
   }
@@ -1476,6 +1502,11 @@
     if (rw.zap)    adjustRes(color, 'zap', rw.zap);
     if (rw.coin)   adjustRes(color, 'coin', rw.coin);
     if (rw.income) upgradeIncome(color);   // move the income marker up one rung
+    if (rw.incomeCollect) { grantIncome(color); logNote('💰 ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): collected income.'); }
+    if (rw.relicFree)   { if (moveUpTrack(color, 'relic'))   logNote('🏺 ' + color + ' (' + godName(colNum) + '): free Relic-track upgrade.'); }
+    if (rw.chariotFree) { if (moveUpTrack(color, 'chariot')) logNote('🏇 ' + color + ' (' + godName(colNum) + '): free Chariot-track upgrade.'); }
+    if (rw.tartarusRace) { const n = rw.tartarusRace * tartarusCountOf(color);
+      if (n > 0) { advanceRace(color, n, { noColumn: true }); logNote('☠ ' + color + ' (' + godName(colNum) + '): +' + n + ' race (' + rw.tartarusRace + '×' + tartarusCountOf(color) + ' Tartarus cards).'); } }
     if (rw.draft)  grantDraft(color, rw.draft, colNum, ord);   // pick N free market heroes (picker prompt)
     if (rw.elyscard) pushPrompt({ type: 'elyscard', color, colNum, ord });   // pick a hand hero → Elysium (modal)
     if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
@@ -1641,9 +1672,11 @@
     for (const cn of [1, 2, 3]) {
       if ((st[cn] || 0) < 6) continue;                 // only topped columns convert
       const top = colGod(cn).top;
-      if (top === 'strElysium')        vp += 2 * sumStr;
-      else if (top === 'spdElysium')   vp += 2 * sumSpd;
-      else if (top === 'countElysium') vp += 3 * ely.length;
+      if (top === 'strElysium')             vp += 2 * sumStr;
+      else if (top === 'spdElysium')        vp += 2 * sumSpd;
+      else if (top === 'tartarusCount2')    vp += 2 * tartarusCountOf(color);
+      else if (top === 'relicComplete15')   vp += (GAME.relicUnlocked   && GAME.relicUnlocked[color])   ? 15 : 0;
+      else if (top === 'chariotComplete15') vp += (GAME.chariotUnlocked && GAME.chariotUnlocked[color]) ? 15 : 0;
     }
     return vp;
   }
@@ -2436,9 +2469,13 @@
       m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
     }
 
-    // Rome never queues a waiting-for-Colosseum decision. Every nation (winner included) now decides
-    // whether to PAY the seat fee — the 1st-place free ticket was removed, so seats are bought, not won.
-    GAME.colWait.payQueue = ranked.filter((m) => !m.isRome).map((m) => m.userData.id);
+    // Rome never queues a waiting-for-Colosseum decision. ONLY the 1st-place finisher(s) are offered
+    // the Colosseum seat (they still PAY the fee — the win earns the OFFER, not a free seat). Ties for
+    // 1st all share place 0, so a shared win offers the seat to each.
+    GAME.colWait.payQueue = ranked
+      .map((m, i) => ({ m, pl: place[i] }))
+      .filter((r) => !r.m.isRome && r.pl === 0)
+      .map((r) => r.m.userData.id);
     GAME.colWait.places = {};                         // miniId → finishing place (0 = 1st) for prompt wording
     ranked.forEach((m, i) => { if (!m.isRome) GAME.colWait.places[m.userData.id] = place[i]; });
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
@@ -3605,7 +3642,8 @@
     initGladDeck();
     GAME.colosseum = null; GAME.colAct = null; GAME.romeLostRound = false;
     GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
-    GAME.gods = pickGods();                              // random 3-of-6 gods → columns 1/2/3
+    GAME.gods = pickGods();                              // flip a random face up on each pillar
+    refreshColumnFaces();                                // show the chosen Column{n}_{1|2}.png art
     GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = []; GAME.prompts = [];
     for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; }
     logNote('🏛 Gods this game: ' + [1, 2, 3].map((cn) => godName(cn)).join(' · ') + '.');
