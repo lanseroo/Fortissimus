@@ -3851,14 +3851,14 @@
   // Random gladiator, a random squad from each team, a random hero/plebe card per fighter,
   // and random 0–5 starting coin/⚡/☀ per faction. For quickly playtesting combat.
   // gladIdx: index into GLAD_DECK to force (any level), or -1/undefined for a random pick.
-  function simToColosseum(heroPool = [], gladIdx = -1) {
+  function simToColosseum(heroPool = [], gladIdx = -1, wantN = 0) {
     initGame(heroPool);                                     // full board setup (round 1 / Upkeep)
     // initGame's minis stream in ASYNC (each STL loads in a loader.load callback — see addMini),
     // so `pieces` is still empty the instant this returns. Wait for the squad to arrive, THEN
     // build the arena; otherwise we'd seat nothing and land back at round-1 Upkeep.
     const target = SLOTS.filter((s) => s.role === 'hero-market').length || 20;
     const t0 = Date.now();
-    const build = () => buildColosseumSandbox(heroPool, gladIdx);
+    const build = () => buildColosseumSandbox(heroPool, gladIdx, wantN);
     const waitForMinis = () => {
       const n = pieces.filter((m) => m.userData.type === 'mini').length;
       if (n >= target || Date.now() - t0 > 6000) build();   // all loaded (or give up after 6s)
@@ -3868,19 +3868,27 @@
   }
 
   // Second half of the sandbox jump — runs once the minis have finished loading.
-  function buildColosseumSandbox(heroPool = [], gladIdx = -1) {
+  // wantN: how many heroes to field total (0 = random). Assigned randomly across factions, max 3 each.
+  function buildColosseumSandbox(heroPool = [], gladIdx = -1, wantN = 0) {
     const r5 = () => Math.floor(Math.random() * 6);         // 0..5
     const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-    // pick a random squad from each team (0..3), keep the total playable (2..8)
-    const chosen = [];
+    // Per-faction pool of minis (shuffled), capped at 3 usable per faction.
+    const minisByColor = {}, capSlots = [];
     for (const nat of NATIONS) {
-      const mine = shuffle(pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === nat.color));
-      const cnt = Math.floor(Math.random() * 4);            // 0..3 from this team
-      for (let i = 0; i < cnt && chosen.length < 8; i++) if (mine[i]) chosen.push(mine[i]);
+      minisByColor[nat.color] = shuffle(pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === nat.color));
+      const avail = Math.min(3, minisByColor[nat.color].length);   // no more than 3 to a faction
+      for (let i = 0; i < avail; i++) capSlots.push(nat.color);
     }
-    if (chosen.length < 2) {                                // guarantee a fight
-      const spare = shuffle(pieces.filter((m) => m.userData.type === 'mini' && !chosen.includes(m)));
-      while (chosen.length < 2 && spare.length) chosen.push(spare.shift());
+    const maxN = capSlots.length;                           // total capacity (≤ 3 × #factions)
+    // Requested count (clamped 2..maxN); random 2..min(8,maxN) when unspecified.
+    const want = wantN > 0 ? Math.max(2, Math.min(wantN, maxN))
+                           : Math.max(2, Math.min(2 + Math.floor(Math.random() * 7), maxN));
+    // Randomly hand out `want` seats across factions, respecting the per-faction cap.
+    const take = shuffle(capSlots.slice()).slice(0, want);
+    const chosen = [], idxByColor = {};
+    for (const color of take) {
+      const i = idxByColor[color] || 0; idxByColor[color] = i + 1;
+      const m = minisByColor[color][i]; if (m) chosen.push(m);
     }
     // give every fighter a card (hero or plebe) on its tied card slot so it has Str/Speed
     for (const m of chosen) {

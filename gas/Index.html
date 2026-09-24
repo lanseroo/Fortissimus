@@ -80,7 +80,8 @@
       <fieldset>
         <legend>View</legend>
         <button id="initGame" title="Seat every faction's starting pieces + deal the market">New game</button>
-        <button id="simColosseum" title="Sandbox: jump a fresh game straight to a Colosseum round — random squads, cards &amp; economy">Sim to Colosseum</button>
+        <button id="simColosseum" title="Sandbox: jump a fresh game straight to a Colosseum round — squads randomly assigned to factions (max 3 each), random cards &amp; economy">Sim to Colosseum</button>
+        <label class="numlbl" title="How many heroes to field (randomly assigned across factions, max 3 each). Blank = random.">Heroes <input id="simHeroCount" type="number" min="2" max="12" step="1" placeholder="rnd" style="width:3.2em"></label>
         <select id="simGlad" title="Which gladiator the Sim faces (any level) — Random by default"></select>
         <button id="resetView">Frame table</button>
         <button id="clearBtn">Clear pieces</button>

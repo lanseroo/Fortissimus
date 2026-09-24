@@ -130,9 +130,11 @@
     simGlad.innerHTML = '<option value="-1">Random gladiator</option>'
       + PT.gladList().map((g) => '<option value="' + g.idx + '">' + g.label + '</option>').join('');
   }
+  const simHeroCount = document.getElementById('simHeroCount');
   document.getElementById('simColosseum').addEventListener('click', () => {
     const gi = simGlad ? parseInt(simGlad.value, 10) : -1;
-    PT.simToColosseum(HEROES.map((h) => h[0]), gi);     // fresh game → straight into a Colosseum round
+    const n = simHeroCount ? parseInt(simHeroCount.value, 10) : NaN;   // blank/invalid → random
+    PT.simToColosseum(HEROES.map((h) => h[0]), gi, Number.isFinite(n) ? n : 0);   // fresh game → straight into a Colosseum round
     dealEvents(randomEvents());                         // seed the event slots (harmless for combat)
   });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
