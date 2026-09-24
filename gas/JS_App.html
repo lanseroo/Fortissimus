@@ -1936,7 +1936,7 @@
   // ---- Colosseum-ticket / "waiting for Colosseum" subsystem (Chunk A) ----
   // A "waiting" mini is committed to the next Colosseum: it sits on top of its own hero
   // card (visual "unavailable" cue) and is locked until the Colosseum seats it. Max 3/player.
-  const TICKET_FEE = 3;                                    // ☀ to send a mini to the Colosseum waiting bench
+  const TICKET_FEE = 1;                                    // ☀ to send a mini to the Colosseum waiting bench
   const WAIT_CAP   = 3;                                    // max waiting minis per player
   const waitingMinisOf = (color) => pieces.filter((p) =>
     p.userData.type === 'mini' && p.userData.color === color && p.userData.waiting);
@@ -2016,7 +2016,7 @@
     return null;
   }
   const advanceColWait = () => { if (!colWaitStep()) finishEventResolution(); else notifyFlow(); };
-  // Pay 3☀ to send this mini to the Colosseum waiting bench (may trigger a release step if at cap).
+  // Pay TICKET_FEE ☀ to send this mini to the Colosseum waiting bench (may trigger a release step if at cap).
   function colWaitPay(miniId) {
     const cw = GAME.colWait; if (!cw || cw.releaseQueue.length || cw.payQueue[0] !== miniId) return;
     const m = findMini(miniId); if (!m) return;
