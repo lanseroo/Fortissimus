@@ -2895,7 +2895,20 @@
   }
 
   // ---- action buy windows (turn order, one pass each) ----
-  function colActInit(window) { GAME.colAct = { window, turn: 0 }; }
+  // Only players IN the event (an alive mini in the arena) who can afford at least one action in
+  // the current window get a turn — everyone else is auto-skipped to speed the Colosseum along.
+  function colActEligible(color) {
+    const c = GAME.colosseum; if (!c) return false;
+    if (!c.fighters.some((f) => f.color === color && f.alive)) return false;   // not in the event
+    return colActionState(color).some((a) => a.canBuy);                        // can pay for ≥1 action
+  }
+  // Advance the buy turn past ineligible players; when none remain, close the window (→ attack / counter).
+  function colActAdvance() {
+    const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
+    while (ca.turn < GAME.order.length && !colActEligible(GAME.order[ca.turn])) ca.turn++;
+    if (ca.turn >= GAME.order.length) { GAME.colAct = null; if (c.sub === 'buyA') colStartAttack(); else colToCounter(); }
+  }
+  function colActInit(window) { GAME.colAct = { window, turn: 0 }; colActAdvance(); }
   const colActBuyer = () => (GAME.colAct ? (GAME.order[GAME.colAct.turn] ?? null) : null);
   const fInfo = (f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos });
   // Opposing alive fighters this color could push, with the legal directions (−1 toward 2 / +1 toward 12).
@@ -2951,6 +2964,7 @@
     } else return;
     used[action] = true;
     adjustRes(color, 'sun', -meta.cost);   // notifyFlow inside
+    if (!colActEligible(color)) colActPass();   // nothing left to buy → move on automatically
   }
   // Rest: 2☀ to the bank, reclaim every ☀ this color has spent on actions, free their actions again.
   function colRest(color) {
@@ -2963,8 +2977,8 @@
   function colActPass() {
     const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
     ca.turn++;
-    if (ca.turn >= GAME.order.length) { GAME.colAct = null; if (c.sub === 'buyA') colStartAttack(); else colToCounter(); }
-    else notifyFlow();
+    colActAdvance();
+    notifyFlow();
   }
 
   // ---- the fight, round by round ----
