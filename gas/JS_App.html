@@ -1107,7 +1107,7 @@
   // 3&4, 5&6, and after 6); being last in PHASES it lands after Market on those rounds.
   const PHASES = ['Upkeep', 'Blind Placement', 'Resolution & Podiums', 'Market', 'Colosseum'];
   const TOTAL_ROUNDS = 6;                       // Act I = R1–3, Act II = R4–5, Act III = R6
-  const COLOSSEUM_ROUNDS = [3, 5, 6];           // Colosseum interlude only after these rounds
+  const COLOSSEUM_ROUNDS = [2, 4, 6];           // Colosseum interlude only after these rounds (first arena one round sooner)
   const GAME = { started: false, over: false, round: 1, phaseIndex: 0, order: SEAT_ORDER.slice(), turnIndex: 0, res: {}, barracks: null, race: {}, cup: {}, cupRolled: {},
                  eventIndex: 0, evtTurnIndex: 0, eventRound: 0, resolved: [], lastResolution: null, colWait: null, modWait: null,
                  summaryOpen: false, eventKeys: [], pendingTurnEnd: false, marketPool: [],
@@ -1308,6 +1308,9 @@
   }
 
   // ---- barracks reward: +1 VP (a lane step) + a resource + optional track moves ----
+  // Cost to advance the relic (⚡) / chariot (☀) track one rung from the barracks. Lowered 2→1
+  // to make the barracks a worthwhile stop (faster relic/chariot unlocks) vs. always racing events.
+  const TRACK_RUNG_COST = 1;
   function moveUpTrack(color, track) {
     const marker = markerOnTrack(color, track);
     if (!marker) return false;
@@ -1377,9 +1380,9 @@
     const b = GAME.barracks; if (!b) return;
     const kind = track === 'relic' ? 'zap' : 'sun';
     if ((track === 'relic' ? b.relic : b.chariot)) return;   // already used this barracks mini
-    if ((GAME.res[b.color]?.[kind] || 0) < 2) return;        // not enough to spend
+    if ((GAME.res[b.color]?.[kind] || 0) < TRACK_RUNG_COST) return;   // not enough to spend
     if (!moveUpTrack(b.color, track)) return;                // at the top → don't charge
-    adjustRes(b.color, kind, -2);     // notifyFlow inside adjustRes
+    adjustRes(b.color, kind, -TRACK_RUNG_COST);   // notifyFlow inside adjustRes
     if (track === 'relic') b.relic = true; else b.chariot = true;
     notifyFlow();
   }
@@ -2007,6 +2010,7 @@
       const ci = miniCardInfo(m), color = m.userData.color;
       return { kind: 'pay', miniId: m.userData.id, color, sym: m.userData.sym ?? null,
                symImg: ci.symImg, face: ci.face, fee: TICKET_FEE,
+               won: ((cw.places || {})[m.userData.id]) === 0,   // 1st place → word the prompt as a win
                canAfford: (GAME.res[color]?.coin || 0) >= TICKET_FEE };
     }
     return null;
@@ -2322,20 +2326,22 @@
       const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
       const colNum = COL_FOR_SLOT[k];        // event# = column# (§5): slot 0/1/2 → column 2/3/1
       let reward = '—';
-      if (pl === 0) {                         // 1st: Colosseum pass + income-track upgrade + column +1
-        grantTicket(m);
+      const podium = pl <= 2;                  // sponsor is now podium-only (top 3), not paid to everyone
+      // 1st place no longer gets a FREE Colosseum seat — the ticket is decoupled from the win and
+      // must be paid for in the waiting walk below (like everyone else), so seats aren't just won.
+      if (pl === 0) {                         // 1st: income-track upgrade + column +1 (+ may pay for a seat)
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         upgradeIncome(m.userData.color);      // move the income marker up one rung (§9)
-        reward = '🎟 ticket · ' + godName(colNum) + ' +1 · income ▲';
+        reward = godName(colNum) + ' +1 · income ▲ · 🎟 (pay ' + TICKET_FEE + '🪙)';
       } else if (pl === 1) {                  // 2nd: column +1 only
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         reward = godName(colNum) + ' +1';
       } else if (pl === 2) {                  // 3rd: +1 VP (a race step)
         advanceRace(m.userData.color, 1); reward = '+1 VP 🏁';
       }
-      grantSponsorReward(m, sw);
+      if (podium) grantSponsorReward(m, sw);  // §5 sponsorship — podium finishers only
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total, place: pl + 1, reward, sponsor: fmtSponsor(sw) };
+               face: ci.face, total, place: pl + 1, reward, sponsor: podium ? fmtSponsor(sw) : '' };
     });
     // Rome's podium finish pushes its black chariot forward (§14.E): 1st→+3, 2nd→+2, 3rd→+1
     // spaces (ties share a place, so a tie-for-1st still advances +3).
@@ -2355,8 +2361,11 @@
       m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
     }
 
-    // Rome never queues a waiting-for-Colosseum decision.
-    GAME.colWait.payQueue = ranked.filter((m, i) => place[i] !== 0 && !m.isRome).map((m) => m.userData.id);
+    // Rome never queues a waiting-for-Colosseum decision. Every nation (winner included) now decides
+    // whether to PAY the seat fee — the 1st-place free ticket was removed, so seats are bought, not won.
+    GAME.colWait.payQueue = ranked.filter((m) => !m.isRome).map((m) => m.userData.id);
+    GAME.colWait.places = {};                         // miniId → finishing place (0 = 1st) for prompt wording
+    ranked.forEach((m, i) => { if (!m.isRome) GAME.colWait.places[m.userData.id] = place[i]; });
     GAME.lastResolution = { label: labelForEvent(k), objective: (rulesForKey(k) || {}).objective || '', rows };
 
     if (!colWaitStep()) finishEventResolution(); else notifyFlow();
@@ -3765,9 +3774,9 @@
     for (const c of ALL_COLORS) GAME.res[c] = { coin: r5(), zap: r5(), sun: r5() };
     // jump straight to a Colosseum interlude and open the fight (bypass the event walk /
     // "Resolve event" gate — seat the squad, then hand off to startColosseum directly).
-    GAME.round = 3; GAME.order = computeOrder(GAME.round); GAME.turnIndex = 0;
+    GAME.round = COLOSSEUM_ROUNDS[0]; GAME.order = computeOrder(GAME.round); GAME.turnIndex = 0;
     GAME.phaseIndex = phasesFor(GAME.round).indexOf('Colosseum');
-    moveRoundMarker();                                      // seat the round token at round 3
+    moveRoundMarker();                                      // seat the round token at the first arena round
     seatWaitingIntoArena();                                 // move the waiting minis into the arena
     GAME.eventKeys = eventOrder().filter((k) => minisAtEvent(k).length);
     GAME.eventIndex = 0; GAME.evtTurnIndex = 0; GAME.resolved = []; GAME.lastResolution = null;

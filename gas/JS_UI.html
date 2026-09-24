@@ -567,8 +567,8 @@
       barracksLine.textContent = b.color + ' → Barracks: +1 step · take a resource'
         + (b.picked ? ' ✓' : '');
       barracks.querySelectorAll('.bpick').forEach((btn) => { btn.disabled = b.picked; });
-      barRelic.disabled = b.relic || r.zap < 2;
-      barChariot.disabled = b.chariot || r.sun < 2;
+      barRelic.disabled = b.relic || r.zap < 1;
+      barChariot.disabled = b.chariot || r.sun < 1;
       barracksLine.style.color = FLOW_COLORS[b.color] || '#ffd479';
     } else {
       barracks.hidden = true;
@@ -583,7 +583,8 @@
       const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
       if (s.kind === 'pay') {
         cwLine.innerHTML = s.color + ' — ' + cw.label + ': ' + sym(s.symImg)
-          + ' hero lost. Pay ' + s.fee + '🪙 to send it to the Colosseum?';
+          + (s.won ? ' 🏆 hero won! ' : ' hero placed. ')
+          + 'Pay ' + s.fee + '🪙 to send it to the Colosseum?';
         cwBtns.innerHTML =
           '<button class="cwbtn" data-action="pay" data-id="' + s.miniId + '"'
             + (s.canAfford ? '' : ' disabled') + '>Pay ' + s.fee + '🪙 → Colosseum</button>'
