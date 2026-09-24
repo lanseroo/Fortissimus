@@ -2985,10 +2985,13 @@
   // on the common Tartarus pile (every faction's dead stack there). Booking GAME.tartarus here (and
   // removing the mini from `pieces`) lets dismissColosseum skip the now-absent fighter at fight's end
   // — no double relocation. `f.dead` guards against a second call for the same fighter.
+  // The hero CARD goes to Tartarus immediately, but the MINI is only HIDDEN (kept in `pieces`) and
+  // returns to its home circle on the player board at fight's end (dismissColosseum) — the mini is
+  // never destroyed. dismissColosseum re-books Tartarus only for survivors, so no double-book.
   function killFighter(f) {
     if (!f || f.dead) return;
     f.alive = false; f.dead = true;
-    GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id });
+    GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
     const m = findMini(f.id);
     if (m) {
       const cs = cardSlotOf(m);
@@ -2997,7 +3000,8 @@
       const elySlots = uw.filter((s) => (s.accepts || []).includes('card')).slice(0, 4);
       const tarSlot = uw.find((s) => !elySlots.includes(s));
       if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
-      removePiece(m);
+      m.visible = false;                 // out of the arena; returns home at dismissColosseum
+      m.userData.waiting = false; m.userData.locked = false;
     }
     placeAllFighters();
   }
@@ -3106,10 +3110,9 @@
         GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
         if (card) { const slot = elySlots[SEAT_ORDER.indexOf(f.color) % 4] || elySlots[0]; if (slot) placeOnSlot(card, slot); card.userData.zone = 'elysium'; setCardFace(card, card.userData.face); }
         fireBlessing(f.color);   // §11 Blessing on Elysium entry (auto part applied; choices PINNED)
-      } else {
-        GAME.tartarus.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
-        if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
       }
+      // fallen fighters (f.dead) already sent their card to Tartarus in killFighter — nothing to
+      // re-book here; every mini (survivor OR fallen) now returns home, unlocked and reset.
       // mini goes home, unlocked and reset (visible again in case it entered/left mid-roll)
       m.visible = true;
       m.userData.waiting = false; m.userData.locked = false;
