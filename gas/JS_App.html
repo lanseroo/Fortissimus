@@ -1936,7 +1936,7 @@
   // once that approach already fouls (the jump is then irrelevant). Else the event's flat count.
   function requiredFor(mini) {
     const s = mini.userData.slot; if (!s) return 0;
-    if (s.boardKey === 'ColosseumBoard.png') return COLOSSEUM_DICE;
+    if (s.boardKey === 'ColosseumBoard.png') return 0;   // no manual roll — arena positions are auto-rolled at startColosseum
     if (!s.event) return DICE_PER_EVENT_DEFAULT;
     const rules = EVENT_RULES[eventFiles[eventSlotIndex(s.bx)]];
     if (!rules) return DICE_PER_EVENT_DEFAULT;
@@ -2977,6 +2977,9 @@
       gladBonus: 0, attackVal: 0, range: null, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
       log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
     addGladiatorMarker(card.file);
+    // No manual event roll for the arena: clear any dice sitting on the seated minis so the ONLY
+    // roll is the auto position roll below (was a double-roll: manual dice shown, then auto override).
+    for (const m of arenaMinis) { m.userData.eventDice = []; m.userData.diceAdj = 0; if (m.userData.diceGroup) renderHeroDice3D(m); }
     colRollReach();          // reveal the reach window BEFORE heroes take positions
     // Minis start OFF the board and are brought in one by one as their dice settle.
     colRollPositions(true, () => { colActInit('A'); notifyFlow(); });
