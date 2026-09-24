@@ -1408,7 +1408,7 @@
            1: { sun: 1 }, 2: { draft: 1 }, 3: { income: true }, 4: { draft: 2 }, 5: { draft: 3 } } },
     2: { name: 'Bacchus', top: 'pin', rungs: {
            1: { trade: { give: { zap: 1 },                  get: { sun: 1 },  max: 2 }, label: '1⚡ → 1☀' },
-           2: { manual: 'send a hand card → Elysium' },
+           2: { elyscard: true, label: 'send a hand card → Elysium' },
            3: { trade: { give: { coin: 1 },                 get: { sun: 1 },  max: 2 }, label: '1🪙 → 1☀' },
            4: { trade: { give: { coin: 1, zap: 1, sun: 1 }, get: { income: 1 }, max: 1 }, label: '1🪙+1⚡+1☀ → income upgrade' },
            5: { trade: { give: { sun: 1 },                  get: { race: 5 }, max: 3 }, label: '1☀ → 5 race steps' } } },
@@ -1427,6 +1427,7 @@
     if (rw.income) return 'income upgrade';
     if (rw.draft)  return 'draft ' + rw.draft + ' hero' + (rw.draft > 1 ? 's' : '');
     if (rw.trade)  return (rw.label || 'trade') + ' (trade)';
+    if (rw.elyscard) return rw.label || 'card → Elysium';
     if (rw.manual) return rw.manual;
     return '—';
   }
@@ -1450,6 +1451,7 @@
     if (rw.coin)   adjustRes(color, 'coin', rw.coin);
     if (rw.income) upgradeIncome(color);   // move the income marker up one rung
     if (rw.draft)  grantDraft(color, rw.draft, colNum, ord);   // pick N free market heroes (picker prompt)
+    if (rw.elyscard) pushPrompt({ type: 'elyscard', color, colNum, ord });   // pick a hand hero → Elysium (modal)
     if (rw.manual) logNote('▶ ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): ' + rw.manual + ' — resolve manually.');
     if (rw.trade)  pushPrompt({ type: 'trade', color, colNum, ord, label: rw.label || 'trade',
                                 give: rw.trade.give, get: rw.trade.get, max: rw.trade.max || 1 });
@@ -1488,10 +1490,11 @@
   // Free "draft a market hero" reward (Fortuna rungs 2/4/5, Mercury rung 4): top up the market
   // display, then queue a picker prompt so the player takes N heroes FREE off the board. The UI
   // zooms to the market (focusMarket) when the prompt appears.
-  function grantDraft(color, count, colNum, ord) {
+  function grantDraft(color, count, colNum, ord, src) {
     restockMarket();   // make sure the 3-slot display is full so there's something to pick
-    logNote('🎟 ' + color + ' (' + godName(colNum) + ' rung ' + ord + '): draft ' + count + ' FREE market hero' + (count > 1 ? 's' : '') + '.');
-    pushPrompt({ type: 'draft', color, remaining: count, colNum, ord });
+    const where = src || (godName(colNum) + ' rung ' + ord);
+    logNote('🎟 ' + color + ' (' + where + '): draft ' + count + ' FREE market hero' + (count > 1 ? 's' : '') + '.');
+    pushPrompt({ type: 'draft', color, remaining: count, colNum, ord, src });
   }
   // The market-hero cards currently on display, with stats parsed off each face (S_P_Hero.png).
   function draftHeroesAvail() {
@@ -1513,6 +1516,33 @@
     logNote('🎟 ' + p.color + ' drafted a free ' + (m ? m[1] + '/' + m[2] : '') + ' hero.');
     restockMarket();                              // keep the display at 3 for the next pick
     if (--p.remaining <= 0) GAME.prompts.shift(); // done → next queued prompt
+    notifyFlow();
+  }
+  // Bacchus rung 2: the HERO cards in a color's hand, offered up to send straight to Elysium.
+  function elysHandCards(color) {
+    return slotsByRole('hand', color).flatMap((s) =>
+      s.occupants.filter((o) => o.userData.type === 'card' && o.userData.cardKind === 'hero').map((c) => {
+        const m = /^(\d)_(\d)_Hero/.exec(c.userData.face || '');
+        return { cardId: c.userData.id, face: c.userData.face, str: m ? +m[1] : 1, speed: m ? +m[2] : 1 };
+      }));
+  }
+  // Send the chosen hand hero straight to Elysium (banks its end-game VP + fires its blessing),
+  // exactly like a Colosseum survivor's card. One pick resolves the prompt.
+  function resolveElysCard(cardId) {
+    const p = GAME.prompts[0]; if (!p || p.type !== 'elyscard') return;
+    const c = findCard(cardId); if (!c) return;
+    const s = c.userData.slot; if (!s || s.role !== 'hand' || s.owner !== p.color) return;
+    const m = /^(\d)_(\d)_Hero/.exec(c.userData.face || '');
+    const str = m ? +m[1] : 1, speed = m ? +m[2] : 1;
+    const elySlots = SLOTS.filter((sl) => sl.boardKey === 'UnderworldBoard.png' && (sl.accepts || []).includes('card')).slice(0, 4);
+    const slot = elySlots[SEAT_ORDER.indexOf(p.color) % 4] || elySlots[0];
+    freeSlot(c);
+    if (slot) { placeOnSlot(c, slot); setCardFace(c, c.userData.face); }
+    c.userData.zone = 'elysium'; c.userData.owner = p.color;
+    GAME.elysium.push({ color: p.color, sym: c.userData.sym ?? null, id: c.userData.id, str, speed });
+    logNote('🍇 ' + p.color + ' (Bacchus rung 2): sent a ' + str + '/' + speed + ' hand hero → Elysium.');
+    fireBlessing(p.color);              // §11 Blessing on Elysium entry (auto part applied; choices PINNED)
+    GAME.prompts.shift();
     notifyFlow();
   }
   function resolveColPick(colNum) {
@@ -1561,7 +1591,11 @@
     }
     if (p.type === 'draft') {
       return { type: 'draft', color: p.color, remaining: p.remaining, pending: GAME.prompts.length,
-               god: godName(p.colNum), ord: p.ord, heroes: draftHeroesAvail() };
+               god: p.colNum ? godName(p.colNum) : (p.src || 'Sponsor'), ord: p.ord, heroes: draftHeroesAvail() };
+    }
+    if (p.type === 'elyscard') {
+      return { type: 'elyscard', color: p.color, pending: GAME.prompts.length,
+               god: godName(p.colNum), ord: p.ord, cards: elysHandCards(p.color) };
     }
     // trade: how many times (0..max) can this player currently afford?
     let affordN = 0;
@@ -2272,9 +2306,13 @@
   // Recollect) is display-only until those mechanics exist.
   function grantSponsorReward(mini, rw) {
     if (!rw) return;
-    const r = GAME.res[mini.userData.color];
+    const color = mini.userData.color;
+    const r = GAME.res[color];
     if (r) { r.coin += rw.coin || 0; r.zap += rw.zap || 0; r.sun += rw.sun || 0; }
-    if (rw.vp) advanceRace(mini.userData.color, rw.vp);
+    if (rw.vp) advanceRace(color, rw.vp);
+    // Top-rung Archery sponsor: a FREE market hero → hand the player the draft picker (same as
+    // a column draft reward), instead of the old display-only note.
+    if (rw.note === 'free market hero') grantDraft(color, 1, null, null, 'Archery sponsor');
   }
   function fmtSponsor(rw) {
     if (!rw) return '';
@@ -3825,7 +3863,7 @@
     colBuy, colRest, colActPass, colResolveSave, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
-    resolveColPick, resolveTrade, resolveDraft, dismissPrompt, focusMarket,
+    resolveColPick, resolveTrade, resolveDraft, resolveElysCard, dismissPrompt, focusMarket,
     setSlotsVisible: (v) => {
       slotsForced = v;
       for (const s of SLOTS) s.marker.visible = true;

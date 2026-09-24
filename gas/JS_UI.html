@@ -772,7 +772,8 @@
         ).join('');
         pbBtns.innerHTML = '';
       } else if (pr.type === 'draft') {
-        pbLine.innerHTML = '🎟 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
+        const where = pr.ord ? (pr.god + ' rung ' + pr.ord) : pr.god;
+        pbLine.innerHTML = '🎟 <b style="color:' + col + '">' + pr.color + '</b> — ' + where
           + ': draft a <b>FREE</b> market hero (' + pr.remaining + ' left)' + queued;
         pbBody.innerHTML = pr.heroes.length
           ? '<div class="pbdraft">' + pr.heroes.map((h) =>
@@ -781,6 +782,16 @@
               + '<span class="pbhstat">Str ' + h.str + ' · Spd ' + h.speed + '</span></button>').join('') + '</div>'
           : '<div class="pbwarn">No market heroes on display.</div>';
         pbBtns.innerHTML = '<button data-draftskip="1">' + (pr.heroes.length ? 'Skip remaining' : 'Close') + '</button>';
+      } else if (pr.type === 'elyscard') {
+        pbLine.innerHTML = '🍇 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
+          + ': send a hand hero straight to <b>Elysium</b>' + queued;
+        pbBody.innerHTML = pr.cards.length
+          ? '<div class="pbdraft">' + pr.cards.map((h) =>
+              '<button class="pbhero" data-elys="' + h.cardId + '" title="Send this hero to Elysium">'
+              + '<img src="' + window.ASSET_BASE + h.face + '" alt="">'
+              + '<span class="pbhstat">Str ' + h.str + ' · Spd ' + h.speed + '</span></button>').join('') + '</div>'
+          : '<div class="pbwarn">No hero cards in hand.</div>';
+        pbBtns.innerHTML = '<button data-draftskip="1">' + (pr.cards.length ? 'Skip (keep cards)' : 'Close') + '</button>';
       } else {   // trade
         pbLine.innerHTML = '🍇 <b style="color:' + col + '">' + pr.color + '</b> — ' + pr.god + ' rung ' + pr.ord
           + ': trade <b>' + pr.label + '</b> (max ×' + pr.max + ')' + queued;
@@ -1018,6 +1029,8 @@
     if (cp && !cp.disabled) { PT.resolveColPick(Number(cp.dataset.colpick)); return; }
     const dh = e.target.closest('button[data-draft]');
     if (dh && !dh.disabled) { PT.resolveDraft(Number(dh.dataset.draft)); return; }
+    const ec = e.target.closest('button[data-elys]');
+    if (ec && !ec.disabled) { PT.resolveElysCard(Number(ec.dataset.elys)); return; }
   });
   pbBtns.addEventListener('click', (e) => {
     const skip = e.target.closest('button[data-draftskip]');
