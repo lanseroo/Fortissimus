@@ -3487,6 +3487,7 @@
       endGame: GAME.result ? JSON.parse(JSON.stringify(GAME.result)) : null,
       activeColor: activeColorName,
       laneLen: RACE_LANE.length,
+      outerLaneLen: OUTER_LANE.length,
     };
   }
   const notifyFlow = () => { syncColScene(); if (flowCb) flowCb(getFlow()); };

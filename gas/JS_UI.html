@@ -821,7 +821,9 @@
 
     // standings: laps first, then furthest into the current lap (the real score)
     if (f.started && f.race) {
-      const len = f.laneLen || 24;
+      const innerLen = f.laneLen || 24, outerLen = f.outerLaneLen || 16;
+      // a chariot-track finisher races the shorter outer lane (16), so /24 → /16.
+      const laneLenOf = (r) => (r && r.lane === 'outer' && outerLen) ? outerLen : innerLen;
       const rows = f.order.slice().sort((a, b) => {
         const ra = f.race[a] || { laps: 0, pos: 0 }, rb = f.race[b] || { laps: 0, pos: 0 };
         return rb.laps - ra.laps || rb.pos - ra.pos;
@@ -831,7 +833,7 @@
         return '<div class="stand" style="color:' + (FLOW_COLORS[c] || '#ccc') + '">'
           + '<span class="rank">' + (i + 1) + '</span>'
           + '<span class="who">' + c + '</span>'
-          + '<span class="prog">Lap ' + r.laps + ' · ' + r.pos + '/' + len + '</span>'
+          + '<span class="prog">Lap ' + r.laps + ' · ' + r.pos + '/' + laneLenOf(r) + '</span>'
           + '<button class="radv" data-color="' + c + '" data-dir="-1" title="Step back">–</button>'
           + '<button class="radv" data-color="' + c + '" data-dir="1" title="Step forward (earn a VP)">+</button>'
           + '</div>';
