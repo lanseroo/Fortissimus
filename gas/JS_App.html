@@ -2645,7 +2645,9 @@
       .sort((a, b) => (a.f.id === lastId ? 1 : 0) - (b.f.id === lastId ? 1 : 0) || a.idx - b.idx);
     for (const { f } of list) {
       const st = f.pos - 2, k = cnt[st] || 0; cnt[st] = k + 1;
-      const slot = slots[st * 2 + Math.min(k, 1)];
+      const seat = Math.min(k, 1);        // 0 = inner circle (can attack), 1 = outer (blocked behind the inner hero)
+      f.seat = seat;
+      const slot = slots[st * 2 + seat];
       const m = findMini(f.id);
       if (m && slot) placeOnSlot(m, slot);
     }
@@ -2974,7 +2976,7 @@
     GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
       targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atk: card.atk, rangeMod: card.rangeMod, shield: card.shield,
       heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
-      gladBonus: 0, attackVal: 0, range: null, targetIds: [], saveQueue: [], counterQueue: [], deathHit: null,
+      gladBonus: 0, attackVal: 0, range: null, targetIds: [], counterQueue: [], deathHit: null,
       log: ['⚔ A level-' + card.level + ' gladiator enters the arena!'] };
     addGladiatorMarker(card.file);
     // No manual event roll for the arena: clear any dice sitting on the seated minis so the ONLY
@@ -3015,11 +3017,13 @@
     const c = GAME.colosseum; if (!c) return;
     const targets = c.targetIds.map((id) => fighterOf(id)).filter(Boolean);
     c.attackVal = raw + c.atk + c.gladBonus;   // ⚔ = d6 ±M (corner value), NOT the position-range roll
-    c.saveQueue = targets.filter((f) => f.speed <= c.attackVal).map((f) => f.id);
     c.log.push('👹 Gladiator strikes for ' + c.attackVal + ' at ' + c.targetLabel);
-    for (const f of targets) if (f.speed > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + f.speed + ')');
-    colAutoResolveSaves();
-    if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
+    // No ☀ save: if a struck hero can't out-speed the blow, it dies. Speed is the only dodge.
+    for (const f of targets) {
+      if (f.speed > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + f.speed + ')');
+      else { c.log.push('✝ ' + symName(f) + ' falls (Speed ' + f.speed + ' ≤ ' + c.attackVal + ')'); killFighter(f); }
+    }
+    colToBuyB();
   }
   // A hero fell: mark dead, pull its mini off the board AT ONCE, and lay its tied hero card face-up
   // on the common Tartarus pile (every faction's dead stack there). Booking GAME.tartarus here (and
@@ -3045,25 +3049,6 @@
     }
     placeAllFighters();
   }
-  // Auto-kill the head of the save queue while its owner has no ☀ to spend (nothing to decide).
-  function colAutoResolveSaves() {
-    const c = GAME.colosseum;
-    while (c.saveQueue.length) {
-      const f = fighterOf(c.saveQueue[0]);
-      if (!f) { c.saveQueue.shift(); continue; }
-      if ((GAME.res[f.color]?.sun || 0) >= 1) break;
-      c.log.push('✝ ' + symName(f) + ' falls (no ☀)'); killFighter(f); c.saveQueue.shift();
-    }
-  }
-  function colResolveSave(miniId, spend) {
-    const c = GAME.colosseum; if (!c || c.sub !== 'attack' || c.saveQueue[0] !== miniId) return;
-    const f = fighterOf(miniId);
-    if (f && spend && (GAME.res[f.color]?.sun || 0) >= 1) { adjustRes(f.color, 'sun', -1); c.log.push('☀ ' + f.color + ' saves ' + symName(f)); }
-    else if (f) { c.log.push('✝ ' + symName(f) + ' falls'); killFighter(f); }
-    c.saveQueue.shift();
-    colAutoResolveSaves();
-    if (!c.saveQueue.length) colToBuyB(); else notifyFlow();
-  }
   function colToBuyB() {
     const c = GAME.colosseum;
     if (!c.fighters.some((f) => f.alive)) { colToCounter(); return; }   // all fell → (empty) counter → done
@@ -3073,7 +3058,8 @@
     const c = GAME.colosseum; c.sub = 'counter';
     const alive = c.fighters.filter((f) => f.alive).sort((a, b) => a.pos - b.pos || GAME.order.indexOf(a.color) - GAME.order.indexOf(b.color));
     c.counterQueue = [];
-    for (const f of alive) { c.counterQueue.push(f.id); if (f.doubled) c.counterQueue.push(f.id); }
+    // Only inner-circle heroes may strike; an outer hero is blocked behind the inner one at its station.
+    for (const f of alive) { if (f.seat !== 0) continue; c.counterQueue.push(f.id); if (f.doubled) c.counterQueue.push(f.id); }
     if (!c.counterQueue.length) colFinishRound(); else { setTurnMarker(c.counterQueue[0]); notifyFlow(); }
   }
   function colCounterStep() {
@@ -3191,7 +3177,6 @@
       range: c.range ? { lo: Math.max(2, c.range.lo), hi: Math.min(12, c.range.hi), center: c.range.center } : null,
       window: GAME.colAct ? GAME.colAct.window : null,
       buyer, buyerActions: buyer ? colActionState(buyer) : [],
-      save: (c.sub === 'attack' && c.saveQueue.length) ? (() => { const f = fighterOf(c.saveQueue[0]); return f ? { ...fInfo(f), speed: f.speed, canAfford: (GAME.res[f.color]?.sun || 0) >= 1 } : null; })() : null,
       counterNext: (c.sub === 'counter' && c.counterQueue.length) ? (() => { const f = fighterOf(c.counterQueue[0]); return f ? { ...fInfo(f), str: f.str, rage: f.rage } : null; })() : null,
       counterLeft: c.counterQueue.length,
       selId: GAME.colSelId,
@@ -3945,7 +3930,7 @@
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
-    colBuy, colRest, colActPass, colResolveSave, colCounterStep, dismissColosseum,
+    colBuy, colRest, colActPass, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
     resolveColPick, resolveTrade, resolveDraft, resolveElysCard, dismissPrompt, focusMarket,

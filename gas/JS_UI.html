@@ -713,13 +713,6 @@
         }).join('');
         body += '<div class="actstrip">' + acts + '</div>';
         btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';
-      } else if (cf.sub === 'attack' && cf.save) {
-        const s = cf.save, scol = FLOW_COLORS[s.color] || '#ccc';
-        const reach = cf.range ? ' <span class="colrng">(reach ' + cf.range.lo + '–' + cf.range.hi + ')</span>' : '';
-        body = '<div class="colatk">👹 Gladiator strikes for <b>' + cf.attackVal + '</b>' + reach + ' — '
-          + '<span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span> (Speed ' + s.speed + ') must save or fall.</div>';
-        btns = '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="1"' + (s.canAfford ? '' : ' disabled') + '>Save (1☀)</button>'
-          + '<button class="cwbtn" data-cfsave="' + s.id + '" data-spend="0">Let fall ✝</button>';
       } else if (cf.sub === 'counter' && cf.counterNext) {
         const s = cf.counterNext, scol = FLOW_COLORS[s.color] || '#ccc';
         body = '<div class="colcnt"><span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span>'
@@ -1054,7 +1047,6 @@
     else if (d.cfpushcancel) PT.colPushCancel();
     else if (d.cfbuy) PT.colBuy(d.cfbuy, d.target != null ? Number(d.target) : null, d.dir != null ? Number(d.dir) : 0);
     else if (d.cfpass) PT.colActPass();
-    else if (d.cfsave) PT.colResolveSave(Number(d.cfsave), d.spend === '1');
     else if (d.cfcounter) PT.colCounterStep();
     else if (d.cfdone) PT.dismissColosseum();
   });
