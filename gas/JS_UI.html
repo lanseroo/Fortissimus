@@ -425,7 +425,7 @@
       // columns (§8): a compact per-faction × per-god rung MATRIX of 6-segment meters
       // (faction rows × god columns), plus Favor / Chariot / Relic unlock badges beneath.
       if (f.columns) {
-        const GODS = { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
+        const GODS = f.godNames || { 1: 'Fortuna', 2: 'Bacchus', 3: 'Mercury' };
         let html = '<div class="tsh">Columns — rung /6</div><div class="colsum">';
         // header: blank corner + a god name per column
         html += '<span></span>' + [1, 2, 3].map((cn) =>
