@@ -3619,8 +3619,9 @@
     });
   }
 
-  // Deal `n` cards FROM a faction's deck into their hand: take the top cards off the
-  // deck pile, flip them face up (the active player sees their own hand), and lay
+  // Deal a FRESH `n`-card hand from a faction's deck: first discard any cards the player
+  // didn't play last round (use-them-or-lose-them — no carryover), then take the top cards
+  // off the deck pile, flip them face up (the active player sees their own hand), and lay
   // them in a column just below the deck. Like the dice cup, the hand is private —
   // it'll be hidden from other players when visibility lands.
   function dealHand(colorName, n = 3) {
@@ -3630,8 +3631,16 @@
     const hand = slotsByRole('hand', colorName).sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0));
     const b = LAYOUT.find((l) => l.color === colorName);
     const anchor = b ? deckAnchor(b) : null;
+    // Clear the hand to the discard pile so exactly `n` cards are dealt each round (no carryover).
+    const disc = discardSlotOf(colorName);
+    for (const s of hand) for (const c of s.occupants.slice()) {
+      if (c.userData.type !== 'card') continue;
+      freeSlot(c);
+      c.userData.zone = 'discard';
+      if (disc) { placeOnSlot(c, disc); setCardFace(c, c.userData.face); }
+    }
     for (let i = 0; i < n; i++) {
-      const free = hand.find((s) => !s.occupants.length);   // fill left→right, keep any held cards
+      const free = hand.find((s) => !s.occupants.length);   // fill left→right into the now-empty hand
       if (!free) break;
       let deck = deckOf();
       // Draw pile empty? Shuffle the discard pile back into it, then resume dealing.
