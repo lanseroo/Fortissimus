@@ -584,10 +584,10 @@
       if (s.kind === 'pay') {
         cwLine.innerHTML = s.color + ' — ' + cw.label + ': ' + sym(s.symImg)
           + (s.won ? ' 🏆 hero won! ' : ' hero placed. ')
-          + 'Pay ' + s.fee + '🪙 to send it to the Colosseum?';
+          + 'Pay ' + s.fee + '☀ to send it to the Colosseum?';
         cwBtns.innerHTML =
           '<button class="cwbtn" data-action="pay" data-id="' + s.miniId + '"'
-            + (s.canAfford ? '' : ' disabled') + '>Pay ' + s.fee + '🪙 → Colosseum</button>'
+            + (s.canAfford ? '' : ' disabled') + '>Pay ' + s.fee + '☀ → Colosseum</button>'
           + '<button class="cwbtn" data-action="skip" data-id="' + s.miniId + '">Send home (discard card)</button>';
       } else { // release
         cwLine.innerHTML = s.color + ' at ' + s.options.length + '-mini Colosseum cap — '
@@ -699,17 +699,17 @@
         const acts = cf.buyerActions.map((a) => {
           if (a.used) return '<span class="actbtn used">' + a.label + ' ✓</span>';
           if (a.kind === 'simple' || a.kind === 'rest') {
-            const extra = a.kind === 'rest' ? (' · reclaim ' + a.reclaim + '🪙') : '';
+            const extra = a.kind === 'rest' ? (' · reclaim ' + a.reclaim + '☀') : '';
             return '<button class="actbtn" data-cfbuy="' + a.key + '"' + (a.canBuy ? '' : ' disabled') + '>'
-              + a.label + ' (' + a.cost + '🪙' + extra + ')</button>';
+              + a.label + ' (' + a.cost + '☀' + extra + ')</button>';
           }
           if (!a.canBuy || !a.targets.length) return '<span class="actbtn used">' + a.label + ' (n/a)</span>';
           if (a.kind === 'own') {
             return a.targets.map((t) => '<button class="actbtn" data-cfbuy="' + a.key + '" data-target="' + t.id + '">'
-              + a.label + ' → ' + sym(t.symImg) + '(' + a.cost + '🪙)</button>').join('');
+              + a.label + ' → ' + sym(t.symImg) + '(' + a.cost + '☀)</button>').join('');
           }
           // push: a single button that enters two-step board targeting
-          return '<button class="actbtn" data-cfpush="1">' + a.label + ' (' + a.cost + '🪙)</button>';
+          return '<button class="actbtn" data-cfpush="1">' + a.label + ' (' + a.cost + '☀)</button>';
         }).join('');
         body += '<div class="actstrip">' + acts + '</div>';
         btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';

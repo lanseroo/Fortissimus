@@ -1936,7 +1936,7 @@
   // ---- Colosseum-ticket / "waiting for Colosseum" subsystem (Chunk A) ----
   // A "waiting" mini is committed to the next Colosseum: it sits on top of its own hero
   // card (visual "unavailable" cue) and is locked until the Colosseum seats it. Max 3/player.
-  const TICKET_FEE = 3;                                    // 🪙 to send a losing mini to waiting
+  const TICKET_FEE = 3;                                    // ☀ to send a mini to the Colosseum waiting bench
   const WAIT_CAP   = 3;                                    // max waiting minis per player
   const waitingMinisOf = (color) => pieces.filter((p) =>
     p.userData.type === 'mini' && p.userData.color === color && p.userData.waiting);
@@ -2011,18 +2011,18 @@
       return { kind: 'pay', miniId: m.userData.id, color, sym: m.userData.sym ?? null,
                symImg: ci.symImg, face: ci.face, fee: TICKET_FEE,
                won: ((cw.places || {})[m.userData.id]) === 0,   // 1st place → word the prompt as a win
-               canAfford: (GAME.res[color]?.coin || 0) >= TICKET_FEE };
+               canAfford: (GAME.res[color]?.sun || 0) >= TICKET_FEE };
     }
     return null;
   }
   const advanceColWait = () => { if (!colWaitStep()) finishEventResolution(); else notifyFlow(); };
-  // Pay 3🪙 to send this losing mini to waiting (may trigger a release step if at cap).
+  // Pay 3☀ to send this mini to the Colosseum waiting bench (may trigger a release step if at cap).
   function colWaitPay(miniId) {
     const cw = GAME.colWait; if (!cw || cw.releaseQueue.length || cw.payQueue[0] !== miniId) return;
     const m = findMini(miniId); if (!m) return;
     const color = m.userData.color;
-    if ((GAME.res[color]?.coin || 0) < TICKET_FEE) return;
-    adjustRes(color, 'coin', -TICKET_FEE);
+    if ((GAME.res[color]?.sun || 0) < TICKET_FEE) return;
+    adjustRes(color, 'sun', -TICKET_FEE);
     cw.payQueue.shift();
     grantTicket(m);
     advanceColWait();
@@ -2332,7 +2332,7 @@
       if (pl === 0) {                         // 1st: income-track upgrade + column +1 (+ may pay for a seat)
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         upgradeIncome(m.userData.color);      // move the income marker up one rung (§9)
-        reward = godName(colNum) + ' +1 · income ▲ · 🎟 (pay ' + TICKET_FEE + '🪙)';
+        reward = godName(colNum) + ' +1 · income ▲ · 🎟 (pay ' + TICKET_FEE + '☀)';
       } else if (pl === 1) {                  // 2nd: column +1 only
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         reward = godName(colNum) + ' +1';
@@ -2791,20 +2791,20 @@
   // What `color` may buy in the current window: affordability, already-used, and valid targets.
   function colActionState(color) {
     const c = GAME.colosseum, w = GAME.colAct ? GAME.colAct.window : null;
-    const coin = GAME.res[color]?.coin || 0, used = c.used[color] || {};
+    const sun = GAME.res[color]?.sun || 0, used = c.used[color] || {};   // ☀ funds Colosseum actions
     const aliveOwn = c.fighters.filter((f) => f.color === color && f.alive);
     const out = [];
     for (const a of COL_ACTIONS) {
       if (a.key === 'rest') {
         const n = Object.keys(used).length;
-        out.push({ key: 'rest', label: a.label, cost: a.cost, kind: 'rest', reclaim: n, used: false, canBuy: n > 0 && coin >= a.cost });
+        out.push({ key: 'rest', label: a.label, cost: a.cost, kind: 'rest', reclaim: n, used: false, canBuy: n > 0 && sun >= a.cost });
         continue;
       }
       if (a.window !== w) continue;
       let valid = true, kind = 'simple', targets = [];
       if (a.key === 'double' || a.key === 'rage') { kind = 'own'; targets = aliveOwn.map(fInfo); valid = aliveOwn.length > 0; }
       else if (a.key === 'push') { kind = 'push'; targets = pushTargets(color); valid = targets.length > 0; }
-      out.push({ key: a.key, label: a.label, cost: a.cost, kind, targets, used: !!used[a.key], canBuy: !used[a.key] && coin >= a.cost && valid });
+      out.push({ key: a.key, label: a.label, cost: a.cost, kind, targets, used: !!used[a.key], canBuy: !used[a.key] && sun >= a.cost && valid });
     }
     return out;
   }
@@ -2814,7 +2814,7 @@
     if (action === 'rest') return colRest(color);
     const meta = COL_ACTIONS.find((a) => a.key === action); if (!meta || meta.window !== ca.window) return;
     const used = c.used[color] || (c.used[color] = {});
-    if (used[action] || (GAME.res[color]?.coin || 0) < meta.cost) return;
+    if (used[action] || (GAME.res[color]?.sun || 0) < meta.cost) return;
     if (action === 'backstab') { c.gladBonus += 2; c.log.push('🗡 ' + color + ' Backstab (+2 gladiator attack)'); }
     else if (action === 'push') {
       const f = fighterOf(targetId);
@@ -2831,15 +2831,15 @@
       f.rage = true; c.log.push('🔥 ' + color + ' Rage on ' + symName(f));
     } else return;
     used[action] = true;
-    adjustRes(color, 'coin', -meta.cost);   // notifyFlow inside
+    adjustRes(color, 'sun', -meta.cost);   // notifyFlow inside
   }
-  // Rest: 2🪙 to the bank, reclaim every coin this color has on the board, free their actions again.
+  // Rest: 2☀ to the bank, reclaim every ☀ this color has spent on actions, free their actions again.
   function colRest(color) {
     const c = GAME.colosseum; const used = c.used[color] || {}; const n = Object.keys(used).length;
-    if (!n || (GAME.res[color]?.coin || 0) < 2) return;
+    if (!n || (GAME.res[color]?.sun || 0) < 2) return;
     c.used[color] = {};
-    c.log.push('♻ ' + color + ' rests (−2🪙 bank, +' + n + '🪙 reclaimed)');
-    adjustRes(color, 'coin', n - 2);        // notifyFlow inside
+    c.log.push('♻ ' + color + ' rests (−2☀ bank, +' + n + '☀ reclaimed)');
+    adjustRes(color, 'sun', n - 2);        // notifyFlow inside
   }
   function colActPass() {
     const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
@@ -2972,16 +2972,18 @@
     if (total > c.shield) {
       const dmg = total - c.shield + (f.rage ? 1 : 0);
       c.hearts -= dmg;
+      // Combat VP applies LIVE to the racetrack + standings as it is earned (advanceRace flashes).
+      // pendingVP stays a running tally only, for the end-screen combat breakdown (NOT re-applied).
       GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + dmg;
+      advanceRace(f.color, dmg);           // heart damage → that many VP, live
       c.log.push('⚔ ' + symName(f) + ' hits (' + total + ' − ' + c.shield + (f.rage ? '+1' : '') + ') = ' + dmg + '❤');
       if (c.hearts <= 0) {
         c.hearts = 0; c.deathHit = f.color;
         GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + c.level;
+        advanceRace(f.color, c.level);     // killing-blow bonus, live
         c.log.push('🏆 ' + f.color + ' lands the killing blow! (+' + c.level + ' VP)');
-        flashVP(f.color, dmg + c.level);   // damage + killing-blow bonus
         c.counterQueue = []; c.sub = 'done'; clearTurnMarker(); notifyFlow(); return;
       }
-      flashVP(f.color, dmg);               // heart damage banks that many VP
     } else { c.log.push('🛡 ' + symName(f) + ' rolls ' + total + ' ≤ Shield ' + c.shield); }
     if (!c.counterQueue.length) colFinishRound(); else { setTurnMarker(c.counterQueue[0]); notifyFlow(); }
   }
@@ -3040,7 +3042,7 @@
       if (m.userData.diceGroup) renderHeroDice3D(m);
       const hc = homeCircleOf(m); if (hc) placeOnSlot(m, hc);
     }
-    for (const color of Object.keys(c.used)) { const n = Object.keys(c.used[color]).length; if (n) adjustRes(color, 'coin', n); }
+    for (const color of Object.keys(c.used)) { const n = Object.keys(c.used[color]).length; if (n) adjustRes(color, 'sun', n); }
     GAME.gladDiscard.push(c.idx);
     clearColHighlights();
     clearTurnMarker();
@@ -3085,7 +3087,9 @@
   function scoreEndGame() {
     if (GAME.result) return;
     for (const color of ALL_COLORS) {
-      const bonus = (GAME.pendingVP[color] || 0) + 3 * elysiumCountOf(color) + columnTopVP(color);
+      // Combat VP (pendingVP) is already on the racetrack (applied live during the arena) — do NOT
+      // re-apply it here. Only the end-game-only bonuses (Elysium survival, column tops) land now.
+      const bonus = 3 * elysiumCountOf(color) + columnTopVP(color);
       if (bonus) advanceRace(color, bonus, { silent: true });   // end screen tallies these; no flash barrage
     }
     const standings = ALL_COLORS.map((color) => ({
