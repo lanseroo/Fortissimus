@@ -3095,12 +3095,14 @@
     const total = raw + f.str + (f.rage ? 2 : 0);
     if (total > c.shield) {
       const dmg = total - c.shield + (f.rage ? 1 : 0);
+      const vpDmg = Math.min(dmg, c.hearts);   // no VP for overkill past the last heart
       c.hearts -= dmg;
       // Combat VP applies LIVE to the racetrack + standings as it is earned (advanceRace flashes).
       // pendingVP stays a running tally only, for the end-screen combat breakdown (NOT re-applied).
-      GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + dmg;
-      advanceRace(f.color, dmg);           // heart damage → that many VP, live
-      c.log.push('⚔ ' + symName(f) + ' hits (' + total + ' − ' + c.shield + (f.rage ? '+1' : '') + ') = ' + dmg + '❤');
+      GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + vpDmg;
+      advanceRace(f.color, vpDmg);         // heart damage → that many VP, live (capped at hearts left)
+      c.log.push('⚔ ' + symName(f) + ' hits (' + total + ' − ' + c.shield + (f.rage ? '+1' : '') + ') = ' + dmg + '❤'
+        + (dmg > vpDmg ? ' (' + vpDmg + ' VP — overkill capped)' : ''));
       if (c.hearts <= 0) {
         c.hearts = 0; c.deathHit = f.color;
         GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + c.level;
