@@ -2560,16 +2560,16 @@
   //                gladiator reaches (only on cards that print dice; 0 = no roll, target is exact).
   const GLAD_DECK = [
     { file: 'Gladiator1-1.png', level: 1, target: 'all',      atk: -1, rangeMod: 2, shield: 4, hearts: 9 },
-    { file: 'Gladiator1-2.png', level: 1, target: 'lowP',     atk:  0, rangeMod: 2, shield: 3, hearts: 9 },
-    { file: 'Gladiator1-3.png', level: 1, target: 'highOdd',  atk:  0, rangeMod: 0, shield: 4, hearts: 6 },
-    { file: 'Gladiator2-1.png', level: 2, target: 'lowEven',  atk:  0, rangeMod: 0, shield: 5, hearts: 4 },
+    { file: 'Gladiator1-2.png', level: 1, target: 'all',      atk:  0, rangeMod: 1, shield: 3, hearts: 9 },
+    { file: 'Gladiator1-3.png', level: 1, target: 'odd',      atk: -2, rangeMod: 0, shield: 4, hearts: 6 },
+    { file: 'Gladiator2-1.png', level: 2, target: 'even',     atk: -2, rangeMod: 0, shield: 5, hearts: 4 },
     { file: 'Gladiator2-2.png', level: 2, target: 'all',      atk: -1, rangeMod: 3, shield: 5, hearts: 6 },
-    { file: 'Gladiator2-3.png', level: 2, target: 'highP',    atk:  0, rangeMod: 3, shield: 5, hearts: 5 },
+    { file: 'Gladiator2-3.png', level: 2, target: 'all',      atk:  0, rangeMod: 2, shield: 5, hearts: 5 },
     { file: 'Gladiator3-1.png', level: 3, target: 'low2_6',   atk:  0, rangeMod: 0, shield: 5, hearts: 8 },
     { file: 'Gladiator3-2.png', level: 3, target: 'high7_12', atk: -1, rangeMod: 0, shield: 5, hearts: 9 },
     { file: 'Gladiator3-3.png', level: 3, target: 'even',     atk:  0, rangeMod: 0, shield: 6, hearts: 3 },
     { file: 'Gladiator4-1.png', level: 4, target: 'all',      atk: -1, rangeMod: 0, shield: 6, hearts: 5 },
-    { file: 'Gladiator4-2.png', level: 4, target: 'all',      atk:  1, rangeMod: 1, shield: 6, hearts: 6 },
+    { file: 'Gladiator4-2.png', level: 4, target: 'all',      atk:  1, rangeMod: 2, shield: 6, hearts: 6 },
     { file: 'Gladiator4-3.png', level: 4, target: 'odd',      atk:  0, rangeMod: 0, shield: 6, hearts: 7 },
   ];
   const GLAD_TARGET_LABEL = { all: 'everyone', lowP: 'lowest', highP: 'highest', highOdd: 'highest odd',
