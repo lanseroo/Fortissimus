@@ -1685,7 +1685,7 @@
       ],
       passes: (sum, st, round) => (sum + st.speed) >= round.bar,
       roundValue: (sum, st) => sum + st.speed,
-      // sponsor keyed to bars cleared (rounds survived); bar 13 = Income Recollect (display-only).
+      // sponsor keyed to bars cleared (rounds survived); bar 13 = Income Recollect (extra income now).
       sponsor: (v) => v >= 4 ? { note: 'Income Recollect' } : v >= 3 ? { zap: 1, sun: 2 }
                     : v >= 2 ? { zap: 1, sun: 1 } : v >= 1 ? { zap: 2 } : null,
     },
@@ -2313,6 +2313,9 @@
     // Top-rung Archery sponsor: a FREE market hero → hand the player the draft picker (same as
     // a column draft reward), instead of the old display-only note.
     if (rw.note === 'free market hero') grantDraft(color, 1, null, null, 'Archery sponsor');
+    // Top-rung High Jump sponsor: Income Recollect → immediately collect an extra round of income
+    // at the player's current income rung (was display-only).
+    if (rw.note === 'Income Recollect') { grantIncome(color); logNote('△ ' + color + ' (High Jump sponsor): Income Recollect — collected an extra round of income.'); }
   }
   function fmtSponsor(rw) {
     if (!rw) return '';
