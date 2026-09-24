@@ -2561,8 +2561,8 @@
   const GLAD_DECK = [
     { file: 'Gladiator1-1.png', level: 1, target: 'all',      atk: -1, rangeMod: 2, shield: 4, hearts: 9 },
     { file: 'Gladiator1-2.png', level: 1, target: 'all',      atk:  0, rangeMod: 1, shield: 3, hearts: 9 },
-    { file: 'Gladiator1-3.png', level: 1, target: 'odd',      atk: -2, rangeMod: 0, shield: 4, hearts: 6 },
-    { file: 'Gladiator2-1.png', level: 2, target: 'even',     atk: -2, rangeMod: 0, shield: 5, hearts: 4 },
+    { file: 'Gladiator1-3.png', level: 1, target: 'highOdd2', atk: -2, rangeMod: 0, shield: 4, hearts: 6 },
+    { file: 'Gladiator2-1.png', level: 2, target: 'lowEven3', atk: -2, rangeMod: 0, shield: 5, hearts: 4 },
     { file: 'Gladiator2-2.png', level: 2, target: 'all',      atk: -1, rangeMod: 3, shield: 5, hearts: 6 },
     { file: 'Gladiator2-3.png', level: 2, target: 'all',      atk:  0, rangeMod: 2, shield: 5, hearts: 5 },
     { file: 'Gladiator3-1.png', level: 3, target: 'low2_6',   atk:  0, rangeMod: 0, shield: 5, hearts: 8 },
@@ -2573,7 +2573,8 @@
     { file: 'Gladiator4-3.png', level: 4, target: 'odd',      atk:  0, rangeMod: 0, shield: 6, hearts: 7 },
   ];
   const GLAD_TARGET_LABEL = { all: 'everyone', lowP: 'lowest', highP: 'highest', highOdd: 'highest odd',
-    lowEven: 'lowest even', low2_6: 'pos 2–6', high7_12: 'pos 7–12', even: 'even pos', odd: 'odd pos' };
+    lowEven: 'lowest even', low2_6: 'pos 2–6', high7_12: 'pos 7–12', even: 'even pos', odd: 'odd pos',
+    highOdd2: '2 highest held odd', lowEven3: '3 lowest held even' };
   // For the sandbox gladiator picker: [{idx,label}] over every card (all levels).
   function gladList() {
     return GLAD_DECK.map((c, i) => {
@@ -2609,6 +2610,10 @@
     if (t === 'highP') { if (!pool.length) return []; const m = Math.max(...pool.map((f) => f.pos)); return at((p) => p === m); }
     if (t === 'highOdd') { const o = pool.filter((f) => f.pos % 2 === 1); if (!o.length) return []; const m = Math.max(...o.map((f) => f.pos)); return o.filter((f) => f.pos === m); }
     if (t === 'lowEven') { const e = pool.filter((f) => f.pos % 2 === 0); if (!e.length) return []; const m = Math.min(...e.map((f) => f.pos)); return e.filter((f) => f.pos === m); }
+    // "held" descriptors: rank the DISTINCT occupied odd/even positions, take the top-2 highest odd /
+    // bottom-3 lowest even, and strike every fighter standing on one of those positions.
+    if (t === 'highOdd2') { const ps = [...new Set(pool.filter((f) => f.pos % 2 === 1).map((f) => f.pos))].sort((a, b) => b - a).slice(0, 2); return pool.filter((f) => ps.includes(f.pos)); }
+    if (t === 'lowEven3') { const ps = [...new Set(pool.filter((f) => f.pos % 2 === 0).map((f) => f.pos))].sort((a, b) => a - b).slice(0, 3); return pool.filter((f) => ps.includes(f.pos)); }
     return [];
   }
 
@@ -2619,8 +2624,8 @@
     const all = []; for (let p = 2; p <= 12; p++) all.push(p);
     const win = range ? all.filter((p) => p >= Math.max(2, range.lo) && p <= Math.min(12, range.hi)) : all;
     const t = card.target;
-    if (t === 'odd' || t === 'highOdd') return win.filter((p) => p % 2 === 1);
-    if (t === 'even' || t === 'lowEven') return win.filter((p) => p % 2 === 0);
+    if (t === 'odd' || t === 'highOdd' || t === 'highOdd2') return win.filter((p) => p % 2 === 1);
+    if (t === 'even' || t === 'lowEven' || t === 'lowEven3') return win.filter((p) => p % 2 === 0);
     if (t === 'low2_6') return win.filter((p) => p <= 6);
     if (t === 'high7_12') return win.filter((p) => p >= 7);
     return win;   // all / lowP / highP → the whole (windowed) board
