@@ -210,9 +210,9 @@
     // active event slots (swappable — any mini-game can be dealt to any slot).
     // Overlap each strip just enough to cover its black band (not the circle row),
     // sitting clearly above the strip in y so the flat planes don't z-fight.
-    { file: 'DiscusEvent.png',    x: -125, z:   76, w: BW, y: 0.4, slot: 0 },
-    { file: 'LongJumpEvent.png',  x:    0, z:   76, w: BW, y: 0.4, slot: 1 },
-    { file: 'SprintEvent.png',    x:  125, z:   76, w: BW, y: 0.4, slot: 2 },
+    { file: 'DiscusEvent.png',    x: -125, z:   81, w: BW, y: 0.4, slot: 0 },
+    { file: 'LongJumpEvent.png',  x:    0, z:   81, w: BW, y: 0.4, slot: 1 },
+    { file: 'SprintEvent.png',    x:  125, z:   81, w: BW, y: 0.4, slot: 2 },
     // player/faction mats
     { file: 'AchaeaBoard.png',    x: -255, z:    0, w: FW, color: 'Blue',   slotsDef: FACTION_SLOTS },   // Blue, far left
     { file: 'AnatoliaBoard.png',  x:  255, z:    0, w: FW, color: 'Yellow', slotsDef: FACTION_SLOTS },   // Yellow, far right
@@ -1756,17 +1756,17 @@
                     : v >= 2 ? { vp: 2, zap: 1, sun: 1 } : v >= 1 ? { vp: 1, zap: 1 } : null,
     },
     'ArcheryEvent.png': {
-      name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0,
-      objective: 'land in the window (Target−Str … Target+Speed) each round; most rounds survived wins',
+      name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0, nudge: true,
+      objective: '2 dice ± up-to-Speed (aim) must land in the round’s band; most rounds survived wins',
       rome: [1, 2, 3],                               // CPU Rome's fixed rounds-survived by Act (grey 1/2/3)
       rounds: [
-        { dice: 2, target: 7,  label: 'T7'  },
-        { dice: 3, target: 10, label: 'T10' },
-        { dice: 4, target: 14, label: 'T14' },
-        { dice: 5, target: 17, label: 'T17' },
+        { dice: 2, lo: 7, hi: 9,  label: '7–9'  },
+        { dice: 2, lo: 9, hi: 10, label: '9–10' },
+        { dice: 2, lo: 4, hi: 5,  label: '4–5'  },
+        { dice: 2, lo: 3, hi: 4,  label: '3–4'  },
       ],
-      passes: (sum, st, round) => sum >= (round.target - st.str) && sum <= (round.target + st.speed),
-      roundValue: (sum) => sum,
+      passes: (tot, st, round) => tot >= round.lo && tot <= round.hi,  // tot = dice + aim nudge (heroTotal)
+      roundValue: (tot) => tot,
       // sponsor: standard 1–4 VP ladder + 🪙/⚡ kicker (coin-flavored); top rung adds a free market hero.
       sponsor: (v) => v >= 4 ? { vp: 4, coin: 4, zap: 2, note: 'free market hero' } : v >= 3 ? { vp: 3, coin: 4, zap: 1 }
                     : v >= 2 ? { vp: 2, coin: 3, zap: 1 } : v >= 1 ? { vp: 1, coin: 2 } : null,
@@ -1833,9 +1833,11 @@
   const findMini = (id) => pieces.find((p) => p.userData.type === 'mini' && p.userData.id === id) || null;
   const findCard = (id) => pieces.find((p) => p.userData.type === 'card' && p.userData.id === id) || null;
   const selectedMini = () => findMini(selectedHeroId);
-  // A hero's raw dice total (+ Cheer/Jeer adjustment). Used only for the Colosseum (flat) and as
-  // the raw input to per-event scoring; competition standing goes through eventScore/eventCompare.
-  const heroTotal = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0) + (m.userData.diceAdj || 0);
+  // A hero's raw dice total (+ Cheer/Jeer adjustment + Archery ±Speed aim nudge, 0 elsewhere). Used
+  // for the Colosseum (flat) and as the raw input to per-event scoring; competition standing goes
+  // through eventScore/eventCompare.
+  const heroTotal = (m) => (m.userData.eventDice || []).reduce((a, b) => a + b, 0)
+    + (m.userData.diceAdj || 0) + (m.userData.archNudge || 0);
 
   // Which slot index (0-2) an event-grid mini's strip maps to → its active mini-game.
   // Strips sit at board x -125/0/125 = active event slots 0/1/2 (same columns).
@@ -2314,6 +2316,7 @@
       m.userData.roundsSurvived = 0;
       m.userData.eventDice = [];
       m.userData.diceAdj = 0;
+      m.userData.archNudge = 0;
       seedRerolls(m);
       if (m.userData.diceGroup) renderHeroDice3D(m);
     }
@@ -2334,6 +2337,7 @@
       for (const m of minisAtEvent(k)) {                          // fresh dice for the next round
         m.userData.eventDice = [];
         m.userData.diceAdj = 0;
+        m.userData.archNudge = 0;
         if (isAlive(m)) seedRerolls(m);
         if (m.userData.diceGroup) renderHeroDice3D(m);
       }
@@ -3338,10 +3342,21 @@
     notifyFlow();
   }
 
+  // Archery: adjust this hero's signed aim nudge (any value −Speed…+Speed) applied to the round
+  // total before the band check. Clamped to the hero's Speed; reset each round with the dice.
+  function setArcheryNudge(heroId, delta) {
+    const m = findMini(heroId); if (!m) return;
+    const rules = rulesFor(m); if (!rules || !rules.nudge || m.userData.eliminated) return;
+    const cap = heroStats(m).speed;
+    m.userData.archNudge = Math.max(-cap, Math.min(cap, (m.userData.archNudge || 0) + delta));
+    notifyFlow();
+  }
+
   function clearHeroDice(heroId) {
     const m = findMini(heroId); if (!m) return;
     m.userData.eventDice = [];
     m.userData.diceAdj = 0;
+    m.userData.archNudge = 0;
     m.userData.ljStage = 'approach';        // re-arm the Long Jump approach → jump flow
     renderHeroDice3D(m);
     notifyFlow();
@@ -3406,8 +3421,10 @@
         const st = heroStats(m), tot = heroTotal(m);
         round = { value: heroesRules.roundValue(tot, st), ok: heroesRules.passes(tot, st, rd),
                   bar: rd.bar != null ? rd.bar : null,
-                  lo: rd.target != null ? rd.target - st.str : null,
-                  hi: rd.target != null ? rd.target + st.speed : null };
+                  lo: rd.lo != null ? rd.lo : null,
+                  hi: rd.hi != null ? rd.hi : null,
+                  nudge: heroesRules.nudge ? (m.userData.archNudge || 0) : null,
+                  nudgeCap: heroesRules.nudge ? st.speed : 0 };
       }
       return { id: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, hasCard: ci.hasCard,
@@ -3964,7 +3981,7 @@
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
     selectHero, drawFromCup, rollRandomDie, clearHeroDice,
-    rerollHeroDie, toggleLongJumpExtra, commitLongJump,
+    rerollHeroDie, toggleLongJumpExtra, commitLongJump, setArcheryNudge,
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,

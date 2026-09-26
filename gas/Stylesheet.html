@@ -544,6 +544,17 @@
   .hsum { color: #b6bcc4; font-weight: 600; }
   .hsum.ok { color: #8fe0a0; }
   .hsum.foul { color: #ff8f8f; }
+  /* Archery aim (nudge) stepper — shift the 2-dice total by ±up-to-Speed */
+  .hero-nudge { display: flex; align-items: center; gap: 5px; margin: 0 0 6px; font-size: 0.72rem; }
+  .hero-nudge .nudge-lbl { color: #b6bcc4; font-weight: 600; }
+  .hero-nudge .nudge-val { min-width: 22px; text-align: center; color: #cfe6ff; font-weight: 700; }
+  .hero-nudge .nudge-cap { color: #7f8894; }
+  .hero-nudge-btn {
+    width: 20px; height: 20px; line-height: 1; padding: 0; border-radius: 4px;
+    border: 1px solid #4a6da0; background: #223247; color: #9fd2ff; cursor: pointer; font-size: 0.9rem;
+  }
+  .hero-nudge-btn:hover:not(:disabled) { background: #2c4160; }
+  .hero-nudge-btn:disabled { opacity: 0.35; cursor: default; }
 
   /* ------------------------------------------------------------- VP panel */
   #vpPanel {

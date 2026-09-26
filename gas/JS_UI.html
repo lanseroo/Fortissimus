@@ -312,18 +312,27 @@
 
             // live running total + (for the two multi-round events) the target the roll must hit
             let liveTag = '';
+            let nudgeRow = '';
             if (h.round) {
-              if (h.round.lo != null) {          // Archery — score is the raw sum; window is stat-adjusted
+              if (h.round.lo != null) {          // Archery — total (dice ± aim) must land in the fixed band
                 liveTag = '<span class="hsum' + (have && h.round.ok ? ' ok' : '') + '">'
-                  + (have ? 'Σ ' + h.sum + ' · ' : '') + 'window ' + h.round.lo + '–' + h.round.hi + '</span>';
-              } else if (h.round.bar != null) {  // High Jump — roll + Speed must clear the bar
+                  + (have ? 'Total ' + h.round.value + ' · ' : '') + 'band ' + h.round.lo + '–' + h.round.hi + '</span>';
+                if (h.round.nudge != null && h.round.nudgeCap > 0) {
+                  const n = h.round.nudge;
+                  nudgeRow = '<div class="hero-nudge"><span class="nudge-lbl">Aim</span>'
+                    + '<button class="hero-nudge-btn" data-id="' + h.id + '" data-d="-1"' + (n <= -h.round.nudgeCap ? ' disabled' : '') + '>−</button>'
+                    + '<span class="nudge-val">' + (n > 0 ? '+' + n : n) + '</span>'
+                    + '<button class="hero-nudge-btn" data-id="' + h.id + '" data-d="1"' + (n >= h.round.nudgeCap ? ' disabled' : '') + '>+</button>'
+                    + '<span class="nudge-cap">±' + h.round.nudgeCap + '</span></div>';
+                }
+              } else if (h.round.bar != null) {  // High Jump — roll + Strength must clear the bar
                 liveTag = '<span class="hsum' + (have && h.round.ok ? ' ok' : '') + '">'
-                  + (have ? 'Σ+Spd ' + h.round.value + ' · ' : '') + 'clear ' + h.round.bar + '</span>';
+                  + (have ? 'Σ+Str ' + h.round.value + ' · ' : '') + 'clear ' + h.round.bar + '</span>';
               }
             } else if (have > 0) {
               liveTag = '<span class="hsum">Σ ' + h.sum + '</span>';
             }
-            const liveRow = liveTag ? '<div class="hero-live">' + liveTag + '</div>' : '';
+            const liveRow = (liveTag ? '<div class="hero-live">' + liveTag + '</div>' : '') + nudgeRow;
 
             // ---- Long Jump: approach (1 +opt stride) vs jump (1) split; player commits the jump ----
             if (h.lj) {
@@ -983,6 +992,8 @@
     const owner = ownerOf(curFlow);
     const rr = e.target.closest('.diereroll');
     if (rr) { PT.rerollHeroDie(+rr.dataset.id, +rr.dataset.idx); return; }
+    const nd = e.target.closest('.hero-nudge-btn');
+    if (nd) { PT.setArcheryNudge(+nd.dataset.id, +nd.dataset.d); return; }
     const lj = e.target.closest('.hero-lj');
     if (lj) { PT.toggleLongJumpExtra(+lj.dataset.id); return; }
     const jump = e.target.closest('.hero-jump');
