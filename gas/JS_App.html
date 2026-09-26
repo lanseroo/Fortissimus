@@ -1708,37 +1708,36 @@
       objective: 'furthest from 7 wins (Str above, Speed below)',
       rome: [4, 5, 6],                               // CPU Rome's fixed score by Act (grey 1/2/3)
       score: (sum, st) => sum > 7 ? (sum - 7) + st.str : sum < 7 ? (7 - sum) + st.speed : 0,
-      // sponsor keyed to score (dist-from-7 + stat); ≥4/5/6/7. House-added (no draft ladder).
-      sponsor: (v) => v >= 7 ? { coin: 1, zap: 1, sun: 2 } : v >= 6 ? { zap: 2, sun: 1 }
-                    : v >= 5 ? { coin: 2, sun: 1 } : v >= 4 ? { zap: 1 } : null,
+      // sponsor: standard 1–4 VP ladder (race steps) + ⚡/☀ kicker; rungs 3/4/5/6 (aligned board).
+      sponsor: (v) => v >= 6 ? { vp: 4, zap: 2, sun: 2 } : v >= 5 ? { vp: 3, zap: 2, sun: 1 }
+                    : v >= 4 ? { vp: 2, zap: 1, sun: 1 } : v >= 3 ? { vp: 1, zap: 1 } : null,
     },
     'DiscusEvent.png': {
       name: 'Discus', dir: 'max', dice: 2, rerolls: (st) => st.speed,
       objective: 'sum + Strength, highest wins; reroll up to Speed times',
       rome: [10, 11, 12],                            // CPU Rome's fixed score by Act (grey 1/2/3)
       score: (sum, st) => sum + st.str,
-      // sponsor keyed to score; 10/11/12/13 → ⚡ / ☀⚡ / ☀☀⚡ / ☀☀☀⚡.
-      sponsor: (v) => v >= 13 ? { zap: 1, sun: 3 } : v >= 12 ? { zap: 1, sun: 2 }
-                    : v >= 11 ? { zap: 1, sun: 1 } : v >= 10 ? { zap: 1 } : null,
+      // sponsor: standard 1–4 VP ladder + ⚡/☀ kicker; rungs 10/11/12/13, gold ⚡2☀3.
+      sponsor: (v) => v >= 13 ? { vp: 4, zap: 2, sun: 3 } : v >= 12 ? { vp: 3, zap: 1, sun: 2 }
+                    : v >= 11 ? { vp: 2, zap: 1, sun: 1 } : v >= 10 ? { vp: 1, zap: 1 } : null,
     },
     'SprintEvent.png': {
       name: 'Sprint', dir: 'min', dice: 2, rerolls: (st) => st.str,
       objective: 'sum − Speed, LOWEST wins (can go negative); reroll up to Strength times',
       rome: [4, 3, 2],                               // CPU Rome by Act (grey 1/2/3); lower = harder
       score: (sum, st) => sum - st.speed,            // no floor — Speed/Jeer can push it negative
-      // sponsor keyed to score (lower = better); ≤1/2/3/4/5 → ⚡⚡⚡☀☀ … ⚡, ≥6 nothing.
-      // ≤1 (beating the best rung) still earns the TOP reward rather than falling off the ladder.
-      sponsor: (v) => v <= 1 ? { zap: 3, sun: 2 } : v === 2 ? { zap: 2, sun: 2 }
-                    : v === 3 ? { zap: 2, sun: 1 } : v === 4 ? { zap: 1, sun: 1 }
-                    : v === 5 ? { zap: 1 } : null,
+      // sponsor: standard 1–4 VP ladder + ⚡/☀ kicker; LOWEST wins, 4 rungs 4/3/2/≤1 (beating ≤1
+      // just earns the top rung — no extra). v≥5 earns nothing.
+      sponsor: (v) => v <= 1 ? { vp: 4, zap: 2, sun: 2 } : v === 2 ? { vp: 3, zap: 2, sun: 1 }
+                    : v === 3 ? { vp: 2, zap: 1, sun: 1 } : v === 4 ? { vp: 1, zap: 1 } : null,
     },
     'LongJumpEvent.png': {
       name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
       objective: 'approach 2d(+1)+Speed must be ≤13 (or FOUL), + jump 2d+Str; highest wins',
       rome: [15, 18, 20],                            // CPU Rome's fixed score by Act (grey 1/2/3)
-      // sponsor keyed to final score; 15/18/20/23 → 1/3/5/7 VP (VP = race steps here).
-      sponsor: (v) => v >= 23 ? { vp: 7 } : v >= 20 ? { vp: 5 } : v >= 18 ? { vp: 3 }
-                    : v >= 15 ? { vp: 1 } : null,
+      // sponsor: standard 1–4 VP ladder + 🪙/⚡ kicker (coin-flavored); rungs 15/18/20/23.
+      sponsor: (v) => v >= 23 ? { vp: 4, coin: 3, zap: 2 } : v >= 20 ? { vp: 3, coin: 3, zap: 1 }
+                    : v >= 18 ? { vp: 2, coin: 2, zap: 1 } : v >= 15 ? { vp: 1, coin: 2 } : null,
     },
     'HighJumpEvent.png': {
       name: 'High Jump', dir: 'max', multiRound: true, rerolls: (st) => st.str,
@@ -1752,9 +1751,9 @@
       ],
       passes: (sum, st, round) => (sum + st.speed) >= round.bar,
       roundValue: (sum, st) => sum + st.speed,
-      // sponsor keyed to bars cleared (rounds survived); bar 13 = Income Recollect (extra income now).
-      sponsor: (v) => v >= 4 ? { note: 'Income Recollect' } : v >= 3 ? { zap: 1, sun: 2 }
-                    : v >= 2 ? { zap: 1, sun: 1 } : v >= 1 ? { zap: 2 } : null,
+      // sponsor: standard 1–4 VP ladder + ⚡/☀ kicker; top rung (all bars) = Income Recollect perk.
+      sponsor: (v) => v >= 4 ? { vp: 4, sun: 1, note: 'Income Recollect' } : v >= 3 ? { vp: 3, zap: 2, sun: 2 }
+                    : v >= 2 ? { vp: 2, zap: 1, sun: 1 } : v >= 1 ? { vp: 1, zap: 1 } : null,
     },
     'ArcheryEvent.png': {
       name: 'Archery', dir: 'max', multiRound: true, rerolls: () => 0,
@@ -1768,9 +1767,9 @@
       ],
       passes: (sum, st, round) => sum >= (round.target - st.str) && sum <= (round.target + st.speed),
       roundValue: (sum) => sum,
-      // sponsor keyed to rounds survived; top rung adds a free market hero (display-only).
-      sponsor: (v) => v >= 4 ? { coin: 5, zap: 2, note: 'free market hero' } : v >= 3 ? { coin: 5, zap: 2 }
-                    : v >= 2 ? { coin: 4, zap: 1 } : v >= 1 ? { coin: 4 } : null,
+      // sponsor: standard 1–4 VP ladder + 🪙/⚡ kicker (coin-flavored); top rung adds a free market hero.
+      sponsor: (v) => v >= 4 ? { vp: 4, coin: 4, zap: 2, note: 'free market hero' } : v >= 3 ? { vp: 3, coin: 4, zap: 1 }
+                    : v >= 2 ? { vp: 2, coin: 3, zap: 1 } : v >= 1 ? { vp: 1, coin: 2 } : null,
     },
   };
   // Active mini-game file in each of the 3 event slots (0-2), seeded from LAYOUT and kept
@@ -2358,8 +2357,8 @@
     if (eventBoardMesh(k)) focusBoard(eventBoardMesh(k));
   }
 
-  // §5 sponsorship: an independent ladder per event, awarded to EVERY hero (regardless of podium)
-  // by its absolute result — score for single-shot, rounds survived for multi-round. A fouled
+  // §5 sponsorship: an independent ladder per event, keyed to a hero's absolute result — score for
+  // single-shot, rounds survived for multi-round (scoreEvent grants it to the top-3 podium). A fouled
   // single-shot hero earns nothing. Returns {coin?,zap?,sun?,vp?,note?} or null.
   function sponsorReward(mini, key) {
     const rules = rulesForKey(key);
@@ -2431,7 +2430,7 @@
       // Capture the final score + sponsor BEFORE any reward mutates the mini — grantTicket()
       // clears eventDice (sendToWaiting), which would otherwise collapse the recomputed score.
       const total = disp(m);
-      const sw = sponsorReward(m, k);        // §5 sponsorship — awarded regardless of podium
+      const sw = sponsorReward(m, k);        // §5 sponsorship — computed here, granted to top 3
       const colNum = COL_FOR_SLOT[k];        // event# = column# (§5): slot 0/1/2 → column 2/3/1
       let reward = '—';
       const podium = pl <= 2;                  // sponsor is now podium-only (top 3), not paid to everyone
@@ -2444,10 +2443,10 @@
       } else if (pl === 1) {                  // 2nd: column +1 only
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         reward = godName(colNum) + ' +1';
-      } else if (pl === 2) {                  // 3rd: +1 VP (a race step)
-        advanceRace(m.userData.color, 1); reward = '+1 VP 🏁';
-      }
-      if (podium) grantSponsorReward(m, sw);  // §5 sponsorship — podium finishers only
+      }                                       // 3rd: no podium reward — engine perks (column/income/
+                                              // seat) are 1st/2nd only. 3rd still earns its sponsorship
+                                              // VP below: podium = engine channel, sponsorship = race.
+      if (podium) grantSponsorReward(m, sw);  // §5 sponsorship (VP race steps + currency) — top 3
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
                face: ci.face, total, place: pl + 1, reward, sponsor: podium ? fmtSponsor(sw) : '' };
     });
