@@ -246,7 +246,7 @@
     cupGrid.innerHTML = cup.length
       ? cup.map((v, i) => {
           const blank = v === null || v === undefined;
-          const clickable = isEvent && !blank && heroSelected;
+          const clickable = isEvent && !blank && heroSelected && !f.firstDieMustRoll;
           return '<button class="die' + (blank ? ' blank' : '') + (clickable ? ' draw' : '') + '" data-idx="' + i + '"'
             + (clickable ? '' : ' disabled') + ' style="color:' + col + '">' + (blank ? '' : DICE_GLYPH(v)) + '</button>';
         }).join('')
@@ -254,7 +254,11 @@
     ppCupHint.textContent = isUpkeep
       ? (rolled ? cup.length + ' dice rolled — locked for this round.' : 'Buy dice & exchange first — rolling the cup ENDS your turn.')
       : (cup.length + ' die' + (cup.length === 1 ? '' : 's') + ' in cup'
-         + (isEvent ? (heroSelected ? ' — click one to draw into the selected hero' : ' — select a hero first') : ''));
+         + (isEvent
+             ? (!heroSelected ? ' — select a hero first'
+                : f.firstDieMustRoll ? ' — roll your 1st die (public) first'
+                : ' — click one to draw into the selected hero')
+             : ''));
 
     // economy (Upkeep only): roll the cup ONCE, buy dice only before that roll.
     econ.hidden = !isUpkeep;
@@ -321,30 +325,31 @@
             }
             const liveRow = liveTag ? '<div class="hero-live">' + liveTag + '</div>' : '';
 
-            // ---- Long Jump: approach (2 +opt) vs jump (2) split; player commits the jump ----
+            // ---- Long Jump: approach (1 +opt stride) vs jump (1) split; player commits the jump ----
             if (h.lj) {
               const { appN, stage, fouled, canJump } = h.lj;
               const appHave = Math.min(appN, have);
               const appDice = h.dice.slice(0, appN).map((v, i) => dieCell(v, i)).join('') + blanks(appN - appHave);
               const ljToggle = '<button class="hero-lj' + (h.ljExtra ? ' on' : '') + '" data-id="' + h.id + '"'
-                + (have ? ' disabled' : '') + ' title="Optional +1 approach die (before dicing)">'
-                + (h.ljExtra ? '✓ +1 approach' : '+1 approach') + '</button>';
+                + ((have >= 2 || stage === 'jump') ? ' disabled' : '') + ' title="Optional 2nd approach stride — decide after seeing die 1">'
+                + (h.ljExtra ? '✓ +1 stride' : '+1 stride') + '</button>';
               const jmpArr = h.dice.slice(appN);
               const jumpBody = fouled
-                ? '<span class="hfoul">FOUL — over-run</span>'
+                ? '<span class="hfoul">SCRATCH — over the line</span>'
                 : (stage === 'jump')
-                  ? '<div class="hero-dice">' + jmpArr.map((v, i) => dieCell(v, appN + i)).join('') + blanks(2 - jmpArr.length) + '</div>'
+                  ? '<div class="hero-dice">' + jmpArr.map((v, i) => dieCell(v, appN + i)).join('') + blanks(1 - jmpArr.length) + '</div>'
                   : (canJump
                       ? '<button class="hero-jump" data-id="' + h.id + '" title="Commit the approach and take your jump">Jump ▶</button>'
                       : '<span class="lj-hint">roll the approach first</span>');
               const appTag = appHave
-                ? '<span class="hsum' + (fouled ? ' foul' : (h.lj.appSum <= 13 ? ' ok' : '')) + '">Σ+Spd ' + h.lj.appSum + '/13</span>'
+                ? '<span class="hsum' + (fouled ? ' foul' : ' ok') + '">'
+                    + (fouled ? 'dice ' + h.lj.diceBase + ' > 10' : 'Run-up ' + h.lj.runup + ' (dice ' + h.lj.diceBase + '/10)') + '</span>'
                 : '';
               return '<div class="hero' + (sel ? ' sel' : '') + '" data-id="' + h.id + '">' + topRow
-                + '<div class="lj-grp"><span class="lj-lbl">Approach · +Speed, ≤13</span>' + appTag
+                + '<div class="lj-grp"><span class="lj-lbl">Approach · +up-to-Speed, ≤10</span>' + appTag
                 +   '<div class="hero-dice">' + appDice + '</div>' + ljToggle + '</div>'
                 + '<div class="lj-grp' + (stage === 'jump' || fouled ? '' : ' locked') + '">'
-                +   '<span class="lj-lbl">Jump · +Str</span>' + jumpBody + '</div>'
+                +   '<span class="lj-lbl">Jump · +Str (1 die)</span>' + jumpBody + '</div>'
                 + (!fouled && scoreTag ? '<div class="hero-score">' + scoreTag + '</div>' : '')
                 + acts + '</div></div>';
             }

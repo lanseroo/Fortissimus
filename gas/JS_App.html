@@ -1733,11 +1733,11 @@
     },
     'LongJumpEvent.png': {
       name: 'Long Jump', dir: 'max', longJump: true, rerolls: () => 0,
-      objective: 'approach 2d(+1)+Speed must be ≤13 (or FOUL), + jump 2d+Str; highest wins',
-      rome: [15, 18, 20],                            // CPU Rome's fixed score by Act (grey 1/2/3)
-      // sponsor: standard 1–4 VP ladder + 🪙/⚡ kicker (coin-flavored); rungs 15/18/20/23.
-      sponsor: (v) => v >= 23 ? { vp: 4, coin: 3, zap: 2 } : v >= 20 ? { vp: 3, coin: 3, zap: 1 }
-                    : v >= 18 ? { vp: 2, coin: 2, zap: 1 } : v >= 15 ? { vp: 1, coin: 2 } : null,
+      objective: 'run-up = 1d (+opt 1d) + up-to-Speed, capped at 10 (dice > 10 = SCRATCH); + jump 1d + Str; highest wins',
+      rome: [11, 13, 15],                            // CPU Rome's fixed score by Act (grey 1/2/3)
+      // sponsor: standard 1–4 VP ladder + 🪙/⚡ kicker (coin-flavored); rungs 11/13/15/17.
+      sponsor: (v) => v >= 17 ? { vp: 4, coin: 3, zap: 2 } : v >= 15 ? { vp: 3, coin: 3, zap: 1 }
+                    : v >= 13 ? { vp: 2, coin: 2, zap: 1 } : v >= 11 ? { vp: 1, coin: 2 } : null,
     },
     'HighJumpEvent.png': {
       name: 'High Jump', dir: 'max', multiRound: true, rerolls: () => 0,
@@ -1884,12 +1884,13 @@
     if (!rules) return { score: dice.reduce((a, b) => a + b, 0) + adj, foul: false };
     if (rules.multiRound) return { score: mini.userData.roundsSurvived || 0, foul: !!mini.userData.eliminated };
     if (rules.longJump) {
-      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
-      const approach = dice.slice(0, appN).reduce((a, b) => a + b, 0) + st.speed;
-      if (approach > 13) return { score: 0, foul: true };                 // over-run → FOUL (out)
-      const jd = dice.slice(appN);                                        // jump dice (empty mid-approach)
+      const appN = 1 + (mini.userData.ljExtra ? 1 : 0);
+      const diceBase = dice.slice(0, appN).reduce((a, b) => a + b, 0);    // approach dice only (no cushion)
+      if (diceBase > 10) return { score: 0, foul: true };                 // over the line → SCRATCH (out)
+      const runup = Math.min(diceBase + st.speed, 10);                    // up-to-Speed cushion, capped at 10
+      const jd = dice.slice(appN);                                        // jump die (empty mid-approach)
       const jump = jd.length ? jd.reduce((a, b) => a + b, 0) + st.str : 0; // +Str only once the jump is taken
-      return { score: approach + jump + adj, foul: false };
+      return { score: runup + jump + adj, foul: false };
     }
     return { score: rules.score(dice.reduce((a, b) => a + b, 0) + adj, st), foul: false };
   }
@@ -1931,8 +1932,8 @@
   }
 
   // Dice a competing mini needs for its current event. Multi-round → the CURRENT round's count
-  // (0 once eliminated). Long Jump → approach (2 +opt) + jump (2), collapsing to just the approach
-  // once that approach already fouls (the jump is then irrelevant). Else the event's flat count.
+  // (0 once eliminated). Long Jump → approach (1 +opt) + jump (1), collapsing to just the approach
+  // once the approach dice pass the line (>10 = scratch, no jump). Else the event's flat count.
   function requiredFor(mini) {
     const s = mini.userData.slot; if (!s) return 0;
     if (s.boardKey === 'ColosseumBoard.png') return 0;   // no manual roll — arena positions are auto-rolled at startColosseum
@@ -1944,24 +1945,24 @@
       return (rules.rounds[GAME.eventRound] || rules.rounds[rules.rounds.length - 1]).dice;
     }
     if (rules.longJump) {
-      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
+      const appN = 1 + (mini.userData.ljExtra ? 1 : 0);
       const app = (mini.userData.eventDice || []).slice(0, appN);
-      if (app.length >= appN && app.reduce((a, b) => a + b, 0) + heroStats(mini).speed > 13) return appN;
-      return appN + 2;
+      if (app.length >= appN && app.reduce((a, b) => a + b, 0) > 10) return appN; // scratch → no jump die
+      return appN + 1;
     }
     return rules.dice;
   }
   // Dice a hero may hold RIGHT NOW (the draw/roll gate). Same as requiredFor except Long Jump:
-  // the 2 jump dice stay locked behind the approach until the player commits it (ljStage==='jump').
+  // the jump die stays locked behind the approach until the player commits it (ljStage==='jump').
   // requiredFor stays the TOTAL (drives the "full"/participant gate); assignCap gates adding dice.
   function assignCap(mini) {
     const rules = rulesFor(mini);
     if (rules && rules.longJump && !mini.userData.eliminated) {
-      const appN = 2 + (mini.userData.ljExtra ? 1 : 0);
+      const appN = 1 + (mini.userData.ljExtra ? 1 : 0);
       const app = (mini.userData.eventDice || []).slice(0, appN);
-      const fouled = app.length >= appN && app.reduce((a, b) => a + b, 0) + heroStats(mini).speed > 13;
-      if (fouled) return appN;                                   // foul locks the field at the approach
-      return mini.userData.ljStage === 'jump' ? appN + 2 : appN; // jump dice unlock only after commit
+      const fouled = app.length >= appN && app.reduce((a, b) => a + b, 0) > 10;
+      if (fouled) return appN;                                   // scratch locks the field at the approach
+      return mini.userData.ljStage === 'jump' ? appN + 1 : appN; // jump die unlocks only after commit
     }
     return requiredFor(mini);
   }
@@ -3283,6 +3284,7 @@
   function drawFromCup(color, idx) {
     const arr = GAME.cup[color]; if (!arr || idx < 0 || idx >= arr.length || arr[idx] === null) return;
     const m = selectedMini(); if (!m || m.userData.color !== color) return;
+    if (rulesFor(m) && !(m.userData.eventDice || []).length) return;     // die 1 must be a public roll (shared grammar)
     if ((m.userData.eventDice || []).length >= assignCap(m)) return;     // at the current dice cap
     if (!(m.userData.eventDice || []).length) seedRerolls(m);            // first die → fresh rerolls
     const v = arr.splice(idx, 1)[0];
@@ -3312,11 +3314,12 @@
     notifyFlow();
   }
 
-  // Long Jump: toggle the optional +1 approach die (only before this hero has been diced).
+  // Long Jump: toggle the optional 2nd approach stride — decided AFTER seeing die 1 (press-your-luck),
+  // so it stays open with 0 or 1 die down; locked once a 2nd die exists or the jump is committed.
   function toggleLongJumpExtra(heroId) {
     const m = findMini(heroId); if (!m) return;
     const rules = rulesFor(m); if (!rules || !rules.longJump) return;
-    if ((m.userData.eventDice || []).length) return;                     // locked once dicing starts
+    if ((m.userData.eventDice || []).length >= 2 || m.userData.ljStage === 'jump') return;
     m.userData.ljExtra = !m.userData.ljExtra;
     notifyFlow();
   }
@@ -3327,10 +3330,10 @@
     const m = findMini(heroId); if (!m) return;
     const rules = rulesFor(m); if (!rules || !rules.longJump) return;
     if (m.userData.ljStage === 'jump') return;                           // already jumping
-    const appN = 2 + (m.userData.ljExtra ? 1 : 0);
+    const appN = 1 + (m.userData.ljExtra ? 1 : 0);
     const app = (m.userData.eventDice || []).slice(0, appN);
     if (app.length < appN) return;                                       // approach not finished
-    if (app.reduce((a, b) => a + b, 0) + heroStats(m).speed > 13) return; // fouled — no jump
+    if (app.reduce((a, b) => a + b, 0) > 10) return;                     // scratched — no jump
     m.userData.ljStage = 'jump';
     notifyFlow();
   }
@@ -3381,16 +3384,18 @@
     const heroes = ownerHeroes.map((m) => {
       const ci = miniCardInfo(m);
       const sc = eventKey !== null ? eventScore(m, eventKey) : { score: 0, foul: false };
-      // Long Jump split: approach (2 +opt) vs jump (2), and whether the jump is unlocked yet.
+      // Long Jump split: approach (1 +opt) vs jump (1), and whether the jump is unlocked yet.
       let lj = null;
       if (heroesRules && heroesRules.longJump && !m.userData.eliminated) {
-        const appN = 2 + (m.userData.ljExtra ? 1 : 0);
+        const appN = 1 + (m.userData.ljExtra ? 1 : 0);
         const app = (m.userData.eventDice || []).slice(0, appN);
         const approachDone = app.length >= appN;
-        const fouled = approachDone && app.reduce((a, b) => a + b, 0) + heroStats(m).speed > 13;
+        const diceBase = app.reduce((a, b) => a + b, 0);                      // approach dice only (no cushion)
+        const fouled = approachDone && diceBase > 10;
         const stage = m.userData.ljStage === 'jump' ? 'jump' : 'approach';
-        const appSum = app.reduce((a, b) => a + b, 0) + heroStats(m).speed;   // approach total (≤13)
-        lj = { appN, approachDone, fouled, stage, appSum, jumpSum: (m.userData.eventDice || []).slice(appN).reduce((a, b) => a + b, 0),
+        const runup = Math.min(diceBase + heroStats(m).speed, 10);            // up-to-Speed cushion, capped at 10
+        lj = { appN, approachDone, fouled, stage, diceBase, runup,
+               jumpSum: (m.userData.eventDice || []).slice(appN).reduce((a, b) => a + b, 0),
                canJump: approachDone && !fouled && stage !== 'jump' };
       }
       // Multi-round live status: this round's value, whether it currently passes, and the
@@ -3414,6 +3419,11 @@
                eliminated: !!m.userData.eliminated, roundsSurvived: m.userData.roundsSurvived || 0,
                rerollsLeft: m.userData.rerollsLeft || 0, ljExtra: !!m.userData.ljExtra, lj, round };
     });
+    // die-1-public grammar: the selected hero's FIRST die each round must be a live roll, not a
+    // placed cup die — so the cup panel greys out its dice until at least one die is down.
+    const selHero = ownerHeroes.find((m) => m.userData.id === selectedHeroId);
+    const firstDieMustRoll = !!(heroesRules && selHero && !selHero.userData.eliminated
+      && !(selHero.userData.eventDice || []).length);
     // roll gate: in Upkeep, rolling ENDS a player's turn (auto-advance), so the phase can't
     // advance until EVERY seated player has rolled their cup.
     const rollGateOk = phase !== 'Upkeep' || !live || GAME.order.every((c) => !!GAME.cupRolled[c]);
@@ -3487,7 +3497,7 @@
       factions: FACTIONS,
       log: GAME.log.slice(-8),
       rollGateOk,
-      heroes, selectedHeroId, eventGateOk: eventGateOk(),
+      heroes, selectedHeroId, firstDieMustRoll, eventGateOk: eventGateOk(),
       eventWalk, eventRanks, eventMeta, lastResolution: GAME.lastResolution ? JSON.parse(JSON.stringify(GAME.lastResolution)) : null,
       summaryOpen: !!GAME.summaryOpen,
       summaryLast: !!GAME.summaryOpen && (GAME.eventIndex + 1) >= GAME.eventKeys.length,
