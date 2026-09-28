@@ -1844,10 +1844,16 @@
   const eventSlotIndex = (bx) => (bx < 0 ? 0 : bx > 0 ? 2 : 1);
 
   // ---- per-event scoring engine (rules-draft §5) ----
-  // Stats from the mini's tied hero card face: `S_P_Hero.png` → Str S / Speed P; Plebe/none → 1/1.
+  // Parse Str/Speed from a card face. Two named formats carry stats:
+  //   market/faction heroes `S_P_Hero.png`  ·  new plebes `Plebe<Color><Str>_<Speed>.png`.
+  // The old `<Color>Pliebe.png` (and anything else) carries none → treated as 1/1.
+  function statFace(face) {
+    let m = /^(\d)_(\d)_Hero/.exec(face || '');
+    if (!m) m = /^Plebe[A-Za-z](\d)_(\d)/.exec(face || '');
+    return m ? { str: +m[1], speed: +m[2] } : null;
+  }
   function heroStats(mini) {
-    const m = /^(\d)_(\d)_Hero/.exec(miniCardInfo(mini).face || '');
-    return m ? { str: +m[1], speed: +m[2] } : { str: 1, speed: 1 };
+    return statFace(miniCardInfo(mini).face) || { str: 1, speed: 1 };
   }
   const isAlive = (m) => !m.userData.eliminated;
   // The §5 rules entry behind a mini / an event key (null for Colosseum or no special rule).
@@ -2101,8 +2107,8 @@
       const { color } = cw.releaseQueue[0];
       const options = waitingMinisOf(color).map((m) => {
         const ci = miniCardInfo(m);
-        const hm = /^(\d)_(\d)_Hero/.exec(ci.face || '');
-        const stats = hm ? ('Str ' + hm[1] + ' · Spd ' + hm[2]) : 'Plebe';
+        const st = statFace(ci.face);
+        const stats = st ? ('Str ' + st.str + ' · Spd ' + st.speed) : 'Plebe';
         return { miniId: m.userData.id, sym: m.userData.sym ?? null, symImg: ci.symImg, face: ci.face, stats };
       });
       return { kind: 'release', color, options };
@@ -3848,14 +3854,16 @@
     // seed each faction's (private, panel-only) dice cup — blank until rolled in Upkeep
     initCup();
 
-    // per-mat: face-down starting deck (3 plebe + cheer + jeer) off the mat's OUTER
-    // edge, built as real cards so "Deal hand" can pull from it face-up.
+    // per-mat: face-down starting deck off the mat's OUTER edge, built as real cards so
+    // "Deal hand" can pull from it face-up. New deck = one of each plebe archetype:
+    // Brute (Str2/Spd0), Runner (Str0/Spd2), generalist (1/1). Cheer/Jeer moved to the
+    // Bacchanal favor card, so the deck is now all heroes → 3 bodies dealt every round.
     for (const b of LAYOUT) {
       if (!b.color) continue;
       const a = deckAnchor(b);
-      const plebe = b.color + 'Pliebe.png';
-      buildDeck(b.color, [plebe, plebe, plebe, 'Cheer.png', 'Jeer.png'], a.x, a.z);
-      const d = discardAnchor(b);                 // drag Cheer/Jeer here for +2 coins
+      const L = b.color[0];                        // Blue/Green/Purple/Yellow → B/G/P/Y
+      buildDeck(b.color, ['Plebe' + L + '2_0.png', 'Plebe' + L + '0_2.png', 'Plebe' + L + '1_1.png'], a.x, a.z);
+      const d = discardAnchor(b);                 // drag a modifier here for +2 coins
       addDiscardSlot(b.color, d.x, d.z);
     }
 
@@ -3941,7 +3949,8 @@
     for (const m of chosen) {
       const color = m.userData.color, sym = m.userData.sym;
       const useHero = heroPool.length && Math.random() < 0.6;
-      const face = useHero ? heroPool[Math.floor(Math.random() * heroPool.length)] : (color + 'Pliebe.png');
+      const plebeFace = 'Plebe' + color[0] + ['2_0', '0_2', '1_1'][Math.floor(Math.random() * 3)] + '.png';
+      const face = useHero ? heroPool[Math.floor(Math.random() * heroPool.length)] : plebeFace;
       const slot = SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
       if (slot) { const card = addToken(face, 22, 'card'); card.userData.face = face; card.userData.cardKind = useHero ? 'hero' : 'plebe'; placeOnSlot(card, slot); }
       m.userData.waiting = true; m.userData.locked = true;  // committed to the arena

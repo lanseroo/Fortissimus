@@ -67,7 +67,7 @@
 
   // ---- color-dependent tokens ----
   document.getElementById('addChariot').addEventListener('click', () => PT.addToken('ChariotIcon' + PT.getActiveColor() + '.png', 8, 'chariot'));
-  document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken(PT.getActiveColor() + 'Pliebe.png', CARD_SIZE, 'card'));
+  document.getElementById('addPlebe').addEventListener('click',   () => PT.addToken('Plebe' + PT.getActiveColor()[0] + '1_1.png', CARD_SIZE, 'card'));
   document.getElementById('addMarker').addEventListener('click',  () => PT.addMarker(PT.getActiveColor()));
   document.getElementById('addRound').addEventListener('click',   () => PT.addRound());
 
@@ -875,6 +875,8 @@
   function labelForFace(face) {
     if (!face) return '';
     if (FACE_LABELS[face]) return FACE_LABELS[face];
+    const pm = /^Plebe[A-Za-z](\d)_(\d)/.exec(face);
+    if (pm) return 'Plebe · Str' + pm[1] + ' Spd' + pm[2];
     if (/Pliebe/i.test(face)) return 'Plebe';
     if (/Cheer/i.test(face)) return 'Cheer';
     if (/Jeer/i.test(face)) return 'Jeer';
