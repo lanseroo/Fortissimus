@@ -3854,15 +3854,17 @@
     // seed each faction's (private, panel-only) dice cup — blank until rolled in Upkeep
     initCup();
 
-    // per-mat: face-down starting deck off the mat's OUTER edge, built as real cards so
-    // "Deal hand" can pull from it face-up. New deck = one of each plebe archetype:
-    // Brute (Str2/Spd0), Runner (Str0/Spd2), generalist (1/1). Cheer/Jeer moved to the
-    // Bacchanal favor card, so the deck is now all heroes → 3 bodies dealt every round.
+    // per-mat: face-down 5-card starting deck off the mat's OUTER edge, built as real cards
+    // so "Deal hand" can draw 3 face-up each round. Composition: 3 generalists (1/1) + 1 Brute
+    // (Str2/Spd0) + 1 Runner (Str0/Spd2). Cheer/Jeer moved to the Bacchanal favor card, so the
+    // deck is all heroes. dealHand persists the draw pile: R1 draws 3, R2 takes the 2 leftovers
+    // + reshuffles the discard for the 3rd, and so on.
     for (const b of LAYOUT) {
       if (!b.color) continue;
       const a = deckAnchor(b);
       const L = b.color[0];                        // Blue/Green/Purple/Yellow → B/G/P/Y
-      buildDeck(b.color, ['Plebe' + L + '2_0.png', 'Plebe' + L + '0_2.png', 'Plebe' + L + '1_1.png'], a.x, a.z);
+      const gen = 'Plebe' + L + '1_1.png';
+      buildDeck(b.color, [gen, gen, gen, 'Plebe' + L + '2_0.png', 'Plebe' + L + '0_2.png'], a.x, a.z);
       const d = discardAnchor(b);                 // drag a modifier here for +2 coins
       addDiscardSlot(b.color, d.x, d.z);
     }
