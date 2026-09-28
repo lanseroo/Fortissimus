@@ -1386,7 +1386,8 @@
   }
   function barracksPick(kind) {
     const b = GAME.barracks; if (!b || b.picked) return;
-    adjustRes(b.color, kind, 1);      // notifyFlow inside adjustRes
+    adjustRes(b.color, kind, kind === 'coin' ? 2 : 1);   // coin pays 2; zap/sun pay 1
+    // notifyFlow inside adjustRes
     b.picked = true;
     notifyFlow();
   }
