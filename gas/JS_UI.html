@@ -686,12 +686,16 @@
       cfHeartTxt.textContent = '❤ ' + cf.glad.hearts + ' / ' + cf.glad.heartsMax;
       cfFighters.innerHTML = cf.fighters.map((ff) => {
         const col = FLOW_COLORS[ff.color] || '#ccc';
-        const tags = [ff.doubled ? '⚔⚔' : '', ff.rage ? '🔥' : '', (ff.targeted && ff.alive) ? '🎯' : ''].filter(Boolean).join(' ');
+        const tags = [ff.doubled ? '⚔⚔' : '', ff.rage ? '🔥' : '', ff.shielded ? '🛡' : '', (ff.targeted && ff.alive) ? '🎯' : ''].filter(Boolean).join(' ');
         const selCls = (ff.id === cf.selId) ? ' sel' : '';
         const pushable = cf.push && cf.push.step === 'mini' && ff.alive && ff.color !== cf.push.color;
+        // Show the EFFECTIVE stat (base + favor bonus), with the boost called out.
+        const estr = ff.str + (ff.strBonus || 0), espd = ff.speed + (ff.speedBonus || 0);
+        const stStr = 'Str ' + estr + (ff.strBonus ? ' <span class="colfbuf">(+' + ff.strBonus + ')</span>' : '');
+        const stSpd = 'Spd ' + espd + (ff.speedBonus ? ' <span class="colfbuf">(+' + ff.speedBonus + ')</span>' : '');
         return '<div class="colf' + (ff.alive ? '' : ' dead') + selCls + (pushable ? ' pushable' : '') + '" data-cfsel="' + ff.id + '" style="color:' + col + '">'
           + sym(ff.symImg) + '<span class="colfpos">' + (ff.alive ? ('pos ' + ff.pos) : '✝') + '</span>'
-          + '<span class="colfst">Str ' + ff.str + ' · Spd ' + ff.speed + '</span>'
+          + '<span class="colfst">' + stStr + ' · ' + stSpd + '</span>'
           + '<span class="colftag">' + tags + '</span></div>';
       }).join('');
       let body = '', btns = '';
