@@ -152,13 +152,10 @@
   // fight (see COMBAT below). Rest has no circle (its coins go to the bank). The 4
   // color circles per action are laid out Blue/Purple (top) · Green/Yellow (bottom),
   // measured off ColosseumActions.png (u = image column center, v = image row center).
-  const COL_ACTIONS = [
-    { key: 'double',   label: 'Double Hit', cost: 2, window: 'B', uL: 0.054, uR: 0.116 },
-    { key: 'rage',     label: 'Rage',       cost: 2, window: 'B', uL: 0.256, uR: 0.318 },
-    { key: 'push',     label: 'Push',       cost: 1, window: 'A', uL: 0.470, uR: 0.531 },
-    { key: 'backstab', label: 'Backstab',   cost: 1, window: 'A', uL: 0.683, uR: 0.745 },
-    { key: 'rest',     label: 'Rest',       cost: 2, window: '*', uL: null,  uR: null  },
-  ];
+  // RETIRED: the old coin/sun-driven Colosseum action layer (Double Hit / Rage / Push / Backstab /
+  // Rest) is replaced by the favor cards' COLOSSEUM zones. Empty list ⇒ the buy windows auto-skip
+  // (positioning → attack → counter), and the ColosseumActions board/art is dropped from LAYOUT.
+  const COL_ACTIONS = [];
   const COL_ACTION_ROWS = { Blue: [0, 0.357], Purple: [1, 0.357], Green: [0, 0.510], Yellow: [1, 0.510] };
   const COLOSSEUM_ACTIONS_SLOTS = COL_ACTIONS.flatMap((a) => (a.uL == null) ? [] :
     ['Blue', 'Purple', 'Green', 'Yellow'].map((color) => {
@@ -195,8 +192,7 @@
   const BW = 116;   // uniform board width (all non-player boards)
   const FW = 132;   // uniform player/faction-mat width
   const LAYOUT = [
-    // top row
-    { file: 'ColosseumActions.png', x: 0, z: -162, w: 150, slotsDef: COLOSSEUM_ACTIONS_SLOTS }, // action layer, above the arena
+    // top row  (ColosseumActions action-layer board retired — combat abilities are favor cards now)
     { file: 'ColosseumBoard.png', x:    0, z: -100, w: BW, slotsDef: COLOSSEUM_SLOTS },  // top-center
     // middle row (spine)
     { file: 'ColumnBoard.png',    x: -125, z:  -35, w: BW, slotsDef: COLUMN_SLOTS },     // pillars, left
@@ -2664,11 +2660,18 @@
   // (1st = Colosseum ticket; 3rd = +1 VP), and open the waiting-decision walk for every
   // non-1st participant before advancing. Colosseum: seat-only (no fight in Chunk A).
   function resolveEvent() {
-    const k = curEventKey(); if (k === null || !eventEveryoneFull(k)) return;
-    if (k !== 'ColosseumBoard.png') {
-      const queue = buildModWaitQueue(k);
-      if (queue.length) { GAME.modWait = { key: k, queue }; notifyFlow(); return; }
+    const k = curEventKey(); if (k === null) return;
+    if (k === 'ColosseumBoard.png') {
+      // Combat runs its own modal loop. "Resolve event" STARTS the fight once; while a fight is
+      // live it must NEVER re-enter scoreEvent (that would spawn a second gladiator). A finished
+      // fight is closed by its own Dismiss — route a stray Resolve click there too.
+      if (GAME.colosseum) { if (GAME.colosseum.sub === 'done') dismissColosseum(); return; }
+      if (eventEveryoneFull(k)) scoreEvent();   // → startColosseum()
+      return;
     }
+    if (!eventEveryoneFull(k)) return;
+    const queue = buildModWaitQueue(k);
+    if (queue.length) { GAME.modWait = { key: k, queue }; notifyFlow(); return; }
     const rules = rulesForKey(k);
     if (rules && rules.multiRound) applyRound(); else scoreEvent();
   }
@@ -3291,7 +3294,25 @@
     while (ca.turn < GAME.order.length && !colActEligible(GAME.order[ca.turn])) ca.turn++;
     if (ca.turn >= GAME.order.length) { GAME.colAct = null; if (c.sub === 'buyA') colStartAttack(); else colToCounter(); }
   }
-  function colActInit(window) { GAME.colAct = { window, turn: 0 }; colActAdvance(); }
+  // Favor windows: before the strike (A) and before counters (B), PAUSE so players can play their
+  // cards' Colosseum zones — but only if someone actually has an unspent colosseum favor; otherwise
+  // the window auto-continues so favor-less fights flow straight through (positioning → attack → counter).
+  function anyColosseumFavorAvailable() {
+    const c = GAME.colosseum; if (!c) return false;
+    return GAME.order.some((color) => c.fighters.some((f) => f.color === color && f.alive)
+      && favorHandFor(color).some((card) => card.colosseum && !favorSpentOf(color, card.id)));
+  }
+  function colActInit(window) {
+    GAME.colAct = { window, turn: 0 };
+    if (!anyColosseumFavorAvailable()) { colWindowContinue(); return; }
+    notifyFlow();
+  }
+  // Close the current favor window and proceed (A → the gladiator's strike, B → counter-attacks).
+  function colWindowContinue() {
+    const c = GAME.colosseum, ca = GAME.colAct; if (!c || !ca) return;
+    const w = ca.window; GAME.colAct = null;
+    if (w === 'A') colStartAttack(); else colToCounter();
+  }
   const colActBuyer = () => (GAME.colAct ? (GAME.order[GAME.colAct.turn] ?? null) : null);
   const fInfo = (f) => ({ id: f.id, color: f.color, sym: f.sym, symImg: f.symImg, pos: f.pos });
   // Opposing alive fighters this color could push, with the legal directions (−1 toward 2 / +1 toward 12).
@@ -3366,6 +3387,7 @@
 
   // ---- the fight, round by round ----
   function startColosseum() {
+    if (GAME.colosseum) return;   // a fight is already live — never spawn a second gladiator
     const arenaMinis = pieces.filter((m) => m.userData.type === 'mini' && m.userData.slot && m.userData.slot.boardKey === 'ColosseumBoard.png');
     if (!arenaMinis.length) { finishEventResolution(); return; }
     if (!GAME.gladDeck.length) initGladDeck();
@@ -3570,6 +3592,7 @@
     GAME.resolved.push('ColosseumBoard.png');
     GAME.eventIndex++;
     selectedHeroId = null;
+    for (const color of ALL_COLORS) recoupFavors(color, true);   // favor cards are picked up FREE after the arena
     enterEventKey(curEventKey());
     notifyFlow();
   }
@@ -4404,7 +4427,7 @@
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
     modWaitUse, modWaitPass,
-    colBuy, colRest, colActPass, colCounterStep, dismissColosseum,
+    colBuy, colRest, colActPass, colCounterStep, dismissColosseum, colWindowContinue,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
     playFavorFree, playFavorColosseum, playFavorEvent, recoupFavors: () => recoupFavors(activeColorName, false),

@@ -704,27 +704,11 @@
           + (cf.push.step === 'mini' ? 'click an opposing hero (board or list above)' : 'click a destination station on the board (±1)')
           + '</div>';
         btns = '<button class="cwbtn" data-cfpushcancel="1">Cancel push</button>';
-      } else if ((cf.sub === 'buyA' || cf.sub === 'buyB') && cf.buyer) {
-        const bcol = FLOW_COLORS[cf.buyer] || '#ccc';
-        body = '<div class="colbuyer" style="color:' + bcol + '">' + cf.buyer + ' — buy actions ('
-          + (cf.sub === 'buyA' ? 'before the gladiator strikes' : ('gladiator will hit for ' + cf.attackVal)) + ')</div>';
-        const acts = cf.buyerActions.map((a) => {
-          if (a.used) return '<span class="actbtn used">' + a.label + ' ✓</span>';
-          if (a.kind === 'simple' || a.kind === 'rest') {
-            const extra = a.kind === 'rest' ? (' · reclaim ' + a.reclaim + '☀') : '';
-            return '<button class="actbtn" data-cfbuy="' + a.key + '"' + (a.canBuy ? '' : ' disabled') + '>'
-              + a.label + ' (' + a.cost + '☀' + extra + ')</button>';
-          }
-          if (!a.canBuy || !a.targets.length) return '<span class="actbtn used">' + a.label + ' (n/a)</span>';
-          if (a.kind === 'own') {
-            return a.targets.map((t) => '<button class="actbtn" data-cfbuy="' + a.key + '" data-target="' + t.id + '">'
-              + a.label + ' → ' + sym(t.symImg) + '(' + a.cost + '☀)</button>').join('');
-          }
-          // push: a single button that enters two-step board targeting
-          return '<button class="actbtn" data-cfpush="1">' + a.label + ' (' + a.cost + '☀)</button>';
-        }).join('');
-        body += '<div class="actstrip">' + acts + '</div>';
-        btns = '<button class="cwbtn" data-cfpass="1">Pass ▶</button>';
+      } else if (cf.sub === 'buyA' || cf.sub === 'buyB') {
+        body = '<div class="colbuyer">🃏 Favor window — '
+          + (cf.sub === 'buyA' ? 'before the gladiator strikes' : ('gladiator will hit for ' + cf.attackVal))
+          + '.<br>Play any Colosseum favor cards below (switch the color swatch per player), then continue.</div>';
+        btns = '<button class="cwbtn" data-cfcontinue="1">Continue ▶</button>';
       } else if (cf.sub === 'counter' && cf.counterNext) {
         const s = cf.counterNext, scol = FLOW_COLORS[s.color] || '#ccc';
         body = '<div class="colcnt"><span style="color:' + scol + '">' + sym(s.symImg) + s.color + '</span>'
@@ -985,9 +969,14 @@
     favorRecoup.hidden = rc.spent === 0;
     favorRecoup.disabled = !rc.canAfford;
     favorRecoup.textContent = 'Recoup ' + rc.spent + ' card' + (rc.spent === 1 ? '' : 's') + ' (3☀)';
-    favorHint.textContent = f.favorInColosseum
-      ? 'Arena: click a hero to select it, then play a card’s Colosseum zone.'
-      : 'Play a card’s Free zone on your turn. Event zones unlock via the relic/column tracks.';
+    if (f.favorInColosseum) {
+      const anyArena = cards.some((c) => c.colosseum && c.colosseum.playable);
+      favorHint.textContent = anyArena
+        ? 'Arena: targeted cards — click a hero to select it, then play the card’s Colosseum zone. Afterlife cards just declare now.'
+        : 'Arena favors: switch the color swatch (top bar) to a fighting color to play its Colosseum zones.';
+    } else {
+      favorHint.textContent = 'Play a card’s Free zone on your turn. Event zones unlock via the relic/column tracks.';
+    }
     // keep an open play overlay in sync (card may have just been spent)
     if (!favorPlay.hidden) { const open = cards.find((c) => c.id === favorPlay.dataset.fav); if (!open || open.spent) favorPlay.hidden = true; }
   }
@@ -1024,11 +1013,15 @@
     }
     if (c.colosseum) {
       if (c.colosseum.playable && f.favorInColosseum) {
+        const isAfterlife = c.colosseum.type === 'afterlife';
+        const sel = f.colosseum && f.colosseum.selId != null;
         if (c.colosseum.move) b += '<button class="fpbtn" data-fz="col" data-fdir="-1">' + c.colosseum.label + ' (toward II)</button>'
           + '<button class="fpbtn" data-fz="col" data-fdir="1">' + c.colosseum.label + ' (toward XII)</button>';
-        else b += '<button class="fpbtn" data-fz="col">Arena — ' + c.colosseum.label + '</button>';
-        if (c.colosseum.needsTarget) b += '<div class="fpz dim">Select the target hero first (click it on the board or combat panel).</div>';
-      } else b += '<div class="fpz dim">Colosseum: ' + c.colosseum.label + ' (during a fight)</div>';
+        else b += '<button class="fpbtn" data-fz="col">' + (isAfterlife ? 'Declare — ' : 'Arena — ') + c.colosseum.label + '</button>';
+        if (isAfterlife) b += '<div class="fpz dim">Pays out per hero reaching Elysium this fight (lasts the whole round).</div>';
+        else if (c.colosseum.needsTarget) b += '<div class="fpz dim">' + (sel ? 'Target hero selected ✓' : 'Select the target hero first — click it on the board or in the combat panel.') + '</div>';
+      } else b += '<div class="fpz dim">Colosseum: ' + c.colosseum.label
+        + (f.favorInColosseum ? ' — switch the color swatch to this fighter’s color' : ' (during a fight)') + '</div>';
     }
     fpZones.innerHTML = b;
     favorPlay.dataset.fav = cardId;
@@ -1213,10 +1206,7 @@
     if (row && !e.target.closest('button')) { PT.colFighterClick(Number(row.dataset.cfsel)); return; }
     const btn = e.target.closest('button'); if (!btn || btn.disabled) return;
     const d = btn.dataset;
-    if (d.cfpush) PT.colPushStart();
-    else if (d.cfpushcancel) PT.colPushCancel();
-    else if (d.cfbuy) PT.colBuy(d.cfbuy, d.target != null ? Number(d.target) : null, d.dir != null ? Number(d.dir) : 0);
-    else if (d.cfpass) PT.colActPass();
+    if (d.cfcontinue) PT.colWindowContinue();
     else if (d.cfcounter) PT.colCounterStep();
     else if (d.cfdone) PT.dismissColosseum();
   });
