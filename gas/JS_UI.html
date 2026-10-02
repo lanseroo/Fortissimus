@@ -71,10 +71,7 @@
   document.getElementById('addMarker').addEventListener('click',  () => PT.addMarker(PT.getActiveColor()));
   document.getElementById('addRound').addEventListener('click',   () => PT.addRound());
 
-  // ---- fixed tokens ----
-  const addModifier = (file) => { PT.addToken(file, CARD_SIZE, 'card').userData.cardKind = 'modifier'; };
-  document.getElementById('addCheer').addEventListener('click', () => addModifier('Cheer.png'));
-  document.getElementById('addJeer').addEventListener('click',  () => addModifier('Jeer.png'));
+  // (Cheer/Jeer retired — those effects now live on the Bacchus/Ares favor cards.)
 
   // ---- currency ----
   document.getElementById('addCoin').addEventListener('click',      () => PT.addToken('CoinToken.png', 6, 'coin'));
@@ -460,9 +457,8 @@
         const badges = (pred, glyph) => f.order.filter((c) => pred && pred[c])
           .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + glyph + c + '</span>').join(' ') || '—';
         html += '<div class="colbadges">'
-          + '<div><span class="cbk">★ Favor</span> ' + badges(f.favorUnlocked, '') + '</div>'
-          + '<div><span class="cbk">🏇 Chariot</span> ' + badges(f.chariotUnlocked, '') + '</div>'
-          + '<div><span class="cbk">🏺 Relic</span> ' + badges(f.relicUnlocked, '') + '</div></div>';
+          + '<div><span class="cbk">🏺 Relic</span> ' + badges(f.relicUnlocked, '') + ' <span class="cbnote">(faction favor events)</span></div>'
+          + '<div><span class="cbk">🏇 Chariot</span> ' + badges(f.chariotUnlocked, '') + '</div></div>';
         secs.push('<div class="tsSec">' + html + '</div>');
       }
 
@@ -862,6 +858,7 @@
       : 'Advance to the next phase / round';
 
     renderPlayerPanel(f);
+    renderFavor(f);
   }
 
   // ---- click a mini -> show the hero card in its matching α-ε slot (left overlay) ----
@@ -955,6 +952,93 @@
     if (!btn || btn.disabled) return;
     PT.buyMarketCard(mbId, Number(btn.dataset.idx));
     marketBuy.hidden = true;
+  });
+
+  // ---- Favor hand panel (private to the active player) + zone-pick overlay ----
+  const favorSec = document.getElementById('favorSec');
+  const favorGrid = document.getElementById('favorGrid');
+  const favorHint = document.getElementById('favorHint');
+  const favorRecoup = document.getElementById('favorRecoup');
+  const favorToggle = document.getElementById('favorToggle');
+  const favorPlay = document.getElementById('favorPlay');
+  const fpHead = document.getElementById('fpHead');
+  const fpImg = document.getElementById('fpImg');
+  const fpZones = document.getElementById('fpZones');
+  let favorCollapsed = false;
+
+  function renderFavor(f) {
+    const cards = f.favor || [];
+    favorSec.hidden = !f.started || f.over || !cards.length;
+    if (favorSec.hidden) { favorPlay.hidden = true; return; }
+    favorToggle.textContent = favorCollapsed ? '▸' : '▾';
+    favorGrid.style.display = favorCollapsed ? 'none' : '';
+    favorGrid.innerHTML = cards.map((c) => {
+      const canFree = c.free && c.free.playable;
+      const canCol = c.colosseum && c.colosseum.playable && f.favorInColosseum;
+      const playable = !c.spent && (canFree || canCol);
+      return '<button class="favorcard' + (c.spent ? ' spent' : '') + (playable ? ' playable' : '')
+        + '" data-fav="' + c.id + '"' + (c.spent ? ' disabled' : '') + ' title="' + c.name + '">'
+        + '<img src="' + window.ASSET_BASE + c.face + '" alt="' + c.name + '">'
+        + (c.spent ? '<span class="fvx">spent</span>' : '') + '</button>';
+    }).join('');
+    const rc = f.favorRecoup || { spent: 0, canAfford: false };
+    favorRecoup.hidden = rc.spent === 0;
+    favorRecoup.disabled = !rc.canAfford;
+    favorRecoup.textContent = 'Recoup ' + rc.spent + ' card' + (rc.spent === 1 ? '' : 's') + ' (3☀)';
+    favorHint.textContent = f.favorInColosseum
+      ? 'Arena: click a hero to select it, then play a card’s Colosseum zone.'
+      : 'Play a card’s Free zone on your turn. Event zones unlock via the relic/column tracks.';
+    // keep an open play overlay in sync (card may have just been spent)
+    if (!favorPlay.hidden) { const open = cards.find((c) => c.id === favorPlay.dataset.fav); if (!open || open.spent) favorPlay.hidden = true; }
+  }
+  function openFavorPlay(cardId) {
+    const f = curFlow; if (!f) return;
+    const c = (f.favor || []).find((x) => x.id === cardId); if (!c || c.spent) return;
+    fpHead.textContent = c.name;
+    fpImg.src = window.ASSET_BASE + c.face;
+    let b = '';
+    if (c.free) {
+      if (c.free.playable) {
+        if (c.free.options) b += c.free.options.map((o, i) =>
+          '<button class="fpbtn" data-fz="free" data-fopt="' + i + '">Free — ' + o.label + '</button>').join('');
+        else b += '<button class="fpbtn" data-fz="free">Free — ' + c.free.label + '</button>';
+      } else b += '<div class="fpz dim">Free: ' + c.free.label + '</div>';
+    }
+    if (c.event) b += '<div class="fpz dim">Event (' + c.event.cost + '☀): ' + c.event.label
+      + (c.event.note ? ' — <i>' + c.event.note + '</i>' : '') + '</div>';
+    if (c.colosseum) {
+      if (c.colosseum.playable && f.favorInColosseum) {
+        if (c.colosseum.move) b += '<button class="fpbtn" data-fz="col" data-fdir="-1">' + c.colosseum.label + ' (toward II)</button>'
+          + '<button class="fpbtn" data-fz="col" data-fdir="1">' + c.colosseum.label + ' (toward XII)</button>';
+        else b += '<button class="fpbtn" data-fz="col">Arena — ' + c.colosseum.label + '</button>';
+        if (c.colosseum.needsTarget) b += '<div class="fpz dim">Select the target hero first (click it on the board or combat panel).</div>';
+      } else b += '<div class="fpz dim">Colosseum: ' + c.colosseum.label + ' (during a fight)</div>';
+    }
+    fpZones.innerHTML = b;
+    favorPlay.dataset.fav = cardId;
+    favorPlay.hidden = false;
+  }
+  favorGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn || btn.disabled) return;
+    openFavorPlay(btn.dataset.fav);
+  });
+  favorToggle.addEventListener('click', () => { favorCollapsed = !favorCollapsed; if (curFlow) renderFavor(curFlow); });
+  favorRecoup.addEventListener('click', () => { if (!favorRecoup.disabled) PT.recoupFavors(); });
+  document.getElementById('favorPlayClose').addEventListener('click', () => { favorPlay.hidden = true; });
+  fpZones.addEventListener('click', (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const id = favorPlay.dataset.fav; const f = curFlow;
+    const c = (f && f.favor || []).find((x) => x.id === id); if (!c) return;
+    if (btn.dataset.fz === 'free') {
+      let opt = null;
+      if (btn.dataset.fopt != null && c.free && c.free.options) opt = c.free.options[Number(btn.dataset.fopt)];
+      PT.playFavorFree(id, opt);
+    } else if (btn.dataset.fz === 'col') {
+      const targetId = (f.colosseum && f.colosseum.selId != null) ? f.colosseum.selId : null;
+      const dir = btn.dataset.fdir != null ? Number(btn.dataset.fdir) : null;
+      PT.playFavorColosseum(id, { targetId, dir });
+    }
+    favorPlay.hidden = true;
   });
 
   PT.onFlow(renderFlow);

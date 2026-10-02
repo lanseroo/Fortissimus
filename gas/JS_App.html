@@ -1076,16 +1076,15 @@
   ];
   const ALL_COLORS = NATIONS.map((n) => n.color);
 
-  // §11 factions — one per color. Each has a Relic (track-gated equip, own faction,
-  // returns after each event), a Favor (GLOBAL, unlocked at a column top rung), and a
-  // Blessing (fires when a hero enters Elysium). `blessAuto` is the automatic part we
-  // apply on Elysium entry: {vp} = race steps, {zap|sun|coin} = resources. Effects that
-  // need an owner choice (Relic equip, Favor deployment, Osiris) are PINNED — see logs.
+  // §11 factions — one per color. The old per-faction Relic / Favor / Blessing abilities
+  // have been RETIRED and replaced by the Favor Card system (see FAVOR_CARDS below): each
+  // player holds a fixed favor hand (their 2 faction cards + the 3 active column-god cards
+  // + the 3 commons), played one zone at a time. Only the faction name/nation remains here.
   const FACTIONS = {
-    Blue:   { name: 'Archaea',   relic: 'Helmet of Ares',      favor: 'Toll of Apollo', blessing: 'Glory of Athena',    blessAuto: { vp: 2 } },
-    Green:  { name: 'Aegyptus',  relic: 'Mask of Anubis',      favor: 'Gaze of Ra',     blessing: 'Ritual of Osiris',   blessAuto: null },          // Osiris is a pay-2☀/roll choice → PIN
-    Yellow: { name: 'Anatolia',  relic: 'Scepter of Sardis',   favor: 'Gordian Lock',   blessing: 'Flames of Chimaera', blessAuto: { zap: 3 } },
-    Purple: { name: 'Phoenicia', relic: 'Imperial Murex',      favor: 'Irony of Baal',  blessing: 'Grace of Astarte',   blessAuto: { sun: 1, zap: 1, coin: 1 } },
+    Blue:   { name: 'Archaea' },
+    Green:  { name: 'Aegyptus' },
+    Yellow: { name: 'Anatolia' },
+    Purple: { name: 'Phoenicia' },
   };
   const factionOf = (color) => FACTIONS[color] || null;
 
@@ -1129,6 +1128,7 @@
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
                  columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
+                 favorSpent: {}, favorAfterlife: {},
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1348,8 +1348,7 @@
     const m = markerOnTrack(color, 'relic');
     if (m && m.userData.slot && m.userData.slot.ord >= relicTopOrd()) {
       GAME.relicUnlocked[color] = true;
-      const fac = factionOf(color);
-      logNote('🏺 ' + color + ' unlocked its Relic: ' + (fac ? fac.relic : '?') + ' (equip is owner-resolved — PIN).');
+      logNote('🏺 ' + color + ' completed the Relic track — its faction favor-card EVENT zones are now unlocked.');
       notifyFlow();
     }
   }
@@ -1441,7 +1440,7 @@
     vulcan:  { name: 'Vulcan',  top: 'relicComplete15', rungs: {   // Master Smith: ⚡ + free Relic upgrades
            1: { zap: 3 }, 2: { zap: 2, sun: 1 }, 3: { relicFree: true }, 4: { sun: 3 },
            5: { trade: { give: { sun: 1 }, get: { race: 5 }, max: 3 }, label: '1☀ → 5 race steps' } } },
-    fauna:   { name: 'Fauna',   top: 'chariotComplete15', rungs: {  // Hero engine: drafts + free Chariot upgrade
+    asclepius: { name: 'Asclepius', top: 'chariotComplete15', rungs: {  // (replaces Fauna; inherits its chariot track wholesale)
            1: { draft: 1 }, 2: { chariotFree: true }, 3: { draft: 1 },
            4: { elyscard: true, label: 'send a hand card → Elysium' }, 5: { income: true } } },
     pluto:   { name: 'Pluto',   top: 'tartarusCount2', rungs: {     // Underworld: Tartarus scaling + big dumps
@@ -1450,7 +1449,7 @@
            5: { trade: { give: { sun: 1 }, get: { race: 10 }, max: 3 }, label: '1☀ → 10 race steps' } } },
   };
   // Each pillar's two faces, indexed 0/1 → art Column{colNum}_{1|2}.png.
-  const COLUMN_SIDES = { 1: ['fortuna', 'vulcan'], 2: ['bacchus', 'fauna'], 3: ['mercury', 'pluto'] };
+  const COLUMN_SIDES = { 1: ['fortuna', 'vulcan'], 2: ['bacchus', 'asclepius'], 3: ['mercury', 'pluto'] };
   const DEFAULT_GODS = ['fortuna', 'bacchus', 'mercury'];   // side-0 of each pillar, pre-selection
   // Flip a random side up on each of the 3 pillars; set GAME.gods (def) + GAME.godSide (0/1).
   function pickGods() {
@@ -1484,16 +1483,252 @@
     if (rw.manual) return rw.manual;
     return '—';
   }
+
+  // ============================ FAVOR CARDS (§ favor-cards-draft) ============================
+  // Replaces the old relic/favor/blessing abilities. Each player holds a FIXED favor hand:
+  // their 2 faction cards + the 3 active column-god cards + the 3 commons. Each card is one-use
+  // (spent) until a flat 3☀ recoup returns them all (free at era rollover). A card has up to three
+  // zones; playing ANY zone spends the card: FREE (0☀, your turn) · EVENT (sun, unlock-gated —
+  // Phase 2) · COLOSSEUM (free, during the fight). Spent cards drop a face-up 3D card on the
+  // player's public favor-discard pile. EVENT zones are gated: faction cards by the relic track
+  // being complete; column cards by that god's column reaching the 3rd-from-top rung (ord ≥ 4).
+  const FAVOR_COL_RUNG = 4;                 // column EVENT unlock rung (3rd-from-top of 7; ord 0..6)
+  const FAVOR_EVENTS_ENABLED = false;       // Phase 1: EVENT-zone resolvers ship in Phase 2
+  const FAVOR_CARDS = [
+    // ---- commons (every player holds all three) ----
+    { id: 'tribute', name: 'Tribute', kind: 'common', face: 'FavorTribute.png',
+      free: { type: 'gain', coin: 2, label: 'Gain 2🪙' },
+      colosseum: { type: 'move', scope: 'any', step: 1, label: 'Move any hero ±1 position' } },
+    { id: 'vigor', name: 'Vigor', kind: 'common', face: 'FavorVigor.png',
+      free: { type: 'gain', zap: 1, label: 'Gain 1⚡' },
+      colosseum: { type: 'stat', stat: 'str', n: 1, scope: 'one', label: 'One hero +1💪' } },
+    { id: 'trade', name: 'Trade', kind: 'common', face: 'FavorTrade.png',
+      free: { type: 'swap', label: 'Swap 2⚡ ⇄ 2🪙' },
+      colosseum: { type: 'stat', stat: 'speed', n: 2, scope: 'one', label: 'One hero +2🪽' } },
+    // ---- Achaea (Blue) ----
+    { id: 'ares', name: 'Fury of Ares', kind: 'faction', owner: 'Blue', face: 'FavorAres.png',
+      free: { type: 'gain', zap: 1, coin: 1, label: 'Gain 1⚡ + 1🪙' },
+      event: { type: 'shiftResult', n: 2, scope: 'own', cost: 1, label: 'Shift one of your heroes’ result ±2' },
+      colosseum: { type: 'stat', stat: 'str', n: 1, scope: 'all', label: 'Your heroes +1💪' } },
+    { id: 'nike', name: 'Patronage of Nike', kind: 'faction', owner: 'Blue', face: 'FavorNike.png',
+      free: { type: 'gain', zap: 1, label: 'Gain 1⚡' },
+      event: { type: 'sponsorTier', cost: 1, label: 'Upgrade one hero’s sponsor reward one tier' },
+      colosseum: { type: 'afterlife', payload: { vp: 2 }, label: 'Surviving heroes: +2 VP each' } },
+    // ---- Aegyptus (Green) ----
+    { id: 'osiris', name: 'Gaze of Osiris', kind: 'faction', owner: 'Green', face: 'FavorOsiris.png',
+      free: { type: 'gain', sun: 1, label: 'Gain 1☀' },
+      event: { type: 'rerollCup', cost: 1, label: 'Reroll all your cup dice' },
+      colosseum: { type: 'afterlife', rescue: true, label: 'Your Tartarus-bound heroes → Elysium' } },
+    { id: 'sekhmet', name: 'Plague of Sekhmet', kind: 'faction', owner: 'Green', face: 'FavorSekhmet.png',
+      free: { type: 'gain', coin: 3, label: 'Gain 3🪙' },
+      event: { type: 'noSponsor1st', cost: 1, label: '1st-place heroes claim no sponsor award' },
+      colosseum: { type: 'gladAtk', n: 1, label: '+1 to the gladiator’s attack (this strike)' } },
+    // ---- Phoenicia (Purple) ----
+    { id: 'melqart', name: 'Blessing of Melqart', kind: 'faction', owner: 'Purple', face: 'FavorMelqart.png',
+      free: { type: 'gain', coin: 3, label: 'Gain 3🪙' },
+      event: { type: 'setCupDie', cost: 2, label: 'Set one of your cup dice to any value' },
+      colosseum: { type: 'stat', stat: 'str', n: 2, scope: 'one', coinOnHit: 2, label: 'One hero +2💪; +2🪙 if it removes a Heart' } },
+    { id: 'yam', name: 'Tempest of Yam', kind: 'faction', owner: 'Purple', face: 'FavorYam.png',
+      free: { type: 'gain', zap: 1, label: 'Gain 1⚡' },
+      event: { type: 'denyFirstPodium', cost: 2, label: 'Opponents can’t claim 1st (podium reward only)' },
+      colosseum: { type: 'afterlife', payload: { sun: 1, zap: 1, coin: 1 }, label: 'Surviving heroes: +1☀+1⚡+1🪙 each' } },
+    // ---- Anatolia (Yellow) ----
+    { id: 'teshub', name: 'Storm of Teshub', kind: 'faction', owner: 'Yellow', face: 'FavorTeshub.png',
+      free: { type: 'gain', zap: 2, label: 'Gain 2⚡' },
+      event: { type: 'onePerFaction', cost: 2, label: 'Only one hero per faction at this event' },
+      colosseum: { type: 'afterlife', payload: { zap: 3 }, label: 'Surviving heroes: +3⚡ each' } },
+    { id: 'cybele', name: 'Shelter of Cybele', kind: 'faction', owner: 'Yellow', face: 'FavorCybele.png',
+      free: { type: 'gain', zap: 1, coin: 1, label: 'Gain 1⚡ + 1🪙' },
+      event: { type: 'moveHero', cost: 1, label: 'Move one of your heroes to another event' },
+      colosseum: { type: 'shield', scope: 'one', label: 'Shield one hero from the gladiator’s strike' } },
+    // ---- column gods (the 3 active each game) ----
+    { id: 'mercury', name: 'Mercury', kind: 'column', god: 'mercury', face: 'FavorMercury.png',
+      free: { type: 'gain', zap: 1, label: 'Gain 1⚡' },
+      event: { type: 'freeRound', cost: 1, label: 'Advance a hero a round free (High Jump / Archery)' },
+      colosseum: { type: 'move', scope: 'own', step: 2, label: 'Move one of your heroes up to 2 positions' } },
+    { id: 'pluto', name: 'Pluto', kind: 'column', god: 'pluto', face: 'FavorPluto.png',
+      free: { type: 'gain', coin: 2, label: 'Gain 2🪙' },
+      event: { type: 'forceReroll', cost: 1, label: 'Force one opponent to reroll 1 die' },
+      colosseum: { type: 'attackTwice', scope: 'one', label: 'One hero attacks twice' } },
+    { id: 'bacchus', name: 'Bacchus', kind: 'column', god: 'bacchus', face: 'FavorBacchus.png',
+      free: { type: 'gain', zap: 1, coin: 1, label: 'Gain 1⚡ + 1🪙' },
+      event: { type: 'shiftResult', n: 1, scope: 'any', cost: 1, label: '±1 to any hero’s event result' },
+      colosseum: { type: 'fallenToElysium', label: 'One fallen hero → Elysium' } },
+    { id: 'asclepius', name: 'Asclepius', kind: 'column', god: 'asclepius', face: 'FavorAsclepius.png',
+      free: { type: 'freeTrack', track: 'chariot', label: 'Advance your chariot track +1 (free)' },
+      event: { type: 'cupInPlace', cost: 1, label: 'Use one cup die in place of a rolled die' },
+      colosseum: { type: 'stat', stat: 'speed', n: 1, scope: 'all', label: 'Your heroes +1🪽' } },
+    { id: 'fortuna', name: 'Fortuna', kind: 'column', god: 'fortuna', face: 'FavorFortuna.png',
+      free: { type: 'choose', options: [{ coin: 2 }, { zap: 1 }], label: 'Gain 2🪙 or 1⚡' },
+      event: { type: 'rerollEventDie', cost: 1, label: 'Reroll one of your event dice' },
+      colosseum: { type: 'rerollPos', scope: 'one', label: 'Reroll one of your heroes’ position' } },
+    { id: 'vulcan', name: 'Vulcan', kind: 'column', god: 'vulcan', face: 'FavorVulcan.png',
+      free: { type: 'freeTrack', track: 'relic', label: 'Advance your relic track +1 (free)' },
+      event: { type: 'nudgeRolled', cost: 1, label: 'Nudge one of your rolled dice ±1' },
+      colosseum: { type: 'stat', stat: 'str', n: 3, scope: 'one', label: 'One hero +3💪' } },
+  ];
+  const FAVOR_BACK = { Blue: 'FavorBackBlue.png', Green: 'FavorBackGreen.png', Purple: 'FavorBackPurple.png', Yellow: 'FavorBackYellow.png' };
+  const favorCardById = (id) => FAVOR_CARDS.find((c) => c.id === id) || null;
+  // Which physical column (1/2/3) a column-god card sits on this game (its god is one of the active trio).
+  function favorColNum(card) {
+    if (card.kind !== 'column') return null;
+    const nm = (GOD_POOL[card.god] || {}).name;
+    return [1, 2, 3].find((cn) => godName(cn) === nm) || null;
+  }
+  // A color's fixed favor hand: faction's 2 + the 3 active column gods + the 3 commons.
+  function favorHandFor(color) {
+    return FAVOR_CARDS.filter((c) =>
+      c.kind === 'common' ||
+      (c.kind === 'faction' && c.owner === color) ||
+      (c.kind === 'column' && favorColNum(c)));
+  }
+  const favorSpentOf = (color, id) => !!(GAME.favorSpent[color] && GAME.favorSpent[color][id]);
+  // Is a card's EVENT zone unlocked for this color? (faction → relic complete; column → ord ≥ 4)
+  function favorEventUnlocked(color, card) {
+    if (card.kind === 'faction') return !!(GAME.relicUnlocked && GAME.relicUnlocked[color]);
+    if (card.kind === 'column') { const cn = favorColNum(card); return cn ? (GAME.columns[color]?.[cn] || 0) >= FAVOR_COL_RUNG : false; }
+    return false;
+  }
+  function atTrackTop(color, track) {
+    const m = markerOnTrack(color, track); if (!m || !m.userData.slot) return true;
+    const top = (track === 'relic') ? relicTopOrd() : chariotTopOrd();
+    return m.userData.slot.ord >= top;
+  }
+  const favorDiscardSlotOf = (color) => slotsByRole('favor-discard', color)[0] || null;
+  // Drop a face-up 3D copy of a played card on the owner's public favor-discard pile.
+  function mintFavorDiscard(color, face) {
+    const slot = favorDiscardSlotOf(color); if (!slot) return;
+    const g = addToken(face, 22, 'card');
+    g.userData.owner = color; g.userData.favorDiscard = true; g.userData.face = face; g.userData.zone = 'discard';
+    setCardFace(g, face);
+    placeOnSlot(g, slot);
+  }
+  function spendFavorCard(color, card) {
+    (GAME.favorSpent[color] || (GAME.favorSpent[color] = {}))[card.id] = true;
+    mintFavorDiscard(color, card.face);
+  }
+  // Recoup: 3☀ (or free at era rollover) returns ALL of a color's spent favor cards to hand
+  // and clears their 3D discard pile.
+  function recoupFavors(color, free) {
+    if (!color) return;
+    const spent = GAME.favorSpent[color] ? Object.keys(GAME.favorSpent[color]).length : 0;
+    if (!spent) return;
+    if (!free) { if ((GAME.res[color]?.sun || 0) < 3) return; adjustRes(color, 'sun', -3); }
+    GAME.favorSpent[color] = {};
+    for (const p of pieces.slice()) if (p.userData.favorDiscard && p.userData.owner === color) removePiece(p);
+    logNote('♻ ' + color + ' recouped ' + spent + ' favor card' + (spent > 1 ? 's' : '') + (free ? ' (free — era rollover)' : ' (−3☀)') + '.');
+    notifyFlow();
+  }
+
+  // ---- FREE zone resolver (economy / track) ----
+  function applyFavorFree(color, card, opt) {
+    const f = card.free; if (!f) return false;
+    if (f.type === 'gain') { if (f.coin) adjustRes(color, 'coin', f.coin); if (f.zap) adjustRes(color, 'zap', f.zap); if (f.sun) adjustRes(color, 'sun', f.sun); return true; }
+    if (f.type === 'freeTrack') return moveUpTrack(color, f.track);   // false at the top → card not spent
+    if (f.type === 'choose') { const o = f.options[(opt && opt.choice) || 0]; if (!o) return false; for (const k in o) adjustRes(color, k, o[k]); return true; }
+    if (f.type === 'swap') {
+      const dir = opt && opt.dir;
+      if (dir === 'z2c') { if ((GAME.res[color]?.zap || 0) < 2) return false; adjustRes(color, 'zap', -2); adjustRes(color, 'coin', 2); return true; }
+      if (dir === 'c2z') { if ((GAME.res[color]?.coin || 0) < 2) return false; adjustRes(color, 'coin', -2); adjustRes(color, 'zap', 2); return true; }
+      return false;
+    }
+    return false;
+  }
+  // ---- COLOSSEUM zone resolver (round-scoped fighter flags, afterlife, rescue) ----
+  function applyFavorColosseum(color, card, opt) {
+    const c = GAME.colosseum; if (!c) return false;
+    const e = card.colosseum; if (!e) return false;
+    const own = c.fighters.filter((f) => f.color === color);
+    const ownAlive = own.filter((f) => f.alive);
+    const tgt = (opt && opt.targetId != null) ? fighterOf(opt.targetId) : null;
+    if (e.type === 'stat') {
+      const field = e.stat === 'str' ? 'strBonus' : 'speedBonus';
+      if (e.scope === 'all') { if (!ownAlive.length) return false; ownAlive.forEach((f) => { f[field] = (f[field] || 0) + e.n; }); }
+      else { if (!tgt || tgt.color !== color || !tgt.alive) return false; tgt[field] = (tgt[field] || 0) + e.n; if (e.coinOnHit) tgt.coinOnHit = (tgt.coinOnHit || 0) + e.coinOnHit; }
+    } else if (e.type === 'shield') { if (!tgt || tgt.color !== color || !tgt.alive) return false; tgt.shielded = true; }
+    else if (e.type === 'attackTwice') { if (!tgt || tgt.color !== color || !tgt.alive) return false; tgt.doubled = true; }
+    else if (e.type === 'gladAtk') { c.gladBonus += e.n; c.favorGladStrike = true; }   // zeroed after the next strike
+    else if (e.type === 'move') {
+      if (!tgt || !tgt.alive) return false;
+      if (e.scope === 'own' && tgt.color !== color) return false;
+      const d = (opt && opt.dir < 0) ? -1 : 1; let moved = 0;
+      for (let s = 0; s < (e.step || 1); s++) { if (pushBlocked(tgt.pos, d)) break; tgt.pos = wrapPos(tgt.pos + d); moved++; }
+      if (!moved) return false; placeAllFighters(tgt.id);
+    } else if (e.type === 'rerollPos') {
+      if (!tgt || tgt.color !== color || !tgt.alive) return false;
+      let p = Math.min(12, Math.max(2, rollFace() + rollFace()));
+      let guard = 0; while (posOccupied(p) >= 2 && p !== tgt.pos && guard++ < 12) p = wrapPos(p + 1);
+      tgt.pos = p; placeAllFighters(tgt.id);
+    } else if (e.type === 'fallenToElysium') {
+      const dead = (tgt && tgt.color === color && tgt.dead && !tgt.toElysium) ? tgt : own.find((f) => f.dead && !f.toElysium);
+      if (!dead) return false; dead.toElysium = true;
+    } else if (e.type === 'afterlife') {
+      GAME.favorAfterlife[color] = e.rescue ? { rescue: true } : { payload: e.payload };
+    } else return false;
+    c.log.push('🃏 ' + color + ' favor: ' + card.name);
+    return true;
+  }
+  // Public entry points (PT.playFavorFree / PT.playFavorColosseum). Acting color = the active hand.
+  function playFavorFree(cardId, opt) {
+    const color = activeColorName; const card = favorCardById(cardId);
+    if (!color || !card || !card.free || favorSpentOf(color, card.id)) return;
+    if (!favorHandFor(color).includes(card)) return;
+    if (!(GAME.started && !GAME.over && isPerPlayer() && curPlayer() === color)) return;
+    if (!applyFavorFree(color, card, opt)) return;
+    spendFavorCard(color, card);
+    logNote('🃏 ' + color + ' plays ' + card.name + ' (free): ' + card.free.label + '.');
+    notifyFlow();
+  }
+  function playFavorColosseum(cardId, opt) {
+    const color = activeColorName; const card = favorCardById(cardId);
+    if (!color || !card || !card.colosseum || favorSpentOf(color, card.id)) return;
+    if (!favorHandFor(color).includes(card)) return;
+    const c = GAME.colosseum; if (!c || !c.fighters.some((f) => f.color === color)) return;
+    if (!applyFavorColosseum(color, card, opt)) return;
+    spendFavorCard(color, card);
+    logNote('🃏 ' + color + ' plays ' + card.name + ' (colosseum): ' + card.colosseum.label + '.');
+    notifyFlow();
+  }
+  // Snapshot of a color's favor hand for the UI panel.
+  function favorState(color) {
+    if (!color) return [];
+    const inPer = GAME.started && !GAME.over && isPerPlayer() && curPlayer() === color;
+    const c = GAME.colosseum;
+    const participant = !!(c && c.fighters.some((f) => f.color === color));
+    return favorHandFor(color).map((card) => {
+      const spent = favorSpentOf(color, card.id);
+      const out = { id: card.id, name: card.name, face: card.face, kind: card.kind, spent };
+      if (card.free) {
+        let can = inPer && !spent;
+        if (can && card.free.type === 'freeTrack') can = !atTrackTop(color, card.free.track);
+        out.free = {
+          label: card.free.label, type: card.free.type, playable: can,
+          options: card.free.type === 'swap' ? [{ dir: 'z2c', label: '2⚡→2🪙' }, { dir: 'c2z', label: '2🪙→2⚡' }]
+            : card.free.type === 'choose' ? card.free.options.map((o, i) => ({ choice: i, label: o.coin ? ('+' + o.coin + '🪙') : ('+' + o.zap + '⚡') }))
+            : null,
+        };
+      }
+      if (card.event) {
+        const unlocked = favorEventUnlocked(color, card);
+        out.event = { label: card.event.label, cost: card.event.cost, unlocked,
+          playable: false, note: FAVOR_EVENTS_ENABLED ? (unlocked ? '' : 'locked') : 'Phase 2' };
+      }
+      if (card.colosseum) {
+        const e = card.colosseum;
+        const needsTarget = (e.type === 'stat' && e.scope === 'one') || ['shield', 'attackTwice', 'move', 'rerollPos', 'fallenToElysium'].includes(e.type);
+        out.colosseum = { label: e.label, type: e.type, scope: e.scope || null, needsTarget,
+          move: e.type === 'move', step: e.step || 1, playable: participant && !spent };
+      }
+      return out;
+    });
+  }
+
   const markerOnColumn = (color, colNum) =>
     pieces.find((p) => p.userData.type === 'marker' && p.userData.color === color &&
                        p.userData.slot && p.userData.slot.colNum === colNum);
   // Apply the reward for one rung a marker just reached.
   function grantColumnRung(color, colNum, ord) {
-    if (ord >= 6) {                       // top rung: Favor unlock + deferred ×2 scoring
-      if (!GAME.favorUnlocked[color]) {
-        GAME.favorUnlocked[color] = true;
-        logNote('★ ' + color + ' unlocked Faction Favor (reached ' + godName(colNum) + ' top rung).');
-      }
+    if (ord >= 6) {                       // top rung: deferred ×2 end-game scoring (Favor is now card-based)
       logNote('▲ ' + color + ' reached ' + godName(colNum) + ' TOP — ×2 VP conversion at end of game.');
       return;
     }
@@ -3001,8 +3236,10 @@
     const fighters = arenaMinis.map((m) => {
       const ci = miniCardInfo(m), st = heroStats(m);
       return { id: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, str: st.str, speed: st.speed, pos: 2, alive: true, doubled: false, rage: false };
+               face: ci.face, str: st.str, speed: st.speed, pos: 2, alive: true, doubled: false, rage: false,
+               strBonus: 0, speedBonus: 0, shielded: false, coinOnHit: 0, toElysium: false };
     });
+    GAME.favorAfterlife = {};   // afterlife favor cards are declared & scoped to THIS fight only
     GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
       targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atk: card.atk, rangeMod: card.rangeMod, shield: card.shield,
       heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
@@ -3048,11 +3285,15 @@
     const targets = c.targetIds.map((id) => fighterOf(id)).filter(Boolean);
     c.attackVal = raw + c.atk + c.gladBonus;   // ⚔ = d6 ±M (corner value), NOT the position-range roll
     c.log.push('👹 Gladiator strikes for ' + c.attackVal + ' at ' + c.targetLabel);
-    // No ☀ save: if a struck hero can't out-speed the blow, it dies. Speed is the only dodge.
+    // No ☀ save: if a struck hero can't out-speed the blow, it dies. Speed is the only dodge
+    // (a favor Shield makes a hero auto-survive the strike; Speed bonuses raise the dodge threshold).
     for (const f of targets) {
-      if (f.speed > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + f.speed + ')');
-      else { c.log.push('✝ ' + symName(f) + ' falls (Speed ' + f.speed + ' ≤ ' + c.attackVal + ')'); killFighter(f); }
+      const spd = f.speed + (f.speedBonus || 0);
+      if (f.shielded) c.log.push('🛡 ' + symName(f) + ' is shielded — survives the strike');
+      else if (spd > c.attackVal) c.log.push('💨 ' + symName(f) + ' evades (Speed ' + spd + ')');
+      else { c.log.push('✝ ' + symName(f) + ' falls (Speed ' + spd + ' ≤ ' + c.attackVal + ')'); killFighter(f); }
     }
+    if (c.favorGladStrike) { c.gladBonus = 0; c.favorGladStrike = false; }   // Sekhmet bump was "this strike only"
     colToBuyB();
   }
   // A hero fell: mark dead, pull its mini off the board AT ONCE, and lay its tied hero card face-up
@@ -3073,7 +3314,7 @@
       const uw = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png');
       const elySlots = uw.filter((s) => (s.accepts || []).includes('card')).slice(0, 4);
       const tarSlot = uw.find((s) => !elySlots.includes(s));
-      if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; setCardFace(card, card.userData.face); }
+      if (card && tarSlot) { placeOnSlot(card, tarSlot); card.userData.zone = 'tartarus'; card.userData.diedFighterId = f.id; setCardFace(card, card.userData.face); }
       m.visible = false;                 // out of the arena; returns home at dismissColosseum
       m.userData.waiting = false; m.userData.locked = false;
     }
@@ -3103,7 +3344,7 @@
   }
   function colApplyCounter(f, raw) {
     const c = GAME.colosseum; if (!c) return;
-    const total = raw + f.str + (f.rage ? 2 : 0);
+    const total = raw + f.str + (f.strBonus || 0) + (f.rage ? 2 : 0);
     if (total > c.shield) {
       const dmg = total - c.shield + (f.rage ? 1 : 0);
       const vpDmg = Math.min(dmg, c.hearts);   // no VP for overkill past the last heart
@@ -3112,6 +3353,7 @@
       // pendingVP stays a running tally only, for the end-screen combat breakdown (NOT re-applied).
       GAME.pendingVP[f.color] = (GAME.pendingVP[f.color] || 0) + vpDmg;
       advanceRace(f.color, vpDmg);         // heart damage → that many VP, live (capped at hearts left)
+      if (vpDmg > 0 && f.coinOnHit) { adjustRes(f.color, 'coin', f.coinOnHit); c.log.push('🪙 ' + symName(f) + ' +' + f.coinOnHit + ' (War Profiteer)'); f.coinOnHit = 0; }
       c.log.push('⚔ ' + symName(f) + ' hits (' + total + ' − ' + c.shield + (f.rage ? '+1' : '') + ') = ' + dmg + '❤'
         + (dmg > vpDmg ? ' (' + vpDmg + ' VP — overkill capped)' : ''));
       if (c.hearts <= 0) {
@@ -3127,8 +3369,8 @@
   function colFinishRound() {
     const c = GAME.colosseum;
     if (c.hearts <= 0) { c.sub = 'done'; clearTurnMarker(); notifyFlow(); return; }
-    for (const f of c.fighters) { f.doubled = false; f.rage = false; }
-    c.gladBonus = 0;
+    for (const f of c.fighters) { f.doubled = false; f.rage = false; f.strBonus = 0; f.speedBonus = 0; f.shielded = false; f.coinOnHit = 0; }
+    c.gladBonus = 0; c.favorGladStrike = false;
     clearTurnMarker();
     if (c.fighters.some((f) => f.alive)) {
       c.round++;
@@ -3141,19 +3383,17 @@
   // HERO CARD goes to the underworld — survivors' cards sort onto their faction's Elysium slot (3 VP
   // each at end), the fallen's cards stack on the single common Tartarus pile. Action coins refund;
   // then the phase walk continues.
-  // §11 Blessing — fires when one of a nation's heroes enters Elysium (currently only
-  // Colosseum survival). The automatic reward (VP = race steps, or resources) applies
-  // now; Aegyptus / Ritual of Osiris is a pay-2☀-or-roll choice → PINNED (logged only).
+  // Afterlife favor payout — fires per hero reaching Elysium IF the color played an afterlife
+  // colosseum card this fight (Nike +2 VP · Yam +1☀+1⚡+1🪙 · Teshub +3⚡ · Osiris rescue = seat only).
+  // Replaces the old auto faction Blessing. No played afterlife card → nothing fires.
   function fireBlessing(color) {
-    const fac = factionOf(color); if (!fac) return;
-    const a = fac.blessAuto;
-    if (!a) { logNote('✨ ' + color + ' — ' + fac.blessing + ' (Elysium): owner choice — PIN.'); return; }
-    const parts = [];
+    const af = GAME.favorAfterlife[color]; if (!af || !af.payload) return;
+    const a = af.payload; const parts = [];
     if (a.vp)   { advanceRace(color, a.vp);         parts.push('+' + a.vp + ' VP'); }
     if (a.zap)  { adjustRes(color, 'zap',  a.zap);  parts.push('+' + a.zap + '⚡'); }
     if (a.sun)  { adjustRes(color, 'sun',  a.sun);  parts.push('+' + a.sun + '☀'); }
     if (a.coin) { adjustRes(color, 'coin', a.coin); parts.push('+' + a.coin + '🪙'); }
-    logNote('✨ ' + color + ' — ' + fac.blessing + ': ' + parts.join(' '));
+    if (parts.length) logNote('✨ ' + color + ' afterlife favor (Elysium): ' + parts.join(' '));
   }
   function dismissColosseum() {
     const c = GAME.colosseum; if (!c) return;
@@ -3161,16 +3401,20 @@
     const tarSlot = SLOTS.filter((s) => s.boardKey === 'UnderworldBoard.png').find((s) => !elySlots.includes(s));
     for (const f of c.fighters) {
       const m = findMini(f.id); if (!m) continue;
-      // the tied hero card (still parked on the mini's card slot after it moved to the arena)
-      const cs = cardSlotOf(m);
-      const card = cs && cs.occupants.slice().reverse().find((o) => o !== m && o.userData.type === 'card');
-      if (f.alive) {
+      // A fallen hero reaches Elysium instead of Tartarus if Bacchus flagged it (f.toElysium) or
+      // the color played Osiris (afterlife rescue). Survivors' cards sit on the mini's card slot;
+      // a rescued fallen card is on the Tartarus pile (tagged diedFighterId in killFighter).
+      const af = GAME.favorAfterlife[f.color];
+      const rescued = f.dead && (f.toElysium || (af && af.rescue));
+      let card;
+      if (f.alive) { const cs = cardSlotOf(m); card = cs && cs.occupants.slice().reverse().find((o) => o !== m && o.userData.type === 'card'); }
+      else if (rescued) { card = pieces.find((o) => o.userData.type === 'card' && o.userData.diedFighterId === f.id); }
+      if (f.alive || rescued) {
+        if (rescued) { const ti = GAME.tartarus.findIndex((e) => e.id === f.id); if (ti >= 0) GAME.tartarus.splice(ti, 1); }
         GAME.elysium.push({ color: f.color, sym: f.sym, id: f.id, str: f.str, speed: f.speed });
-        if (card) { const slot = elySlots[SEAT_ORDER.indexOf(f.color) % 4] || elySlots[0]; if (slot) placeOnSlot(card, slot); card.userData.zone = 'elysium'; setCardFace(card, card.userData.face); }
-        fireBlessing(f.color);   // §11 Blessing on Elysium entry (auto part applied; choices PINNED)
+        if (card) { const slot = elySlots[SEAT_ORDER.indexOf(f.color) % 4] || elySlots[0]; if (slot) placeOnSlot(card, slot); card.userData.zone = 'elysium'; card.userData.diedFighterId = null; setCardFace(card, card.userData.face); }
+        fireBlessing(f.color);   // afterlife favor payout per hero reaching Elysium (if one was played)
       }
-      // fallen fighters (f.dead) already sent their card to Tartarus in killFighter — nothing to
-      // re-book here; every mini (survivor OR fallen) now returns home, unlocked and reset.
       // mini goes home, unlocked and reset (visible again in case it entered/left mid-roll)
       m.visible = true;
       m.userData.waiting = false; m.userData.locked = false;
@@ -3515,6 +3759,10 @@
       godNames: { 1: godName(1), 2: godName(2), 3: godName(3) },
       income: { ...(GAME.income || {}) },
       favorUnlocked: { ...GAME.favorUnlocked },
+      favor: favorState(activeColorName),
+      favorRecoup: { spent: GAME.favorSpent[activeColorName] ? Object.keys(GAME.favorSpent[activeColorName]).length : 0,
+                     canAfford: (GAME.res[activeColorName]?.sun || 0) >= 3 },
+      favorInColosseum: !!GAME.colosseum,
       prompt: promptFlow(),
       chariotUnlocked: { ...(GAME.chariotUnlocked || {}) },
       relicUnlocked: { ...(GAME.relicUnlocked || {}) },
@@ -3675,6 +3923,19 @@
     SLOTS.push(slot);
     return slot;
   }
+  // Public favor-discard pile: spent favor cards land here face-up so every player can see what
+  // was played (the private favor HAND is a UI panel; only spent cards become physical).
+  function favorDiscardAnchor(b) { const a = deckAnchor(b); return { x: a.x, z: a.z - 60 }; }
+  function addFavorDiscardSlot(color, x, z) {
+    const y = 0.06;
+    const marker = makeSlotMarker(x, y, z, 9, color);
+    slotMarkersGroup.add(marker);
+    const slot = { x, y, z, r: 9, accepts: ['card'], color, owner: color, role: 'favor-discard',
+                   coin: false, event: false, boardKey: null, track: null, ord: null, bx: x,
+                   lane: null, stack: true, marker, occupants: [] };
+    SLOTS.push(slot);
+    return slot;
+  }
 
   function startGame() {
     GAME.started = true; GAME.over = false; GAME.round = 1; GAME.phaseIndex = 0;
@@ -3688,7 +3949,8 @@
     GAME.gods = pickGods();                              // flip a random face up on each pillar
     refreshColumnFaces();                                // show the chosen Column{n}_{1|2}.png art
     GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = []; GAME.prompts = [];
-    for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; }
+    GAME.favorSpent = {}; GAME.favorAfterlife = {};
+    for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; GAME.favorSpent[c] = {}; }
     logNote('🏛 Gods this game: ' + [1, 2, 3].map((cn) => godName(cn)).join(' · ') + '.');
     GAME.pendingVP = {}; GAME.elysium = []; GAME.tartarus = []; GAME.result = null;
     enterPhase(true);
@@ -3701,6 +3963,7 @@
       GAME.phaseIndex++;
     } else if (GAME.round < TOTAL_ROUNDS) {
       GAME.round++; GAME.phaseIndex = 0; GAME.order = computeOrder(GAME.round);
+      if (eraOf(GAME.round) !== eraOf(GAME.round - 1)) for (const c of ALL_COLORS) recoupFavors(c, true);  // free recoup each era
       if (GAME.romeLostRound) { colBurnGladiator(); GAME.romeLostRound = false; }  // §14.D deck burn
     } else {
       GAME.over = true;
@@ -3868,6 +4131,8 @@
       buildDeck(b.color, [gen, gen, gen, 'Plebe' + L + '2_0.png', 'Plebe' + L + '0_2.png'], a.x, a.z);
       const d = discardAnchor(b);                 // drag a modifier here for +2 coins
       addDiscardSlot(b.color, d.x, d.z);
+      const fd = favorDiscardAnchor(b);           // public spent-favor-card pile
+      addFavorDiscardSlot(b.color, fd.x, fd.z);
     }
 
     // markers for all 4 nations at the start of every relevant track (auto-fan)
@@ -4000,6 +4265,7 @@
     colBuy, colRest, colActPass, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
+    playFavorFree, playFavorColosseum, recoupFavors: () => recoupFavors(activeColorName, false),
     resolveColPick, resolveTrade, resolveDraft, resolveElysCard, dismissPrompt, focusMarket,
     setSlotsVisible: (v) => {
       slotsForced = v;

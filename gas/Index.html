@@ -48,8 +48,6 @@
         <button id="addChariot">Chariot</button>
         <button id="addMarker">Marker</button>
         <button id="addPlebe">Plebe</button>
-        <button id="addCheer">Cheer</button>
-        <button id="addJeer">Jeer</button>
         <button id="addRound" title="Round tracker (black)">Round</button>
       </fieldset>
 
@@ -127,6 +125,16 @@
           <div id="competeHint" class="ppmini"></div>
         </div>
 
+        <!-- Favor hand (private to the active player): a collapsible panel of the owner's favor
+             cards. Clicking a card opens the zone-pick overlay; spent cards grey out and a 3D
+             copy drops on the public favor-discard pile. Visible in normal turns AND the arena. -->
+        <div class="ppsec" id="favorSec" hidden>
+          <div class="ppsec-h">Favor cards <button id="favorToggle" class="fvtoggle" title="Show/hide your favor hand">▾</button></div>
+          <div id="favorGrid" class="favorgrid"></div>
+          <div id="favorHint" class="ppmini"></div>
+          <button id="favorRecoup" class="ppwide" title="Spend 3☀ to return all your played favor cards to hand">Recoup all (3☀)</button>
+        </div>
+
         <!-- Colosseum combat drives from here (board stays visible); shown only mid-fight. -->
         <div id="colFight" hidden>
           <div id="cfHead"></div>                <!-- gladiator name · level · target -->
@@ -155,6 +163,12 @@
           <button id="marketBuyClose" title="Close">✕</button>
           <div id="mbHead"></div>
           <div id="mbBtns"></div>   <!-- payment-option buttons built per-card in JS_UI -->
+        </div>
+        <div id="favorPlay" hidden>
+          <button id="favorPlayClose" title="Close">✕</button>
+          <div id="fpHead"></div>
+          <img id="fpImg" alt="favor card">
+          <div id="fpZones"></div>   <!-- zone (Free / Event / Colosseum) buttons built per-card in JS_UI -->
         </div>
       </div>
 
