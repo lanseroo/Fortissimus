@@ -1599,7 +1599,7 @@
   function mintFavorDiscard(color, face) {
     const slot = favorDiscardSlotOf(color); if (!slot) return;
     const g = addToken(face, 22, 'card');
-    g.userData.owner = color; g.userData.favorDiscard = true; g.userData.face = face; g.userData.zone = 'discard';
+    g.userData.owner = color; g.userData.favorDiscard = true; g.userData.face = face; g.userData.zone = 'favor-discard';   // own pile — NEVER the hero deck/discard cycle
     setCardFace(g, face);
     placeOnSlot(g, slot);
   }
@@ -3487,6 +3487,7 @@
   function sweepFreeCards() {
     for (const c of pieces.slice()) {
       if (c.userData.type !== 'card' || !c.userData.owner) continue;
+      if (c.userData.favorDiscard) continue;                                 // favor pile is self-contained (recoup only)
       if (c.userData.zone === 'deck' || c.userData.zone === 'discard') continue;
       const s = c.userData.slot;
       if (s && s.role === 'hand') continue;                        // still held in a hand
@@ -4085,7 +4086,7 @@
   // anchor — used by dealHand when the draw pile runs dry mid-deal.
   function reshuffleDiscardIntoDeck(colorName, anchor) {
     const disc = pieces.filter((p) =>
-      p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'discard');
+      p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'discard' && !p.userData.favorDiscard);
     if (!disc.length) return;
     for (let i = disc.length - 1; i > 0; i--) {          // Fisher-Yates
       const j = Math.floor(Math.random() * (i + 1));
