@@ -991,9 +991,22 @@
     // keep an open play overlay in sync (card may have just been spent)
     if (!favorPlay.hidden) { const open = cards.find((c) => c.id === favorPlay.dataset.fav); if (!open || open.spent) favorPlay.hidden = true; }
   }
+  // Per-effect step sequence for the EVENT-zone picker (collected into `opt`, then playFavorEvent).
+  const FAVOR_EVENT_STEPS = {
+    shiftResult: ['hero', 'dir'], sponsorTier: ['ownhero'], rerollCup: [],
+    setCupDie: ['cupdie', 'value'], rerollEventDie: ['ownhero', 'die'],
+    nudgeRolled: ['ownhero', 'die', 'dir'], cupInPlace: ['ownhero', 'eventdie', 'cupdie'],
+    forceReroll: ['opphero', 'die'], freeRound: ['ownhero'],
+    noSponsor1st: [], denyFirstPodium: [], onePerFaction: ['eventslot'], moveHero: ['committed', 'eventslot'],
+  };
+  let fpEvent = null;   // { cardId, type, scope, steps, idx, opt, heroId }
+  const diceStr = (d) => (d && d.length) ? '[' + d.join(',') + ']' : '[—]';
+  const symChip = (si) => si ? '<img class="hsym" src="' + window.ASSET_BASE + si + '" alt="">' : '';
+
   function openFavorPlay(cardId) {
     const f = curFlow; if (!f) return;
     const c = (f.favor || []).find((x) => x.id === cardId); if (!c || c.spent) return;
+    fpEvent = null;
     fpHead.textContent = c.name;
     fpImg.src = window.ASSET_BASE + c.face;
     let b = '';
@@ -1004,8 +1017,11 @@
         else b += '<button class="fpbtn" data-fz="free">Free — ' + c.free.label + '</button>';
       } else b += '<div class="fpz dim">Free: ' + c.free.label + '</div>';
     }
-    if (c.event) b += '<div class="fpz dim">Event (' + c.event.cost + '☀): ' + c.event.label
-      + (c.event.note ? ' — <i>' + c.event.note + '</i>' : '') + '</div>';
+    if (c.event) {
+      if (c.event.playable) b += '<button class="fpbtn" data-fz="event">Event (' + c.event.cost + '☀) — ' + c.event.label + '</button>';
+      else b += '<div class="fpz dim">Event (' + c.event.cost + '☀): ' + c.event.label
+        + (c.event.note ? ' — <i>' + c.event.note + '</i>' : '') + '</div>';
+    }
     if (c.colosseum) {
       if (c.colosseum.playable && f.favorInColosseum) {
         if (c.colosseum.move) b += '<button class="fpbtn" data-fz="col" data-fdir="-1">' + c.colosseum.label + ' (toward II)</button>'
@@ -1018,27 +1034,77 @@
     favorPlay.dataset.fav = cardId;
     favorPlay.hidden = false;
   }
+  function startFpEvent(c) {
+    const steps = FAVOR_EVENT_STEPS[c.event.type] || [];
+    fpEvent = { cardId: c.id, type: c.event.type, scope: c.event.scope, steps, idx: 0, opt: {}, heroId: null };
+    if (!steps.length) { PT.playFavorEvent(c.id, {}); favorPlay.hidden = true; fpEvent = null; return; }
+    renderFpStep();
+  }
+  function renderFpStep() {
+    const f = curFlow, ev = fpEvent; if (!f || !ev) return;
+    const ctx = f.favorCtx || {}; const me = ownerOf(f);
+    const step = ev.steps[ev.idx];
+    let title = '', b = '';
+    const heroBtns = (list) => list.map((h) =>
+      '<button class="fpbtn" data-fstep="hero" data-hid="' + h.id + '">' + symChip(h.symImg)
+      + (h.color && h.color !== me ? ' ' + h.color : '') + ' ' + diceStr(h.dice) + '</button>').join('')
+      || '<div class="fpz dim">no eligible heroes</div>';
+    const heroDice = () => { const h = (ctx.all || []).find((x) => x.id === ev.heroId); return h ? h.dice : []; };
+    if (step === 'hero') { title = ev.scope === 'any' ? 'Pick any hero' : 'Pick your hero'; b = heroBtns(ev.scope === 'any' ? (ctx.all || []) : (ctx.own || [])); }
+    else if (step === 'ownhero') { title = 'Pick your hero'; b = heroBtns(ctx.own || []); }
+    else if (step === 'opphero') { title = 'Pick an opponent hero'; b = heroBtns((ctx.all || []).filter((h) => h.color !== me)); }
+    else if (step === 'die' || step === 'eventdie') {
+      title = 'Pick a die'; const d = heroDice();
+      b = d.length ? d.map((v, i) => '<button class="fpbtn" data-fstep="die" data-di="' + i + '">die ' + (i + 1) + ': ' + v + '</button>').join('')
+        : '<div class="fpz dim">that hero has no rolled dice</div>';
+    } else if (step === 'cupdie') {
+      title = 'Pick a cup die'; const cup = ctx.cup || [];
+      b = cup.map((v, i) => (v == null) ? '' : '<button class="fpbtn" data-fstep="cupdie" data-ci="' + i + '">cup ' + (i + 1) + ': ' + v + '</button>').join('')
+        || '<div class="fpz dim">no cup dice</div>';
+    } else if (step === 'value') { title = 'Set value'; b = [1, 2, 3, 4, 5, 6].map((v) => '<button class="fpbtn" data-fstep="value" data-v="' + v + '">' + v + '</button>').join(''); }
+    else if (step === 'dir') { title = 'Direction'; b = '<button class="fpbtn" data-fstep="dir" data-dv="1">+' + '</button><button class="fpbtn" data-fstep="dir" data-dv="-1">−</button>'; }
+    else if (step === 'eventslot') { title = 'Pick an event'; b = (ctx.events || []).map((e) => '<button class="fpbtn" data-fstep="eventslot" data-ek="' + e.key + '">' + e.label + '</button>').join('') || '<div class="fpz dim">no events</div>'; }
+    else if (step === 'committed') { title = 'Pick your committed hero'; b = (ctx.committed || []).map((h) => '<button class="fpbtn" data-fstep="committed" data-hid="' + h.id + '">' + symChip(h.symImg) + ' @ ' + h.label + '</button>').join('') || '<div class="fpz dim">no committed heroes</div>'; }
+    fpZones.innerHTML = '<div class="fpz">' + title + '</div>' + b + '<button class="fpbtn fpcancel" data-fstep="cancel">Cancel</button>';
+  }
+  function fpStepClick(btn) {
+    const ev = fpEvent; if (!ev) return;
+    const s = btn.dataset.fstep;
+    if (s === 'cancel') { fpEvent = null; favorPlay.hidden = true; return; }
+    if (s === 'hero' || s === 'committed') { ev.opt.targetId = Number(btn.dataset.hid); ev.heroId = Number(btn.dataset.hid); }
+    else if (s === 'die') { ev.opt.dieIdx = Number(btn.dataset.di); }
+    else if (s === 'cupdie') { ev.opt.cupIdx = Number(btn.dataset.ci); }
+    else if (s === 'value') { ev.opt.value = Number(btn.dataset.v); }
+    else if (s === 'dir') { ev.opt.dir = Number(btn.dataset.dv); }
+    else if (s === 'eventslot') { const ek = Number(btn.dataset.ek); if (ev.type === 'moveHero') ev.opt.destKey = ek; else ev.opt.eventKey = ek; }
+    else return;
+    ev.idx++;
+    if (ev.idx >= ev.steps.length) { PT.playFavorEvent(ev.cardId, ev.opt); favorPlay.hidden = true; fpEvent = null; }
+    else renderFpStep();
+  }
   favorGrid.addEventListener('click', (e) => {
     const btn = e.target.closest('button'); if (!btn || btn.disabled) return;
     openFavorPlay(btn.dataset.fav);
   });
   favorToggle.addEventListener('click', () => { favorCollapsed = !favorCollapsed; if (curFlow) renderFavor(curFlow); });
   favorRecoup.addEventListener('click', () => { if (!favorRecoup.disabled) PT.recoupFavors(); });
-  document.getElementById('favorPlayClose').addEventListener('click', () => { favorPlay.hidden = true; });
+  document.getElementById('favorPlayClose').addEventListener('click', () => { favorPlay.hidden = true; fpEvent = null; });
   fpZones.addEventListener('click', (e) => {
     const btn = e.target.closest('button'); if (!btn) return;
+    if (btn.dataset.fstep) { fpStepClick(btn); return; }
     const id = favorPlay.dataset.fav; const f = curFlow;
     const c = (f && f.favor || []).find((x) => x.id === id); if (!c) return;
     if (btn.dataset.fz === 'free') {
       let opt = null;
       if (btn.dataset.fopt != null && c.free && c.free.options) opt = c.free.options[Number(btn.dataset.fopt)];
-      PT.playFavorFree(id, opt);
+      PT.playFavorFree(id, opt); favorPlay.hidden = true;
     } else if (btn.dataset.fz === 'col') {
       const targetId = (f.colosseum && f.colosseum.selId != null) ? f.colosseum.selId : null;
       const dir = btn.dataset.fdir != null ? Number(btn.dataset.fdir) : null;
-      PT.playFavorColosseum(id, { targetId, dir });
+      PT.playFavorColosseum(id, { targetId, dir }); favorPlay.hidden = true;
+    } else if (btn.dataset.fz === 'event') {
+      startFpEvent(c);   // begins the step picker (may play immediately if no steps)
     }
-    favorPlay.hidden = true;
   });
 
   PT.onFlow(renderFlow);

@@ -1128,7 +1128,7 @@
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
                  columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
-                 favorSpent: {}, favorAfterlife: {},
+                 favorSpent: {}, favorAfterlife: {}, eventFavorFlags: {},
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1180,6 +1180,7 @@
   }
   const curPhase = () => phasesFor(GAME.round)[GAME.phaseIndex];
   const isPerPlayer = () => PER_PLAYER_PHASES.includes(curPhase());
+  const isEventPhase = () => ['Resolution & Podiums', 'Colosseum'].includes(curPhase());
   const curPlayer = () => (isPerPlayer() ? GAME.order[GAME.turnIndex] : null);
 
   // ---- race position (the real "score"): on-foot marker around the inner lane ----
@@ -1493,7 +1494,7 @@
   // player's public favor-discard pile. EVENT zones are gated: faction cards by the relic track
   // being complete; column cards by that god's column reaching the 3rd-from-top rung (ord ≥ 4).
   const FAVOR_COL_RUNG = 4;                 // column EVENT unlock rung (3rd-from-top of 7; ord 0..6)
-  const FAVOR_EVENTS_ENABLED = false;       // Phase 1: EVENT-zone resolvers ship in Phase 2
+  const FAVOR_EVENTS_ENABLED = true;        // Phase 2: EVENT-zone resolvers live
   const FAVOR_CARDS = [
     // ---- commons (every player holds all three) ----
     { id: 'tribute', name: 'Tribute', kind: 'common', face: 'FavorTribute.png',
@@ -1689,6 +1690,126 @@
     logNote('🃏 ' + color + ' plays ' + card.name + ' (colosseum): ' + card.colosseum.label + '.');
     notifyFlow();
   }
+  // ---- EVENT zone resolvers (Phase 2) ----
+  // Effects split by timing: PLACEMENT window (Blind Placement) = onePerFaction, moveHero;
+  // EVENT-WALK window (your turn at the current event) = everything else. Scoring-time flags
+  // (noSponsor1st / denyFirstPodium) are stored per event key in GAME.eventFavorFlags and read by
+  // scoreEvent; per-hero flags (favorSponsorUp / favorAutoPass / diceAdj) are read by scoreEvent /
+  // applyRound. Event keys are slot indices 0/1/2 (see curEventKey).
+  const FAVOR_PLACEMENT_TYPES = ['onePerFaction', 'moveHero'];
+  const favorIsPlacement = (card) => card.event && FAVOR_PLACEMENT_TYPES.includes(card.event.type);
+  const atCurrentEvent = (m, k) => k !== null && minisAtEvent(k).includes(m);
+  const flagsForEvent = (k) => (GAME.eventFavorFlags[k] || (GAME.eventFavorFlags[k] = {}));
+  // The sponsor reward one tier higher than the hero actually earned (Nike). Scans upward for the
+  // next VP rung; at the top tier, grants +1 VP overflow.
+  function bumpedSponsor(mini, key) {
+    const rules = rulesForKey(key); if (!rules || typeof rules.sponsor !== 'function') return null;
+    let v; if (rules.multiRound) v = mini.userData.roundsSurvived || 0;
+    else { const sc = eventScore(mini, key); if (sc.foul) return null; v = sc.score; }
+    const base = rules.sponsor(v) || {};
+    for (let v2 = v + 1; v2 <= v + 40; v2++) { const r2 = rules.sponsor(v2); if (r2 && (r2.vp || 0) > (base.vp || 0)) return r2; }
+    return Object.assign({}, base, { vp: (base.vp || 0) + 1 });   // already top tier → +1 VP overflow
+  }
+  // Cybele: relocate a committed hero to an empty slot at another event (same innermost-coin rule).
+  function favorMoveHero(color, miniId, destKey) {
+    if (curPhase() !== 'Blind Placement') return false;
+    const m = findMini(miniId); if (!m || m.userData.color !== color) return false;
+    if (!m.userData.slot || !m.userData.slot.event) return false;             // must be committed to an event
+    if (destKey == null || destKey === eventSlotIndex(m.userData.slot.bx)) return false;
+    const dest = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === destKey && o.color === color && !o.occupants.length)
+                      .sort((a, b) => Math.abs(a.x - a.bx) - Math.abs(b.x - b.bx));
+    if (!dest.length) return false;
+    if (flagsForEvent(destKey).onePerFaction && minisAtEvent(destKey).some((x) => x.userData.color === color)) return false;
+    placeOnSlot(m, dest[0]);
+    return true;
+  }
+  function applyFavorEvent(color, card, opt) {
+    const e = card.event; if (!e) return false;
+    opt = opt || {};
+    const k = curEventKey();
+    const atWalkMini = (id, mustOwn) => { const m = findMini(id); if (!m || !atCurrentEvent(m, k)) return null; if (mustOwn && m.userData.color !== color) return null; return m; };
+    if (e.type === 'shiftResult') {
+      const m = findMini(opt.targetId); if (!m || !atCurrentEvent(m, k)) return false;
+      if (e.scope === 'own' && m.userData.color !== color) return false;
+      m.userData.diceAdj = (m.userData.diceAdj || 0) + (opt.dir < 0 ? -e.n : e.n);
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'sponsorTier') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; m.userData.favorSponsorUp = true;
+    } else if (e.type === 'rerollCup') {
+      const cup = GAME.cup[color] || []; let any = false;
+      for (let i = 0; i < cup.length; i++) if (cup[i] != null) { cup[i] = rollFace(); any = true; }
+      if (!any) return false;
+    } else if (e.type === 'setCupDie') {
+      const cup = GAME.cup[color] || []; if (opt.cupIdx == null || cup[opt.cupIdx] == null) return false;
+      cup[opt.cupIdx] = Math.max(1, Math.min(6, opt.value || 1));
+    } else if (e.type === 'rerollEventDie') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; const d = m.userData.eventDice || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null) return false; d[opt.dieIdx] = rollFace();
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'nudgeRolled') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; const d = m.userData.eventDice || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null) return false;
+      d[opt.dieIdx] = Math.max(1, Math.min(6, d[opt.dieIdx] + (opt.dir < 0 ? -1 : 1)));
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'forceReroll') {
+      const m = findMini(opt.targetId); if (!m || m.userData.color === color || !atCurrentEvent(m, k)) return false;
+      const d = m.userData.eventDice || []; if (opt.dieIdx == null || d[opt.dieIdx] == null) return false;
+      d[opt.dieIdx] = rollFace(); if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'cupInPlace') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false;
+      const d = m.userData.eventDice || [], cup = GAME.cup[color] || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null || opt.cupIdx == null || cup[opt.cupIdx] == null) return false;
+      d[opt.dieIdx] = cup[opt.cupIdx]; cup[opt.cupIdx] = null; if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'freeRound') {
+      const rules = rulesForKey(k); if (!rules || !rules.multiRound) return false;
+      const m = atWalkMini(opt.targetId, true); if (!m || m.userData.eliminated) return false; m.userData.favorAutoPass = true;
+    } else if (e.type === 'noSponsor1st') { flagsForEvent(k).noSponsorFirst = true; }
+    else if (e.type === 'denyFirstPodium') { flagsForEvent(k).denyFirstBy = color; }
+    else if (e.type === 'onePerFaction') { if (opt.eventKey == null) return false; flagsForEvent(opt.eventKey).onePerFaction = true; }
+    else if (e.type === 'moveHero') { return favorMoveHero(color, opt.targetId, opt.destKey); }
+    else return false;
+    return true;
+  }
+  // Is a card's EVENT zone playable right now (window + unlock + afford + unspent)?
+  function favorEventPlayable(color, card) {
+    if (!FAVOR_EVENTS_ENABLED || !card.event || favorSpentOf(color, card.id)) return false;
+    if (!favorEventUnlocked(color, card)) return false;
+    if ((GAME.res[color]?.sun || 0) < (card.event.cost || 0)) return false;
+    if (favorIsPlacement(card)) return GAME.started && !GAME.over && curPhase() === 'Blind Placement' && curPlayer() === color;
+    const k = curEventKey();
+    return !!(GAME.started && !GAME.over && isEventPhase() && k !== null && k !== 'ColosseumBoard.png' && curEventPlayer() === color);
+  }
+  function playFavorEvent(cardId, opt) {
+    const color = activeColorName; const card = favorCardById(cardId);
+    if (!color || !card || !card.event || !favorHandFor(color).includes(card)) return;
+    if (!favorEventPlayable(color, card)) return;
+    if (!applyFavorEvent(color, card, opt)) return;
+    adjustRes(color, 'sun', -(card.event.cost || 0));
+    spendFavorCard(color, card);
+    logNote('🃏 ' + color + ' plays ' + card.name + ' (event −' + (card.event.cost || 0) + '☀): ' + card.event.label + '.');
+    notifyFlow();
+  }
+  // Context the UI needs to build event-favor target pickers (heroes/dice/cup/events for the owner).
+  function favorEventCtx(owner) {
+    const k = (isEventPhase() ? curEventKey() : null);
+    const slim = (m) => ({ id: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null,
+      symImg: (m.userData.sym != null) ? symbolFile(m.userData.color, m.userData.sym) : null,
+      dice: (m.userData.eventDice || []).slice() });
+    const atK = (k !== null && k !== 'ColosseumBoard.png') ? minisAtEvent(k) : [];
+    const events = (GAME.started && curPhase() === 'Blind Placement')
+      ? [0, 1, 2].map((i) => ({ key: i, label: labelForEvent(i) })) : [];
+    const committed = (GAME.started && curPhase() === 'Blind Placement' && owner)
+      ? pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === owner && m.userData.slot && m.userData.slot.event)
+          .map((m) => ({ id: m.userData.id, sym: m.userData.sym ?? null,
+            symImg: (m.userData.sym != null) ? symbolFile(owner, m.userData.sym) : null,
+            key: eventSlotIndex(m.userData.slot.bx), label: labelForEvent(eventSlotIndex(m.userData.slot.bx)) }))
+      : [];
+    return { key: (k === 'ColosseumBoard.png' ? null : k),
+             label: (k !== null && k !== 'ColosseumBoard.png') ? labelForEvent(k) : '',
+             own: atK.filter((m) => m.userData.color === owner).map(slim),
+             all: atK.map(slim), cup: (GAME.cup[owner] || []).slice(), events, committed };
+  }
+
   // Snapshot of a color's favor hand for the UI panel.
   function favorState(color) {
     if (!color) return [];
@@ -1710,8 +1831,11 @@
       }
       if (card.event) {
         const unlocked = favorEventUnlocked(color, card);
-        out.event = { label: card.event.label, cost: card.event.cost, unlocked,
-          playable: false, note: FAVOR_EVENTS_ENABLED ? (unlocked ? '' : 'locked') : 'Phase 2' };
+        const playable = favorEventPlayable(color, card);
+        out.event = { label: card.event.label, cost: card.event.cost, unlocked, playable,
+          type: card.event.type, scope: card.event.scope || null, placement: favorIsPlacement(card),
+          note: !unlocked ? (card.kind === 'faction' ? 'locked — complete the relic track' : 'locked — climb this column')
+               : playable ? '' : (favorIsPlacement(card) ? 'play during Blind Placement' : 'play on your turn at an event') };
       }
       if (card.colosseum) {
         const e = card.colosseum;
@@ -2571,7 +2695,8 @@
     if (!rules || !rules.multiRound) return;
     const round = rules.rounds[GAME.eventRound];
     for (const m of minisAtEvent(k).filter(isAlive)) {
-      if (rules.passes(heroTotal(m), heroStats(m), round)) m.userData.roundsSurvived = (m.userData.roundsSurvived || 0) + 1;
+      if (m.userData.favorAutoPass) { m.userData.roundsSurvived = (m.userData.roundsSurvived || 0) + 1; m.userData.favorAutoPass = false; }   // Mercury: free round, no roll
+      else if (rules.passes(heroTotal(m), heroStats(m), round)) m.userData.roundsSurvived = (m.userData.roundsSurvived || 0) + 1;
       else m.userData.eliminated = true;
     }
     const survivors = minisAtEvent(k).filter(isAlive);
@@ -2677,25 +2802,35 @@
       // Capture the final score + sponsor BEFORE any reward mutates the mini — grantTicket()
       // clears eventDice (sendToWaiting), which would otherwise collapse the recomputed score.
       const total = disp(m);
-      const sw = sponsorReward(m, k);        // §5 sponsorship — computed here, granted to top 3
+      const flags = GAME.eventFavorFlags[k] || {};   // Sekhmet/Yam event-favor flags
+      let sw = sponsorReward(m, k);          // §5 sponsorship — computed here, granted to top 3
+      if (m.userData.favorSponsorUp) { sw = bumpedSponsor(m, k); m.userData.favorSponsorUp = false; }   // Nike: one tier higher
       const colNum = COL_FOR_SLOT[k];        // event# = column# (§5): slot 0/1/2 → column 2/3/1
       let reward = '—';
       const podium = pl <= 2;                  // sponsor is now podium-only (top 3), not paid to everyone
+      // Yam (Tempest): opponents can't claim the 1st-place PODIUM reward (engine perks only — sponsor
+      // VP is untouched below). The owner still takes 1st if earned; otherwise 1st's engine reward is vacated.
+      const denied1st = pl === 0 && flags.denyFirstBy && m.userData.color !== flags.denyFirstBy;
       // 1st place no longer gets a FREE Colosseum seat — the ticket is decoupled from the win and
       // must be paid for in the waiting walk below (like everyone else), so seats aren't just won.
-      if (pl === 0) {                         // 1st: income-track upgrade + column +1 (+ may pay for a seat)
+      if (pl === 0 && !denied1st) {           // 1st: income-track upgrade + column +1 (+ may pay for a seat)
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         upgradeIncome(m.userData.color);      // move the income marker up one rung (§9)
         reward = godName(colNum) + ' +1 · income ▲ · 🎟 (pay ' + TICKET_FEE + '☀)';
+      } else if (pl === 0 && denied1st) {     // Yam denial: no engine reward, seat vacated
+        reward = '🌊 1st reward denied (Yam)';
       } else if (pl === 1) {                  // 2nd: column +1 only
         if (colNum) moveUpColumn(m.userData.color, colNum, 1);
         reward = godName(colNum) + ' +1';
       }                                       // 3rd: no podium reward — engine perks (column/income/
                                               // seat) are 1st/2nd only. 3rd still earns its sponsorship
                                               // VP below: podium = engine channel, sponsorship = race.
-      if (podium) grantSponsorReward(m, sw);  // §5 sponsorship (VP race steps + currency) — top 3
+      // Sekhmet (Plague): 1st-place heroes claim NO sponsor award this event.
+      const sponsorVoided = pl === 0 && flags.noSponsorFirst;
+      if (podium && !sponsorVoided) grantSponsorReward(m, sw);   // §5 sponsorship (VP race steps + currency) — top 3
       return { color: m.userData.color, sym: m.userData.sym ?? null, symImg: ci.symImg,
-               face: ci.face, total, place: pl + 1, reward, sponsor: podium ? fmtSponsor(sw) : '' };
+               face: ci.face, total, place: pl + 1, reward,
+               sponsor: sponsorVoided ? '— (Sekhmet)' : (podium ? fmtSponsor(sw) : '') };
     });
     // Rome's podium finish pushes its black chariot forward (§14.E): 1st→+3, 2nd→+2, 3rd→+1
     // spaces (ties share a place, so a tie-for-1st still advances +3).
@@ -2713,14 +2848,16 @@
       if (m.isRome) continue;
       m.userData.eliminated = false; m.userData.roundsSurvived = 0;
       m.userData.ljExtra = false; m.userData.ljStage = 'approach'; m.userData.rerollsLeft = 0;
+      m.userData.favorAutoPass = false; m.userData.favorSponsorUp = false;
     }
 
     // Rome never queues a waiting-for-Colosseum decision. ONLY the 1st-place finisher(s) are offered
     // the Colosseum seat (they still PAY the fee — the win earns the OFFER, not a free seat). Ties for
     // 1st all share place 0, so a shared win offers the seat to each.
+    const yamFlags = GAME.eventFavorFlags[k] || {};   // Yam denies opponents the 1st-place seat offer too
     GAME.colWait.payQueue = ranked
       .map((m, i) => ({ m, pl: place[i] }))
-      .filter((r) => !r.m.isRome && r.pl === 0)
+      .filter((r) => !r.m.isRome && r.pl === 0 && !(yamFlags.denyFirstBy && r.m.userData.color !== yamFlags.denyFirstBy))
       .map((r) => r.m.userData.id);
     GAME.colWait.places = {};                         // miniId → finishing place (0 = 1st) for prompt wording
     ranked.forEach((m, i) => { if (!m.isRome) GAME.colWait.places[m.userData.id] = place[i]; });
@@ -3761,6 +3898,7 @@
       income: { ...(GAME.income || {}) },
       favorUnlocked: { ...GAME.favorUnlocked },
       favor: favorState(activeColorName),
+      favorCtx: favorEventCtx(activeColorName),
       favorRecoup: { spent: GAME.favorSpent[activeColorName] ? Object.keys(GAME.favorSpent[activeColorName]).length : 0,
                      canAfford: (GAME.res[activeColorName]?.sun || 0) >= 3 },
       favorInColosseum: !!GAME.colosseum,
@@ -3815,6 +3953,7 @@
     if (!GAME.started || GAME.over) { return; }
     moveRoundMarker();   // hop the bottom era/round token to the current round's cell
     if (curPhase() === 'Upkeep' && forward) {
+      GAME.eventFavorFlags = {};   // per-event favor flags (deny-1st / no-sponsor / one-per-faction) reset each round
       for (const c of ALL_COLORS) { grantIncome(c); dealHand(c, 3); resetCup(c); }
       clearAllHeroDice();                       // last round's played dice are spent
       selectedHeroId = null;
@@ -3871,7 +4010,8 @@
     const options = [0, 1, 2].map((i) => {
       const free = SLOTS.some((o) => o.event && eventSlotIndex(o.bx) === i && o.color === color && !o.occupants.length);
       const fee  = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === i && o.coin && !o.occupants.length).length;
-      return { kind: 'event', key: i, label: labelForEvent(i), fee, disabled: !free || fee > coins };
+      const capped = (GAME.eventFavorFlags[i] || {}).onePerFaction && minisAtEvent(i).some((m) => m.userData.color === color);   // Teshub
+      return { kind: 'event', key: i, label: labelForEvent(i), fee, disabled: !free || fee > coins || capped };
     });
     const barFree = SLOTS.some((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
     options.push({ kind: 'barracks', key: 'barracks', label: 'Barracks', fee: 0, disabled: !barFree });
@@ -3900,6 +4040,7 @@
       const opts = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.color === color && !o.occupants.length)
                         .sort((a, b) => Math.abs(a.x - a.bx) - Math.abs(b.x - b.bx));   // innermost (coin) first
       if (!opts.length) return;
+      if ((GAME.eventFavorFlags[key] || {}).onePerFaction && minisAtEvent(key).some((m) => m.userData.color === color)) return;   // Teshub cap
       const fee = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.coin && !o.occupants.length).length;
       if (fee) { adjustRes(color, 'coin', -fee); mini.userData.eventFee = fee; }
       placeOnSlot(mini, opts[0]);
@@ -3950,7 +4091,7 @@
     GAME.gods = pickGods();                              // flip a random face up on each pillar
     refreshColumnFaces();                                // show the chosen Column{n}_{1|2}.png art
     GAME.columns = {}; GAME.favorUnlocked = {}; GAME.log = []; GAME.prompts = [];
-    GAME.favorSpent = {}; GAME.favorAfterlife = {};
+    GAME.favorSpent = {}; GAME.favorAfterlife = {}; GAME.eventFavorFlags = {};
     for (const c of ALL_COLORS) { GAME.columns[c] = { 1: 0, 2: 0, 3: 0 }; GAME.favorUnlocked[c] = false; GAME.favorSpent[c] = {}; }
     logNote('🏛 Gods this game: ' + [1, 2, 3].map((cn) => godName(cn)).join(' · ') + '.');
     GAME.pendingVP = {}; GAME.elysium = []; GAME.tartarus = []; GAME.result = null;
@@ -4266,7 +4407,7 @@
     colBuy, colRest, colActPass, colCounterStep, dismissColosseum,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
-    playFavorFree, playFavorColosseum, recoupFavors: () => recoupFavors(activeColorName, false),
+    playFavorFree, playFavorColosseum, playFavorEvent, recoupFavors: () => recoupFavors(activeColorName, false),
     resolveColPick, resolveTrade, resolveDraft, resolveElysCard, dismissPrompt, focusMarket,
     setSlotsVisible: (v) => {
       slotsForced = v;
