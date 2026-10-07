@@ -114,8 +114,13 @@
     toolbarToggle.addEventListener('click', () =>
       setToolbar(!document.body.classList.contains('toolsopen')));
   }
+  const readSeatConfig = () => {
+    const cfg = {};
+    document.querySelectorAll('.seatsel').forEach((s) => { cfg[s.dataset.color] = s.value; });
+    return cfg;
+  };
   document.getElementById('initGame').addEventListener('click', () => {
-    PT.initGame(HEROES.map((h) => h[0]));
+    PT.initGame(HEROES.map((h) => h[0]), readSeatConfig());
     dealEvents(randomEvents());
     setToolbar(false);   // a game just started — get the tools out of the way
   });
@@ -847,6 +852,17 @@
 
     renderPlayerPanel(f);
     renderFavor(f);
+    // CPU: gate human controls during a CPU's turn, show the banner, and schedule the next CPU step.
+    document.body.classList.toggle('cputurn', !!f.isCpuTurn);
+    if (cpuBanner) {
+      cpuBanner.hidden = !f.isCpuTurn;
+      if (f.isCpuTurn) {
+        const who = cpuCurrentColor(f);
+        cpuBanner.textContent = who ? ('🤖 CPU is playing — ' + who) : '🤖 CPU is playing…';
+        cpuBanner.style.color = (who && FLOW_COLORS[who]) || '#cfd3d8';
+      }
+    }
+    maybeDriveCpu(f);
   }
 
   // ---- click a mini -> show the hero card in its matching α-ε slot (left overlay) ----
@@ -1104,6 +1120,21 @@
     }
   });
 
+  // ---- CPU driver: fire one CPU step on a timer whenever getFlow() says a CPU should act ----
+  const cpuBanner = document.getElementById('cpuBanner');
+  const CPU_DELAY = 520;   // ms between CPU actions (watchable pacing)
+  let cpuTimer = null;
+  function cpuCurrentColor(f) {
+    if (f.current) return f.current;
+    if (f.barracks && f.barracks.color) return f.barracks.color;
+    if (f.colWait && f.colWait.step && f.colWait.step.color) return f.colWait.step.color;
+    return null;
+  }
+  function maybeDriveCpu(f) {
+    if (!f || !f.cpuActive || cpuTimer) return;
+    cpuTimer = setTimeout(() => { cpuTimer = null; PT.cpuStep(); }, CPU_DELAY);   // acting re-renders → re-schedules
+  }
+
   PT.onFlow(renderFlow);
   renderFlow(PT.getFlow());
 
@@ -1120,7 +1151,13 @@
     b.addEventListener('animationend', () => b.remove());
     vpFlashEl.appendChild(b);
   });
-  nextBtn.addEventListener('click', () => PT.nextPhase());
+  nextBtn.addEventListener('click', () => {
+    // In a game with CPUs, "Next ▶" during Blind Placement means "I'm done placing" (pass) — CPUs
+    // finish on their turns and the phase auto-advances once everyone is done. (All-human = unchanged.)
+    const f = curFlow;
+    if (f && f.phase === 'Blind Placement' && f.seatKind && Object.values(f.seatKind).includes('cpu')) PT.passPlacement();
+    else PT.nextPhase();
+  });
   prevBtn.addEventListener('click', () => PT.prevPhase());
   nextPlayerBtn.addEventListener('click', () =>
     (curFlow && curFlow.isEvent) ? PT.nextEventParticipant() : PT.nextPlayer());

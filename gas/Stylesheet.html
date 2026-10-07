@@ -282,6 +282,18 @@
   #favorPlayClose:hover { background: #3a3d42; }
   #favorPlay[hidden] { display: none; }
 
+  /* ---- CPU players: seat setup, banner, turn gating ---- */
+  .seatlbl { display: inline-flex; align-items: center; gap: 3px; font-size: 0.72rem; margin-right: 6px; }
+  .seatsel { font-size: 0.72rem; }
+  #cpuBanner { text-align: center; font-size: 0.82rem; font-weight: 600; padding: 3px 0; letter-spacing: 0.3px; }
+  #cpuBanner[hidden] { display: none; }
+  /* During a CPU's turn, lock the human out of the per-player controls + modals (CPU acts via driver). */
+  body.cputurn #playerPanel,
+  body.cputurn #modalBackdrop,
+  body.cputurn #turnbar,
+  body.cputurn .flowbtns,
+  body.cputurn #favorSec { pointer-events: none; opacity: 0.55; }
+
   #viewer canvas { display: block; cursor: grab; }
   #viewer canvas:active { cursor: grabbing; }
 

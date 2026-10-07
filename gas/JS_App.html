@@ -1124,7 +1124,7 @@
                  gladDeck: [], gladDiscard: [], romeLostRound: false, colosseum: null, colAct: null,
                  colPush: null, colSelId: null, colAnimating: false,
                  columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
-                 favorSpent: {}, favorAfterlife: {}, eventFavorFlags: {},
+                 favorSpent: {}, favorAfterlife: {}, eventFavorFlags: {}, seatKind: {}, placeDone: {},
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
@@ -1178,6 +1178,7 @@
   const isPerPlayer = () => PER_PLAYER_PHASES.includes(curPhase());
   const isEventPhase = () => ['Resolution & Podiums', 'Colosseum'].includes(curPhase());
   const curPlayer = () => (isPerPlayer() ? GAME.order[GAME.turnIndex] : null);
+  const isCpu = (c) => GAME.seatKind[c] === 'cpu';   // CPU-controlled seat (default when unset = human)
 
   // ---- race position (the real "score"): on-foot marker around the inner lane ----
   // A VP earned = one step forward along the lane; crossing the start/finish line
@@ -3939,6 +3940,10 @@
       colosseum: colFlow(),
       endGame: GAME.result ? JSON.parse(JSON.stringify(GAME.result)) : null,
       activeColor: activeColorName,
+      seatKind: { ...GAME.seatKind },
+      isCpuTurn: cpuTurnActive(),
+      cpuActive: anyCpuSeat() && GAME.started && !GAME.over && !GAME.colAnimating && (cpuTurnActive() || !!GAME.colosseum),
+      placeDone: { ...GAME.placeDone },
       laneLen: RACE_LANE.length,
       outerLaneLen: OUTER_LANE.length,
     };
@@ -3978,6 +3983,7 @@
     moveRoundMarker();   // hop the bottom era/round token to the current round's cell
     if (curPhase() === 'Upkeep' && forward) {
       GAME.eventFavorFlags = {};   // per-event favor flags (deny-1st / no-sponsor / one-per-faction) reset each round
+      GAME.placeDone = {};         // CPU "done placing in Blind Placement" flags reset each round
       for (const c of ALL_COLORS) { grantIncome(c); dealHand(c, 3); resetCup(c); }
       clearAllHeroDice();                       // last round's played dice are spent
       selectedHeroId = null;
@@ -4012,6 +4018,11 @@
       if (GAME.order.every((c) => !!GAME.marketVisited[c])) { nextPhase(); return; }
     }
     GAME.turnIndex = (GAME.turnIndex + dir + n) % n;
+    // Blind Placement: skip seats that already finished placing (CPU passed / human clicked Done).
+    if (curPhase() === 'Blind Placement') {
+      let guard = 0;
+      while (GAME.placeDone[GAME.order[GAME.turnIndex]] && guard++ < n) GAME.turnIndex = (GAME.turnIndex + dir + n) % n;
+    }
     activeColorName = curPlayer();
     if (curPhase() === 'Market') restockMarket();   // refresh the shop for the next shopper
     focusCurrent();
@@ -4103,8 +4114,11 @@
     return slot;
   }
 
-  function startGame() {
+  function startGame(seatConfig) {
     GAME.started = true; GAME.over = false; GAME.round = 1; GAME.phaseIndex = 0;
+    // Seat kinds (human/cpu). Default: Blue human, the rest CPU. All 4 factions always race.
+    GAME.seatKind = {}; GAME.placeDone = {};
+    for (const c of ALL_COLORS) GAME.seatKind[c] = (seatConfig && seatConfig[c]) || (c === 'Blue' ? 'human' : 'cpu');
     GAME.order = computeOrder(1);
     GAME.turnIndex = 0;
     initRes();
@@ -4266,7 +4280,7 @@
   }
 
   // One-click game setup: seat every faction's starting pieces + deal the market.
-  function initGame(heroPool = []) {
+  function initGame(heroPool = [], seatConfig = null) {
     clearPieces();
 
     // per-faction: 5 color-matched minis on the hero-market circles + income token.
@@ -4333,7 +4347,7 @@
     const deck = slotsByRole('market-deck')[0];
     if (deck) dealPile('BackofCards.png', 3, deck.x, deck.z, 22);
 
-    startGame();   // initialize the flow backbone (round 1, phase 0, seat order, VP=0)
+    startGame(seatConfig);   // initialize the flow backbone (round 1, phase 0, seat order, VP=0, seat kinds)
   }
 
   // ---- sandbox: jump a fresh game straight to the start of a Colosseum round ----
@@ -4412,6 +4426,219 @@
   }
 
   // ------------------------------------------------------------------ public API
+  // ============================ CPU PLAYERS ============================
+  // Seats are human/cpu (GAME.seatKind). The driver (JS_UI) calls PT.cpuStep() on a timer whenever
+  // getFlow().cpuActive; cpuStep performs ONE atomic action via the same internal functions a human
+  // uses, then returns true (act again) / false (human's turn or waiting). No new rules logic.
+  const anyCpuSeat   = () => ALL_COLORS.some((c) => isCpu(c));
+  const anyHumanSeat = () => ALL_COLORS.some((c) => !isCpu(c));
+  // Whose input is currently expected, and is that a CPU? (drives UI gating + the driver.)
+  function cpuTurnActive() {
+    if (!GAME.started || GAME.over) return false;
+    if (GAME.barracks) return isCpu(GAME.barracks.color);
+    if (GAME.colWait) { const s = colWaitStep(); if (s) return isCpu(s.color); }
+    if (GAME.modWait) { const s = modWaitStep(); if (s) return isCpu(s.color); }
+    if (GAME.prompts && GAME.prompts.length) return isCpu(GAME.prompts[0].color);
+    if (GAME.colosseum) return !GAME.colosseum.fighters.some((x) => !isCpu(x.color));   // all-CPU fight
+    if (GAME.summaryOpen) return !anyHumanSeat();                                        // auto only in watch mode
+    if (isPerPlayer()) { const c = curPlayer(); return !!c && isCpu(c); }
+    if (isEventPhase()) { const p = curEventPlayer(); return !!p && isCpu(p); }
+    return false;
+  }
+
+  // ---- Blind Placement: a seat signals it's finished placing (CPU auto / human button) ----
+  function passPlacement(color) {
+    if (!GAME.started || GAME.over || curPhase() !== 'Blind Placement') return;
+    const c = color || curPlayer(); if (!c) return;
+    GAME.placeDone[c] = true;
+    if (GAME.order.every((x) => GAME.placeDone[x])) { nextPhase(); return; }
+    if (curPlayer() === c) nextPlayer(); else notifyFlow();
+  }
+
+  // ---- per-phase CPU decisions (one atomic action each; return true if acted) ----
+  function cpuUpkeep(color) {
+    const r = GAME.res[color] || { coin: 0, zap: 0, sun: 0 }, ex = GAME.exchanged[color] || {};
+    if (r.coin < 2 && r.sun > 2 && !ex.sun) { exchangeForCoin(color, 'sun'); return true; }   // coin-starved → convert surplus
+    if (r.coin < 2 && r.zap > 2 && !ex.zap) { exchangeForCoin(color, 'zap'); return true; }
+    if (r.zap >= 4 && !GAME.cupRolled[color] && (GAME.cup[color] || []).length <= cupBaseFor(color)) { addCupDie(color); return true; }
+    rollCup(color); return true;                                                               // rolling ENDS the Upkeep turn
+  }
+  // Stat↔event fit for placement (higher = better) — from each event's scoring direction.
+  function cpuPlaceFit(st, key) {
+    const r = rulesForKey(key); const nm = (r && r.name) || '';
+    if (/Discus/i.test(nm))       return st.str * 2;                 // 2d+Str (max)
+    if (/Sprint/i.test(nm))       return st.speed * 2;              // 2d−Speed (min)
+    if (/Wrestling/i.test(nm))    return Math.max(st.str, st.speed) * 1.5;
+    if (/Long ?Jump/i.test(nm))   return st.str + st.speed;
+    if (/High ?Jump/i.test(nm))   return st.str * 2;
+    if (/Archer|Javelin/i.test(nm)) return st.speed * 1.5 + st.str * 0.5;
+    return st.str + st.speed;
+  }
+  function cpuPlace(color) {
+    const own = pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === color && !m.userData.locked);
+    const uncommitted = own.filter((m) => !(m.userData.slot && (m.userData.slot.event || m.userData.slot.role === 'barracks')));
+    const atEvents = [0, 1, 2].reduce((a, k) => a + minisAtEvent(k).filter((m) => m.userData.color === color).length, 0);
+    const barracksUsed = own.filter((m) => m.userData.slot && m.userData.slot.role === 'barracks').length;
+    if ((atEvents + barracksUsed) >= 3 || !uncommitted.length) { passPlacement(color); return true; }
+    const coins = GAME.res[color]?.coin ?? 0;
+    let best = null;
+    for (const m of uncommitted) {
+      const st = heroStats(m);
+      for (const key of [0, 1, 2]) {
+        const free = SLOTS.some((o) => o.event && eventSlotIndex(o.bx) === key && o.color === color && !o.occupants.length);
+        const fee = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.coin && !o.occupants.length).length;
+        const capped = (GAME.eventFavorFlags[key] || {}).onePerFaction && minisAtEvent(key).some((x) => x.userData.color === color);
+        if (!free || fee > coins || capped) continue;
+        const fit = cpuPlaceFit(st, key) - fee * 0.3;
+        if (!best || fit > best.fit) best = { id: m.userData.id, key, fit };
+      }
+    }
+    if (best && (atEvents === 0 || best.fit > 0)) { sendMiniTo(best.id, 'event', best.key); return true; }   // ≥1 event
+    if (atEvents >= 1 && barracksUsed < 2) {
+      const barFree = SLOTS.some((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
+      if (barFree) { sendMiniTo(uncommitted[0].userData.id, 'barracks', 'barracks'); return true; }
+    }
+    passPlacement(color); return true;
+  }
+  function cpuBarracks() {
+    const b = GAME.barracks; if (!b) return false; const color = b.color;
+    if (!b.picked) { const r = GAME.res[color] || {}; barracksPick(r.sun <= 1 ? 'sun' : r.zap <= 1 ? 'zap' : 'coin'); return true; }
+    if (!b.relic && (GAME.res[color]?.zap || 0) >= 1 && !atTrackTop(color, 'relic')) { barracksMove('relic'); return true; }
+    if (!b.chariot && (GAME.res[color]?.sun || 0) >= 1 && !atTrackTop(color, 'chariot')) { barracksMove('chariot'); return true; }
+    barracksDone(); return true;
+  }
+  function cpuMarket(color) {
+    const r = GAME.res[color] || { coin: 0, zap: 0, sun: 0 };
+    if ((r.coin + r.zap * 2 + r.sun * 3) >= 8) {   // only shop when comfortable
+      const cards = pieces.filter((c) => c.userData.type === 'card' && c.userData.slot && c.userData.slot.role === 'market-hero');
+      let best = null;
+      for (const c of cards) {
+        const st = statFace(c.userData.face); if (!st) continue;
+        const info = marketBuyInfo(c.userData.id); if (!info) continue;
+        const idx = info.options.findIndex((o) => o.affordable); if (idx < 0) continue;
+        const val = st.str + st.speed;
+        if (!best || val > best.val) best = { id: c.userData.id, idx, val };
+      }
+      if (best && best.val >= 4) { buyMarketCard(best.id, best.idx); return true; }
+    }
+    nextPlayer(); return true;   // done shopping
+  }
+  // Event dice-play: pick the cup die that best moves this hero's score toward the event goal.
+  function cpuBestCupDie(m, k, h) {
+    const rules = rulesForKey(k); const cup = GAME.cup[m.userData.color] || [];
+    const dice = (m.userData.eventDice || []); const sumNow = dice.reduce((a, b) => a + b, 0);
+    let best = null, bestVal = null;
+    for (let i = 0; i < cup.length; i++) {
+      const v = cup[i]; if (v == null) continue; let val;
+      if (rules && rules.multiRound) {
+        if (h.round && h.round.bar != null) val = sumNow + v;                                   // High Jump → max sum
+        else if (h.round && h.round.lo != null) val = -Math.abs((sumNow + v) - (h.round.lo + h.round.hi) / 2);  // Archery → band
+        else val = sumNow + v;
+      } else {
+        dice.push(v); const s = eventScore(m, k); dice.pop();
+        if (s.foul) continue;
+        val = (rules && rules.dir === 'min') ? -s.score : s.score;
+      }
+      if (bestVal === null || val > bestVal) { bestVal = val; best = i; }
+    }
+    return best;
+  }
+  function cpuArcheryDelta(h) {
+    const r = h.round; if (!r || r.lo == null) return 0;
+    const cur = r.nudge || 0, cap = r.nudgeCap || 0; let d = 0;
+    if (r.value < r.lo) d = r.lo - r.value; else if (r.value > r.hi) d = r.hi - r.value;
+    if (!d) return 0;
+    const room = d > 0 ? (cap - cur) : (-cap - cur);
+    return d > 0 ? Math.min(d, Math.max(0, room)) : Math.max(d, Math.min(0, room));
+  }
+  function cpuEventTurn(color, f) {
+    const k = curEventKey(); const heroes = f.heroes || [];
+    for (const h of heroes) {                                  // (a) build a hero's dice
+      if (h.eliminated) continue; const m = findMini(h.id); if (!m) continue;
+      if (h.lj && h.lj.canJump) { if (selectedHeroId !== h.id) { selectHero(h.id); return true; } commitLongJump(h.id); return true; }
+      if (h.dice.length < h.required) {
+        if (selectedHeroId !== h.id) { selectHero(h.id); return true; }
+        if (h.dice.length === 0) { rollRandomDie(color); return true; }   // die 1 = public roll
+        const idx = cpuBestCupDie(m, k, h);
+        if (idx != null) drawFromCup(color, idx); else rollRandomDie(color);
+        return true;
+      }
+    }
+    for (const h of heroes) {                                  // (b) Archery aim
+      if (h.eliminated || !h.round || !h.round.nudgeCap) continue;
+      const d = cpuArcheryDelta(h); if (d !== 0) { setArcheryNudge(h.id, d); return true; }
+    }
+    if (participantFull(color, k) && GAME.evtTurnIndex < eventParticipants(k).length - 1) { nextEventParticipant(); return true; }  // (c) pass
+    return false;
+  }
+  function cpuColWait(s) {
+    if (s.kind === 'release') { const o = s.options || []; if (o.length) { colWaitRelease(o[o.length - 1].miniId); return true; } return false; }
+    if (s.canAfford) colWaitPay(s.miniId); else colWaitSkip(s.miniId);
+    return true;
+  }
+  function cpuPrompt(p) {
+    if (p.type === 'colpick') {   // advance the column nearest its top (can't be declined)
+      const st = GAME.columns[p.color] || { 1: 0, 2: 0, 3: 0 }; let cn = 1, bestOrd = -1;
+      for (const c of [1, 2, 3]) { const o = st[c] || 0; if (o < 6 && o > bestOrd) { bestOrd = o; cn = c; } }
+      resolveColPick(cn); return true;
+    }
+    dismissPrompt(); return true;   // draft/trade/elyscard optional → skip for v1
+  }
+  // CPU colosseum favors (any fight): declare an afterlife card, then boost a fighter. save/restore
+  // activeColorName so a human's active swatch isn't disturbed.
+  function cpuColFavor() {
+    const c = GAME.colosseum; if (!c) return false;
+    for (const color of GAME.order) {
+      if (!isCpu(color) || !c.fighters.some((f) => f.color === color && f.alive)) continue;
+      const save = activeColorName; activeColorName = color;
+      const fav = favorState(color); let cardId = null, opt = null;
+      if (!GAME.favorAfterlife[color]) { const af = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'afterlife'); if (af) { cardId = af.id; opt = {}; } }
+      if (!cardId) {
+        const b = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'stat');
+        if (b) { if (b.colosseum.scope === 'all') { cardId = b.id; opt = {}; }
+          else { const mine = c.fighters.filter((f) => f.color === color && f.alive).sort((x, y) => y.str - x.str); if (mine[0]) { cardId = b.id; opt = { targetId: mine[0].id }; } } }
+      }
+      if (cardId) { playFavorColosseum(cardId, opt); activeColorName = save; notifyFlow(); return true; }
+      activeColorName = save;
+    }
+    return false;
+  }
+  function cpuColProgress() {
+    const c = GAME.colosseum; if (!c) return false;
+    if (c.sub === 'done') { dismissColosseum(); return true; }
+    if (c.sub === 'counter') { colCounterStep(); return true; }
+    if (GAME.colAct) { colWindowContinue(); return true; }
+    return false;
+  }
+  // The single entry point the driver calls. One atomic action per invocation.
+  function cpuStep() {
+    if (!GAME.started || GAME.over || GAME.colAnimating) return false;
+    if (GAME.barracks && isCpu(GAME.barracks.color)) return cpuBarracks();
+    if (GAME.colWait) { const s = colWaitStep(); if (s && isCpu(s.color)) return cpuColWait(s); return false; }
+    if (GAME.modWait) { const s = modWaitStep(); if (s && isCpu(s.color)) { modWaitPass(s.cardId); return true; } return false; }
+    if (GAME.prompts && GAME.prompts.length) { if (isCpu(GAME.prompts[0].color)) return cpuPrompt(GAME.prompts[0]); return false; }
+    if (GAME.colosseum) {
+      if (cpuColFavor()) return true;                                           // CPUs play arena favors (any fight)
+      if (GAME.colosseum.fighters.some((x) => !isCpu(x.color))) return false;   // mixed fight → human drives progression
+      return cpuColProgress();
+    }
+    if (GAME.summaryOpen) { if (!anyHumanSeat()) { dismissEventSummary(); return true; } return false; }
+    if (isEventPhase()) {
+      const k = curEventKey(); if (k === null) return false;
+      if (eventEveryoneFull(k)) { resolveEvent(); return true; }               // everyone diced → score it
+      const p = curEventPlayer(); if (p && isCpu(p)) return cpuEventTurn(p, getFlow());
+      return false;
+    }
+    if (isPerPlayer()) {
+      const c = curPlayer(); if (!c || !isCpu(c)) return false;
+      const ph = curPhase();
+      if (ph === 'Upkeep') return cpuUpkeep(c);
+      if (ph === 'Blind Placement') return cpuPlace(c);
+      if (ph === 'Market') return cpuMarket(c);
+    }
+    return false;
+  }
+
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
     setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList,
@@ -4432,6 +4659,7 @@
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,
     playFavorFree, playFavorColosseum, playFavorEvent, recoupFavors: () => recoupFavors(activeColorName, false),
+    cpuStep, passPlacement: () => passPlacement(),
     resolveColPick, resolveTrade, resolveDraft, resolveElysCard, dismissPrompt, focusMarket,
     setSlotsVisible: (v) => {
       slotsForced = v;
