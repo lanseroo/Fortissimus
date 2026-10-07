@@ -3400,6 +3400,9 @@
                strBonus: 0, speedBonus: 0, shielded: false, coinOnHit: 0, toElysium: false };
     });
     GAME.favorAfterlife = {};   // afterlife favor cards are declared & scoped to THIS fight only
+    // Point the favor panel at a human participant so they can play their own Colosseum favors
+    // (otherwise it stays on whatever color the event walk left active — often a CPU's hand).
+    { const hp = fighters.find((f) => !isCpu(f.color)); if (hp) activeColorName = hp.color; }
     GAME.colosseum = { idx, file: card.file, level: card.level, target: card.target,
       targetLabel: GLAD_TARGET_LABEL[card.target] || card.target, atk: card.atk, rangeMod: card.rangeMod, shield: card.shield,
       heartsMax: card.hearts, hearts: card.hearts, round: 1, sub: 'buyA', fighters, used: {},
@@ -4588,15 +4591,21 @@
   // activeColorName so a human's active swatch isn't disturbed.
   function cpuColFavor() {
     const c = GAME.colosseum; if (!c) return false;
+    c.cpuFav = c.cpuFav || {};   // per-color stage: 0=try afterlife, 1=try one boost, 2=done (cap = 1 afterlife + 1 boost/fight)
     for (const color of GAME.order) {
-      if (!isCpu(color) || !c.fighters.some((f) => f.color === color && f.alive)) continue;
+      if (!isCpu(color) || (c.cpuFav[color] || 0) >= 2) continue;
+      if (!c.fighters.some((f) => f.color === color && f.alive)) continue;
       const save = activeColorName; activeColorName = color;
       const fav = favorState(color); let cardId = null, opt = null;
-      if (!GAME.favorAfterlife[color]) { const af = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'afterlife'); if (af) { cardId = af.id; opt = {}; } }
-      if (!cardId) {
+      if ((c.cpuFav[color] || 0) === 0) {   // stage 0: afterlife (optional), then advance
+        if (!GAME.favorAfterlife[color]) { const af = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'afterlife'); if (af) { cardId = af.id; opt = {}; } }
+        c.cpuFav[color] = 1;
+      }
+      if (!cardId) {   // stage 1: one stat boost on the best fighter, then done
         const b = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'stat');
         if (b) { if (b.colosseum.scope === 'all') { cardId = b.id; opt = {}; }
           else { const mine = c.fighters.filter((f) => f.color === color && f.alive).sort((x, y) => y.str - x.str); if (mine[0]) { cardId = b.id; opt = { targetId: mine[0].id }; } } }
+        c.cpuFav[color] = 2;
       }
       if (cardId) { playFavorColosseum(cardId, opt); activeColorName = save; notifyFlow(); return true; }
       activeColorName = save;
