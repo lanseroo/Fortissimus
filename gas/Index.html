@@ -89,6 +89,8 @@
         <button id="simColosseum" title="Sandbox: jump a fresh game straight to a Colosseum round — squads randomly assigned to factions (max 3 each), random cards &amp; economy">Sim to Colosseum</button>
         <label class="numlbl" title="How many heroes to field (randomly assigned across factions, max 3 each). Blank = random.">Heroes <input id="simHeroCount" type="number" min="2" max="12" step="1" placeholder="rnd" style="width:3.2em"></label>
         <select id="simGlad" title="Which gladiator the Sim faces (any level) — Random by default"></select>
+        <button id="pauseCpu" title="Pause or resume the CPU players (they stop acting between steps)">⏸ Pause CPU</button>
+        <button id="stepCpu" title="Let the CPU take exactly one action while paused">Step CPU</button>
         <button id="resetView">Frame table</button>
         <button id="clearBtn">Clear pieces</button>
         <label class="chk"><input id="showSlots" type="checkbox"> Show slots</label>
@@ -139,8 +141,10 @@
              copy drops on the public favor-discard pile. Visible in normal turns AND the arena. -->
         <div class="ppsec" id="favorSec" hidden>
           <div class="ppsec-h">Favor cards <button id="favorToggle" class="fvtoggle" title="Show/hide your favor hand">▾</button></div>
+          <div id="favorSeats" class="favorseats"></div>
           <div id="favorGrid" class="favorgrid"></div>
           <div id="favorHint" class="ppmini"></div>
+          <div id="favorMsg" class="ppmini favormsg"></div>
           <button id="favorRecoup" class="ppwide" title="Spend 3☀ to return all your played favor cards to hand">Recoup all (3☀)</button>
         </div>
 

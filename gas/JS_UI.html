@@ -861,6 +861,12 @@
     const rollBlocked = f.started && !f.over && f.phase === 'Upkeep' && !f.rollGateOk;
     const eventBlocked = f.started && !f.over && f.isEvent && !(f.eventWalk && f.eventWalk.complete);
     nextBtn.disabled = !f.started || f.over || rollBlocked || eventBlocked;
+    // With CPU seats, Blind Placement's button means "I'm done placing" (see PT.passPlacement).
+    nextBtn.textContent = (f.phase === 'Blind Placement' && Object.values(f.seatKind || {}).includes('cpu')) ? 'Done placing ▶' : 'Next ▶';
+    const anyCpuSeat = Object.values(f.seatKind || {}).includes('cpu');
+    pauseCpuBtn.disabled = !anyCpuSeat;
+    pauseCpuBtn.textContent = f.cpuPaused ? '▶ Resume CPU' : '⏸ Pause CPU';
+    stepCpuBtn.disabled = !anyCpuSeat || !f.cpuPaused;
     nextBtn.title = rollBlocked ? 'Every player must roll their cup first'
       : eventBlocked ? 'Resolve every event before advancing'
       : 'Advance to the next phase / round';
@@ -976,6 +982,10 @@
   // ---- Favor hand panel (private to the active player) + zone-pick overlay ----
   const favorSec = document.getElementById('favorSec');
   const favorGrid = document.getElementById('favorGrid');
+  const favorSeats = document.getElementById('favorSeats');
+  const favorMsgEl = document.getElementById('favorMsg');
+  const pauseCpuBtn = document.getElementById('pauseCpu');
+  const stepCpuBtn = document.getElementById('stepCpu');
   const favorHint = document.getElementById('favorHint');
   const favorRecoup = document.getElementById('favorRecoup');
   const favorToggle = document.getElementById('favorToggle');
@@ -991,6 +1001,11 @@
     favorSec.hidden = !f.started || f.over || !cards.length || !!f.isCpuTurn;
     if (favorSec.hidden) { favorPlay.hidden = true; return; }
     favorToggle.textContent = favorCollapsed ? '▸' : '▾';
+    // Viewer switcher: whose hand this panel shows. Independent of the board colour swatch, so a
+    // future second screen can simply bind its own seat (cross-screen play).
+    const seatTag = (c) => '<button class="seatbtn" data-seat="' + c + '" style="color:' + (FLOW_COLORS[c] || '#ccc') + '"'
+      + (c === f.viewerSeat ? ' aria-pressed="true"' : '') + '>' + c + (f.seatKind && f.seatKind[c] === 'cpu' ? ' 🤖' : '') + '</button>';
+    favorSeats.innerHTML = 'Hand: ' + f.order.map(seatTag).join(' ');
     favorGrid.style.display = favorCollapsed ? 'none' : '';
     favorGrid.innerHTML = cards.map((c) => {
       const canFree = c.free && c.free.playable;
@@ -1013,6 +1028,8 @@
     } else {
       favorHint.textContent = 'Play a card’s Free zone on your turn. Event zones unlock via the relic/column tracks.';
     }
+    favorMsgEl.textContent = f.favorMsg ? f.favorMsg.text : '';
+    favorMsgEl.className = 'ppmini favormsg ' + (f.favorMsg && f.favorMsg.ok ? 'ok' : 'bad');
     // keep an open play overlay in sync (card may have just been spent)
     if (!favorPlay.hidden) { const open = cards.find((c) => c.id === favorPlay.dataset.fav); if (!open || open.spent) favorPlay.hidden = true; }
   }
@@ -1108,7 +1125,7 @@
     else if (s === 'eventslot') { const ek = Number(btn.dataset.ek); if (ev.type === 'moveHero') ev.opt.destKey = ek; else ev.opt.eventKey = ek; }
     else return;
     ev.idx++;
-    if (ev.idx >= ev.steps.length) { PT.playFavorEvent(ev.cardId, ev.opt); favorPlay.hidden = true; fpEvent = null; }
+    if (ev.idx >= ev.steps.length) { if (PT.playFavorEvent(ev.cardId, ev.opt)) { favorPlay.hidden = true; fpEvent = null; } }
     else renderFpStep();
   }
   favorGrid.addEventListener('click', (e) => {
@@ -1126,11 +1143,11 @@
     if (btn.dataset.fz === 'free') {
       let opt = null;
       if (btn.dataset.fopt != null && c.free && c.free.options) opt = c.free.options[Number(btn.dataset.fopt)];
-      PT.playFavorFree(id, opt); favorPlay.hidden = true;
+      if (PT.playFavorFree(id, opt)) favorPlay.hidden = true;   // refused → keep the overlay open (reason shows in the panel)
     } else if (btn.dataset.fz === 'col') {
       const targetId = (f.colosseum && f.colosseum.selId != null) ? f.colosseum.selId : null;
       const dir = btn.dataset.fdir != null ? Number(btn.dataset.fdir) : null;
-      PT.playFavorColosseum(id, { targetId, dir }); favorPlay.hidden = true;
+      if (PT.playFavorColosseum(id, { targetId, dir })) favorPlay.hidden = true;
     } else if (btn.dataset.fz === 'event') {
       startFpEvent(c);   // begins the step picker (may play immediately if no steps)
     }
@@ -1147,9 +1164,15 @@
     return null;
   }
   function maybeDriveCpu(f) {
-    if (!f || !f.cpuActive || cpuTimer) return;
+    if (!f || !f.cpuActive || f.cpuPaused || cpuTimer) return;
     cpuTimer = setTimeout(() => { cpuTimer = null; PT.cpuStep(); }, CPU_DELAY);   // acting re-renders → re-schedules
   }
+
+  // Pause/Step the CPUs (driver stops scheduling while paused; Step fires exactly one action).
+  pauseCpuBtn.addEventListener('click', () => PT.setPaused(!(curFlow && curFlow.cpuPaused)));
+  stepCpuBtn.addEventListener('click', () => PT.cpuStep());
+  // Favor viewer switcher: pick whose hand the panel shows (hot-seat now; a second screen later).
+  favorSeats.addEventListener('click', (e) => { const b = e.target.closest('button[data-seat]'); if (b) PT.setViewerSeat(b.dataset.seat); });
 
   PT.onFlow(renderFlow);
   renderFlow(PT.getFlow());

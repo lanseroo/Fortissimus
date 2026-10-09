@@ -282,6 +282,14 @@
   #favorPlayClose:hover { background: #3a3d42; }
   #favorPlay[hidden] { display: none; }
 
+  /* ---- favor panel: viewer switcher + result message ---- */
+  .favorseats { font-size: 0.72rem; margin-bottom: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .favorseats .seatbtn { font-size: 0.7rem; font-weight: 700; border: 1px solid #4a4d52; background: #2a2c30; border-radius: 4px; padding: 2px 6px; cursor: pointer; }
+  .favorseats .seatbtn[aria-pressed="true"] { background: #3a3d42; box-shadow: inset 0 0 0 1px currentColor; }
+  .favormsg { min-height: 1em; font-weight: 600; }
+  .favormsg.ok { color: #7fd38a; }
+  .favormsg.bad { color: #ff8a80; }
+
   /* ---- CPU players: seat setup, banner, turn gating ---- */
   .seatlbl { display: inline-flex; align-items: center; gap: 3px; font-size: 0.72rem; margin-right: 6px; }
   .seatsel { font-size: 0.72rem; }
