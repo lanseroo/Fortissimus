@@ -744,7 +744,7 @@
 
     // pending decision prompt (lap→column pick / Bacchus trade). Lower priority than every other
     // modal — only shown once the board is otherwise clear, so mid-scoring picks queue politely.
-    const higherModal = f.barracks || cw || mw || summ || eg || f.colosseum;
+    const higherModal = f.barracks || cw || summ || eg || f.colosseum;
     const pr = (!higherModal && f.prompt) ? f.prompt : null;
     if (pr) {
       promptBox.hidden = false;
@@ -803,7 +803,7 @@
       lastDraftShown = false;
     }
 
-    modalBackdrop.hidden = !(f.barracks || cw || mw || summ || eg || pr);   // combat renders in the left panel, not the modal
+    modalBackdrop.hidden = !(f.barracks || cw || summ || eg || pr);   // combat renders in the left panel, not the modal
     document.body.classList.toggle('modalOpen', !modalBackdrop.hidden);     // dims the board only (bars stay readable)
 
     // standings: laps first, then furthest into the current lap (the real score)
