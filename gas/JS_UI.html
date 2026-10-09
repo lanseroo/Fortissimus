@@ -1204,6 +1204,16 @@
   document.getElementById('phoneNewGame').addEventListener('click', () => document.getElementById('initGame').click());
   // Phone status panel: opened from the header, closed by its own ✕ button (which sits above it).
   document.getElementById('phoneStatus').addEventListener('click', () => document.body.classList.toggle('statusopen'));
+  // Full screen: the browser may refuse inside the Apps Script frame (no allow="fullscreen"); then say so on the button.
+  const phoneFull = document.getElementById('phoneFull');
+  const syncFull = () => { phoneFull.textContent = document.fullscreenElement ? '✕ Exit full screen' : '⛶ Full screen'; };
+  phoneFull.addEventListener('click', () => {
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    const req = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    if (req) req.catch(() => { phoneFull.textContent = 'Full screen blocked'; setTimeout(syncFull, 2000); });
+    else { phoneFull.textContent = 'Full screen unsupported'; setTimeout(syncFull, 2000); }
+  });
+  document.addEventListener('fullscreenchange', syncFull);
   document.getElementById('statusClose').addEventListener('click', () => document.body.classList.remove('statusopen'));
   mbBack.addEventListener('click', () => prevBtn.click());
   mbNext.addEventListener('click', () => nextBtn.click());
