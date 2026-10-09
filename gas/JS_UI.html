@@ -1199,6 +1199,9 @@
   }
   // Phones have no visible New game control in the header; it proxies the desktop #initGame button.
   document.getElementById('phoneNewGame').addEventListener('click', () => document.getElementById('initGame').click());
+  // Phone status panel: toggled from the header; tapping the panel itself closes it.
+  document.getElementById('phoneStatus').addEventListener('click', () => document.body.classList.toggle('statusopen'));
+  document.getElementById('topStatus').addEventListener('click', () => document.body.classList.remove('statusopen'));
   mbBack.addEventListener('click', () => prevBtn.click());
   mbNext.addEventListener('click', () => nextBtn.click());
   mbPrimary.addEventListener('click', () => { const sel = mbPrimary.dataset.target; const el = sel && document.querySelector(sel); if (el) el.click(); });
