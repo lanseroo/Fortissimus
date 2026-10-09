@@ -472,10 +472,12 @@
         html += '</div>';
         const badges = (pred, glyph) => f.order.filter((c) => pred && pred[c])
           .map((c) => '<span style="color:' + (FLOW_COLORS[c] || '#ccc') + '">' + glyph + c + '</span>').join(' ') || '—';
-        html += '<div class="colbadges">'
+        // Relic / Chariot tracks: their own section (so phones can show three cards in one row)
+        const tracksHtml = '<div class="colbadges">'
           + '<div><span class="cbk">🏺 Relic</span> ' + badges(f.relicUnlocked, '') + ' <span class="cbnote">(faction favor events)</span></div>'
           + '<div><span class="cbk">🏇 Chariot</span> ' + badges(f.chariotUnlocked, '') + '</div></div>';
         secs.push('<div class="tsSec">' + html + '</div>');
+        secs.push('<div class="tsSec"><div class="tsh">Tracks</div>' + tracksHtml + '</div>');
       }
 
       topStatus.innerHTML = secs.join('');
@@ -1199,9 +1201,9 @@
   }
   // Phones have no visible New game control in the header; it proxies the desktop #initGame button.
   document.getElementById('phoneNewGame').addEventListener('click', () => document.getElementById('initGame').click());
-  // Phone status panel: toggled from the header; tapping the panel itself closes it.
+  // Phone status panel: opened from the header, closed by its own ✕ button (which sits above it).
   document.getElementById('phoneStatus').addEventListener('click', () => document.body.classList.toggle('statusopen'));
-  document.getElementById('topStatus').addEventListener('click', () => document.body.classList.remove('statusopen'));
+  document.getElementById('statusClose').addEventListener('click', () => document.body.classList.remove('statusopen'));
   mbBack.addEventListener('click', () => prevBtn.click());
   mbNext.addEventListener('click', () => nextBtn.click());
   mbPrimary.addEventListener('click', () => { const sel = mbPrimary.dataset.target; const el = sel && document.querySelector(sel); if (el) el.click(); });

@@ -849,7 +849,7 @@
   }
 
   /* ================= PHONE LAYOUT (≤820px wide) — desktop rules above are unchanged ================= */
-  #mobileBar, #mobileStatus, .sheetclose, .phoneonly { display: none; }
+  #mobileBar, #mobileStatus, .sheetclose, .phoneonly, #statusClose { display: none; }
   @media (max-width: 820px) {
     html, body { height: 100dvh; overflow: hidden; }
     body { display: flex; flex-direction: column; }
@@ -858,7 +858,9 @@
     #topStatus { overflow-x: auto; white-space: nowrap; padding: 0 10px 4px; }
     /* Phones: resources/columns are hidden until the Status button opens them as a top panel */
     body:not(.statusopen) #topStatus { display: none !important; }
-    body.statusopen #topStatus { display: block; position: fixed; top: 0; left: 0; right: 0; z-index: 66; max-height: 70dvh; overflow-y: auto; white-space: normal; padding: 10px; background: #17181b; border-bottom: 1px solid #3a3d42; }
+    body.statusopen #topStatus { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 6px; position: fixed; top: 0; left: 0; right: 0; z-index: 66; max-height: 70dvh; overflow: hidden; white-space: normal; font-size: 0.72rem; padding: 34px 8px 8px; background: #17181b; border-bottom: 1px solid #3a3d42; }
+    body.statusopen #topStatus > * { flex: 1 1 0; min-width: 0; margin: 0; }
+    body.statusopen #statusClose { display: block; position: fixed; top: 6px; right: 6px; z-index: 67; width: 28px; height: 28px; font-size: 0.9rem; color: #f2f2f2; background: #2a2c30; border: 1px solid #4a4d52; border-radius: 6px; }
     #mobileStatus { display: block; font-size: 0.8rem; padding: 2px 10px 4px; color: #cfd3d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .phoneonly { display: inline-block; margin-left: 6px; padding: 4px 10px; font-size: 0.85rem; color: #f2f2f2; background: #2a2c30; border: 1px solid #4a4d52; border-radius: 6px; }
     #stage { flex: 1 1 auto; min-height: 0; height: auto; display: flex; flex-direction: column; gap: 0; padding: 0 0 calc(54px + env(safe-area-inset-bottom)); }
