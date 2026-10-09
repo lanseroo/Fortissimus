@@ -4476,15 +4476,23 @@
     const barracksUsed = own.filter((m) => m.userData.slot && m.userData.slot.role === 'barracks').length;
     if ((atEvents + barracksUsed) >= 3 || !uncommitted.length) { passPlacement(color); return true; }
     const coins = GAME.res[color]?.coin ?? 0;
+    // Score an event by how much better this hero is there than at the other two events
+    // (comparative advantage, not raw stat), plus the cup's pips, minus crowding by our own minis.
+    const cupRolled = (GAME.cup[color] || []).filter((v) => v != null);
+    const cupAvg = cupRolled.length ? cupRolled.reduce((a, v) => a + v, 0) / cupRolled.length : 3.5;
     let best = null;
     for (const m of uncommitted) {
       const st = heroStats(m);
+      const fits = [0, 1, 2].map((k) => cpuPlaceFit(st, k));
+      const mean = (fits[0] + fits[1] + fits[2]) / 3;
       for (const key of [0, 1, 2]) {
         const free = SLOTS.some((o) => o.event && eventSlotIndex(o.bx) === key && o.color === color && !o.occupants.length);
         const fee = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === key && o.coin && !o.occupants.length).length;
         const capped = (GAME.eventFavorFlags[key] || {}).onePerFaction && minisAtEvent(key).some((x) => x.userData.color === color);
         if (!free || fee > coins || capped) continue;
-        const fit = cpuPlaceFit(st, key) - fee * 0.3;
+        const ownHere = minisAtEvent(key).filter((x) => x.userData.color === color).length;
+        const dir = ((rulesForKey(key) || {}).dir === 'min') ? -1 : 1;
+        const fit = (fits[key] - mean) + dir * (cupAvg - 3.5) * 0.6 - ownHere * 1.2 - fee * 0.3;
         if (!best || fit > best.fit) best = { id: m.userData.id, key, fit };
       }
     }
