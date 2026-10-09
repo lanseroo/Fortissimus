@@ -1197,6 +1197,8 @@
     if (!turnbar.hidden && turnLine.textContent) bits.push(turnLine.textContent);
     mobileStatus.textContent = bits.join(' · ');
   }
+  // Phones have no visible New game control in the header; it proxies the desktop #initGame button.
+  document.getElementById('phoneNewGame').addEventListener('click', () => document.getElementById('initGame').click());
   mbBack.addEventListener('click', () => prevBtn.click());
   mbNext.addEventListener('click', () => nextBtn.click());
   mbPrimary.addEventListener('click', () => { const sel = mbPrimary.dataset.target; const el = sel && document.querySelector(sel); if (el) el.click(); });
