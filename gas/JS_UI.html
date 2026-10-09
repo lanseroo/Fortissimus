@@ -975,6 +975,8 @@
   let favorCollapsed = false;
 
   function renderFavor(f) {
+    // The favor highlight and frames take the viewer's seat colour (see --seat in Stylesheet).
+    document.body.style.setProperty('--seat', FLOW_COLORS[f.viewerSeat] || '#f5b800');
     const cards = f.favor || [];
     // A CPU's favor hand is private — hide the panel while a CPU is acting.
     favorSec.hidden = !f.started || f.over || !cards.length || !!f.isCpuTurn;
