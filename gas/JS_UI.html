@@ -1181,7 +1181,7 @@
     return null;
   }
   const mbBack = document.getElementById('mbBack'), mbNext = document.getElementById('mbNext');
-  const mbPrimary = document.getElementById('mbPrimary'), mbHand = document.getElementById('mbHand');
+  const mbPrimary = document.getElementById('mbPrimary');
   const mbMe = document.getElementById('mbMe'), mbInfo = document.getElementById('mbInfo');
   const mobileStatus = document.getElementById('mobileStatus');
   function updateBarState(f) {
@@ -1193,7 +1193,6 @@
     mbPrimary.textContent = p ? p.label : '';
     mbPrimary.dataset.target = p ? p.sel : '';
     mbMe.classList.toggle('on', sheetOpen('me'));
-    mbHand.classList.toggle('on', sheetOpen('me'));
     mbInfo.classList.toggle('on', sheetOpen('info'));
     const bits = [flowLine.textContent];
     if (!turnbar.hidden && turnLine.textContent) bits.push(turnLine.textContent);
@@ -1209,7 +1208,6 @@
   mbPrimary.addEventListener('click', () => { const sel = mbPrimary.dataset.target; const el = sel && document.querySelector(sel); if (el) el.click(); });
   mbMe.addEventListener('click', () => setSheet(sheetOpen('me') ? null : 'me'));
   mbInfo.addEventListener('click', () => setSheet(sheetOpen('info') ? null : 'info'));
-  mbHand.addEventListener('click', () => { setSheet('me'); setTimeout(() => favorSec.scrollIntoView({ block: 'start' }), 0); });
   let wasInCombat = false;
   PT.onFlow((f) => {
     renderFlow(f);
