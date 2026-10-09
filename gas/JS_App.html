@@ -850,7 +850,7 @@
 
   renderer.domElement.addEventListener('pointermove', (e) => {
     if (!dragging || !selected || !e.isPrimary) return;
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > (e.pointerType === 'touch' ? 10 : 6)) dragMoved = true;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > (e.pointerType === 'touch' ? 24 : 6)) dragMoved = true;   // a finger wobble is a tap, not a drop
     setNDC(e);
     raycaster.setFromCamera(ndc, camera);
     if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
@@ -943,7 +943,7 @@
   // Click (no drag): on a mini -> show its tied hero card; on a board -> zoom in;
   // on empty table -> frame the whole table.
   renderer.domElement.addEventListener('pointerup', (e) => {
-    const click = Math.hypot(e.clientX - downX, e.clientY - downY) <= (e.pointerType === 'touch' ? 10 : 6);
+    const click = Math.hypot(e.clientX - downX, e.clientY - downY) <= (e.pointerType === 'touch' ? 24 : 6);
     // Combat: two-step push — a click while choosing a destination places the pushed mini.
     if (click && GAME.colosseum && GAME.colPush && GAME.colPush.step === 'dest') { colPushDestClick(e); return; }
     if (downPiece) {                                                // piece drag handled in endDrag
