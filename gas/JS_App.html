@@ -1663,6 +1663,98 @@
     return true;
   }
   // Public entry points (PT.playFavorFree / PT.playFavorColosseum). Acting color = the active hand.
+  // ---- EVENT zone resolvers (Phase 2) ----
+  // Effects split by timing: PLACEMENT window (Blind Placement) = onePerFaction, moveHero;
+  // EVENT-WALK window (your turn at the current event) = everything else. Scoring-time flags
+  // (noSponsor1st / denyFirstPodium) are stored per event key in GAME.eventFavorFlags and read by
+  // scoreEvent; per-hero flags (favorSponsorUp / favorAutoPass / diceAdj) are read by scoreEvent /
+  // applyRound. Event keys are slot indices 0/1/2 (see curEventKey).
+  const FAVOR_PLACEMENT_TYPES = ['onePerFaction', 'moveHero'];
+  const favorIsPlacement = (card) => card.event && FAVOR_PLACEMENT_TYPES.includes(card.event.type);
+  const atCurrentEvent = (m, k) => k !== null && minisAtEvent(k).includes(m);
+  const flagsForEvent = (k) => (GAME.eventFavorFlags[k] || (GAME.eventFavorFlags[k] = {}));
+  // The sponsor reward one tier higher than the hero actually earned (Nike). Scans upward for the
+  // next VP rung; at the top tier, grants +1 VP overflow.
+  function bumpedSponsor(mini, key) {
+    const rules = rulesForKey(key); if (!rules || typeof rules.sponsor !== 'function') return null;
+    let v; if (rules.multiRound) v = mini.userData.roundsSurvived || 0;
+    else { const sc = eventScore(mini, key); if (sc.foul) return null; v = sc.score; }
+    const base = rules.sponsor(v) || {};
+    // Scan in the direction that IMPROVES the payout: higher scores for 'max' events, lower for 'min'
+    // (Sprint). A hero with no sponsor yet (null base) gets the lowest paying tier.
+    const step = rules.dir === 'min' ? -1 : 1;
+    for (let v2 = v + step, n = 0; n < 40; v2 += step, n++) { const r2 = rules.sponsor(v2); if (r2 && (r2.vp || 0) > (base.vp || 0)) return r2; }
+    return Object.assign({}, base, { vp: (base.vp || 0) + 1 });   // already top tier → +1 VP overflow
+  }
+  // Cybele: relocate a committed hero to an empty slot at another event (same innermost-coin rule).
+  function favorMoveHero(color, miniId, destKey) {
+    if (curPhase() !== 'Blind Placement') return false;
+    const m = findMini(miniId); if (!m || m.userData.color !== color) return false;
+    if (!m.userData.slot || !m.userData.slot.event) return false;             // must be committed to an event
+    if (destKey == null || destKey === eventSlotIndex(m.userData.slot.bx)) return false;
+    const dest = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === destKey && o.color === color && !o.occupants.length)
+                      .sort((a, b) => Math.abs(a.x - a.bx) - Math.abs(b.x - b.bx));
+    if (!dest.length) return false;
+    if (flagsForEvent(destKey).onePerFaction && minisAtEvent(destKey).some((x) => x.userData.color === color)) return false;
+    placeOnSlot(m, dest[0]);
+    return true;
+  }
+  function applyFavorEvent(color, card, opt) {
+    const e = card.event; if (!e) return false;
+    opt = opt || {};
+    const k = curEventKey();
+    const atWalkMini = (id, mustOwn) => { const m = findMini(id); if (!m || !atCurrentEvent(m, k)) return null; if (mustOwn && m.userData.color !== color) return null; return m; };
+    if (e.type === 'shiftResult') {
+      const m = findMini(opt.targetId); if (!m || !atCurrentEvent(m, k)) return false;
+      if (e.scope === 'own' && m.userData.color !== color) return false;
+      m.userData.diceAdj = (m.userData.diceAdj || 0) + (opt.dir < 0 ? -e.n : e.n);
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'sponsorTier') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; m.userData.favorSponsorUp = true;
+    } else if (e.type === 'rerollCup') {
+      const cup = GAME.cup[color] || []; let any = false;
+      for (let i = 0; i < cup.length; i++) if (cup[i] != null) { cup[i] = rollFace(); any = true; }
+      if (!any) return false;
+    } else if (e.type === 'setCupDie') {
+      const cup = GAME.cup[color] || []; if (opt.cupIdx == null || cup[opt.cupIdx] == null) return false;
+      cup[opt.cupIdx] = Math.max(1, Math.min(6, opt.value || 1));
+    } else if (e.type === 'rerollEventDie') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; const d = m.userData.eventDice || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null) return false; d[opt.dieIdx] = rollFace();
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'nudgeRolled') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false; const d = m.userData.eventDice || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null) return false;
+      d[opt.dieIdx] = Math.max(1, Math.min(6, d[opt.dieIdx] + (opt.dir < 0 ? -1 : 1)));
+      if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'forceReroll') {
+      const m = findMini(opt.targetId); if (!m || m.userData.color === color || !atCurrentEvent(m, k)) return false;
+      const d = m.userData.eventDice || []; if (opt.dieIdx == null || d[opt.dieIdx] == null) return false;
+      d[opt.dieIdx] = rollFace(); if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'cupInPlace') {
+      const m = atWalkMini(opt.targetId, true); if (!m) return false;
+      const d = m.userData.eventDice || [], cup = GAME.cup[color] || [];
+      if (opt.dieIdx == null || d[opt.dieIdx] == null || opt.cupIdx == null || cup[opt.cupIdx] == null) return false;
+      d[opt.dieIdx] = cup[opt.cupIdx]; cup[opt.cupIdx] = null; if (m.userData.diceGroup) renderHeroDice3D(m);
+    } else if (e.type === 'freeRound') {
+      const rules = rulesForKey(k); if (!rules || !rules.multiRound) return false;
+      const m = atWalkMini(opt.targetId, true); if (!m || m.userData.eliminated) return false; m.userData.favorAutoPass = true;
+    } else if (e.type === 'noSponsor1st') { flagsForEvent(k).noSponsorFirst = true; }
+    else if (e.type === 'denyFirstPodium') { flagsForEvent(k).denyFirstBy = color; }
+    else if (e.type === 'onePerFaction') { if (opt.eventKey == null) return false; flagsForEvent(opt.eventKey).onePerFaction = true; }
+    else if (e.type === 'moveHero') { return favorMoveHero(color, opt.targetId, opt.destKey); }
+    else return false;
+    return true;
+  }
+  // Is a card's EVENT zone playable right now (window + unlock + afford + unspent)?
+  function favorEventPlayable(color, card) {
+    if (!FAVOR_EVENTS_ENABLED || !card.event || favorSpentOf(color, card.id)) return false;
+    if (!favorEventUnlocked(color, card)) return false;
+    if ((GAME.res[color]?.sun || 0) < (card.event.cost || 0)) return false;
+    if (favorIsPlacement(card)) return GAME.started && !GAME.over && curPhase() === 'Blind Placement' && curPlayer() === color;
+    const k = curEventKey();
+    return !!(GAME.started && !GAME.over && isEventPhase() && k !== null && k !== 'ColosseumBoard.png' && curEventPlayer() === color);
+  }
   // Every favor play reports back: GAME.favorMsg = {ok, text} (shown in the favor panel), so a
   // refused click always says why. The acting seat is the favor VIEWER (GAME.viewerSeat), which is
   // separate from the board's colour swatch — that separation is what makes cross-screen play work.
