@@ -889,6 +889,9 @@
     #fpImg { flex: 0 0 auto; height: 100%; width: auto; max-width: 62%; min-height: 0; object-fit: contain; margin: 0; }
     #fpZones { flex: 1 1 0; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
     #fpZones .fpbtn { min-height: 40px; }
+    /* Hand open on phones: cards sit in one scrolling row so the hint, message and Recoup stay visible without scrolling the sheet */
+    #favorGrid.favorgrid { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; padding-bottom: 2px; }
+    .favorgrid .favorcard { flex: 0 0 auto; width: 22vw; max-width: 110px; scroll-snap-align: start; }
   }
   /* Landscape phones: an open sheet docks to the right instead of below the board */
   @media (max-width: 820px) and (orientation: landscape) {
