@@ -836,7 +836,7 @@
       // pick it up for a drag, which would re-snap its slot and shuffle the event turn order.
       if (p.userData.type === 'mini' && GAME.started && curPhase() !== 'Blind Placement') return;
       // Phones: minis are placed by tapping (the menu opens); no dragging a mini on small screens.
-      if (p.userData.type === 'mini' && window.matchMedia('(max-width: 820px)').matches) { select(p); return; }
+      if (p.userData.type === 'mini' && window.matchMedia('(max-width: 820px), (pointer: coarse) and (max-height: 600px)').matches) { select(p); return; }
       if (e.pointerType === 'touch' && selected !== p) { select(p); return; }   // touch: tap selects, press again to drag
       select(p);
       dragging = true;

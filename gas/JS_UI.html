@@ -1155,8 +1155,8 @@
   // Favor viewer switcher: pick whose hand the panel shows (hot-seat now; a second screen later).
   favorSeats.addEventListener('click', (e) => { const b = e.target.closest('button[data-seat]'); if (b) PT.setViewerSeat(b.dataset.seat); });
 
-  // ---- phone layout: slide-up sheets + bottom action bar (CSS lives in the ≤820px media query) ----
-  const phoneMQ = window.matchMedia('(max-width: 820px)');
+  // ---- phone layout: slide-up sheets + bottom action bar (CSS lives in the phone media query) ----
+  const phoneMQ = window.matchMedia('(max-width: 820px), (pointer: coarse) and (max-height: 600px)');
   const isPhone = () => phoneMQ.matches;
   const sheetOpen = (n) => document.body.classList.contains('sheet-' + n);
   function setSheet(name) {
