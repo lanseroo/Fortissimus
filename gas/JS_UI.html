@@ -136,7 +136,7 @@
   document.getElementById('simColosseum').addEventListener('click', () => {
     const gi = simGlad ? parseInt(simGlad.value, 10) : -1;
     const n = simHeroCount ? parseInt(simHeroCount.value, 10) : NaN;   // blank/invalid → random
-    PT.simToColosseum(HEROES.map((h) => h[0]), gi, Number.isFinite(n) ? n : 0);   // fresh game → straight into a Colosseum round
+    PT.simToColosseum(HEROES.map((h) => h[0]), gi, Number.isFinite(n) ? n : 0, readSeatConfig());   // fresh game → straight into a Colosseum round
     dealEvents(randomEvents());                         // seed the event slots (harmless for combat)
   });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
@@ -234,7 +234,8 @@
     // widen the panel (body.incombat) so the fight is legible while the board stays on screen.
     const inCombat = !!f.colosseum;
     document.body.classList.toggle('incombat', inCombat);
-    cupSec.hidden = inCombat;
+    // A CPU's cup is private to it — don't show its dice while it's acting.
+    cupSec.hidden = inCombat || !!f.isCpuTurn;
     if (inCombat) { econ.hidden = true; compete.hidden = true; return; }
 
     const isUpkeep = f.started && !f.over && f.phase === 'Upkeep';
@@ -487,7 +488,10 @@
 
     // turn bar: per-player phases (Upkeep/Blind Placement/Market) OR the guided event walk.
     const w = f.eventWalk;
-    if (f.started && !f.over && f.isEvent && w && w.active && f.current) {
+    if (f.colosseum) {
+      // Arena fight: combat runs from the left panel — no event-walk buttons (Resolve would do nothing).
+      turnbar.hidden = true; resolveEventBtn.hidden = true; nextPlayerBtn.hidden = true;
+    } else if (f.started && !f.over && f.isEvent && w && w.active && f.current) {
       // guided event execution: walk players (turn order) with heroes at the current event.
       turnbar.hidden = false;
       const meta = f.eventMeta;
@@ -972,7 +976,8 @@
 
   function renderFavor(f) {
     const cards = f.favor || [];
-    favorSec.hidden = !f.started || f.over || !cards.length;
+    // A CPU's favor hand is private — hide the panel while a CPU is acting.
+    favorSec.hidden = !f.started || f.over || !cards.length || !!f.isCpuTurn;
     if (favorSec.hidden) { favorPlay.hidden = true; return; }
     favorToggle.textContent = favorCollapsed ? '▸' : '▾';
     favorGrid.style.display = favorCollapsed ? 'none' : '';

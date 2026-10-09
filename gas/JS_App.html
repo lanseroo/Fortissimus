@@ -1704,7 +1704,10 @@
     let v; if (rules.multiRound) v = mini.userData.roundsSurvived || 0;
     else { const sc = eventScore(mini, key); if (sc.foul) return null; v = sc.score; }
     const base = rules.sponsor(v) || {};
-    for (let v2 = v + 1; v2 <= v + 40; v2++) { const r2 = rules.sponsor(v2); if (r2 && (r2.vp || 0) > (base.vp || 0)) return r2; }
+    // Scan in the direction that IMPROVES the payout: higher scores for 'max' events, lower for 'min'
+    // (Sprint). A hero with no sponsor yet (null base) gets the lowest paying tier.
+    const step = rules.dir === 'min' ? -1 : 1;
+    for (let v2 = v + step, n = 0; n < 40; v2 += step, n++) { const r2 = rules.sponsor(v2); if (r2 && (r2.vp || 0) > (base.vp || 0)) return r2; }
     return Object.assign({}, base, { vp: (base.vp || 0) + 1 });   // already top tier → +1 VP overflow
   }
   // Cybele: relocate a committed hero to an empty slot at another event (same innermost-coin rule).
@@ -1993,7 +1996,14 @@
     notifyFlow();
   }
   // Enriched head-of-queue prompt for the UI (null when empty).
+  // A column pick is only legal while some column is below its top rung. Drop stale ones (two laps
+  // in one advance can queue two picks; the second may have no legal column left).
+  const colPickLegal = (color) => [1, 2, 3].some((cn) => ((GAME.columns[color] || {})[cn] || 0) < 6);
+  function pruneIllegalPrompts() {
+    while (GAME.prompts.length && GAME.prompts[0].type === 'colpick' && !colPickLegal(GAME.prompts[0].color)) GAME.prompts.shift();
+  }
   function promptFlow() {
+    pruneIllegalPrompts();
     const p = GAME.prompts[0]; if (!p) return null;
     if (p.type === 'colpick') {
       const st = GAME.columns[p.color] || {};
@@ -2301,6 +2311,7 @@
   // once the approach dice pass the line (>10 = scratch, no jump). Else the event's flat count.
   function requiredFor(mini) {
     const s = mini.userData.slot; if (!s) return 0;
+    if (mini.userData.favorAutoPass) return 0;            // Mercury: this round is credited free, no dice
     if (s.boardKey === 'ColosseumBoard.png') return 0;   // no manual roll — arena positions are auto-rolled at startColosseum
     if (!s.event) return DICE_PER_EVENT_DEFAULT;
     const rules = EVENT_RULES[eventFiles[eventSlotIndex(s.bx)]];
@@ -4140,7 +4151,7 @@
     notifyFlow();
   }
   function nextPhase() {
-    if (!GAME.started || GAME.over) return;
+    if (!GAME.started || GAME.over || GAME.colosseum) return;   // never leave a live fight behind
     const phases = phasesFor(GAME.round);
     if (GAME.phaseIndex < phases.length - 1) {
       GAME.phaseIndex++;
@@ -4156,7 +4167,7 @@
     notifyFlow();
   }
   function prevPhase() {
-    if (!GAME.started) return;
+    if (!GAME.started || GAME.colosseum) return;   // can't step back out of a live fight
     GAME.over = false;
     if (GAME.phaseIndex > 0) {
       GAME.phaseIndex--;
@@ -4357,8 +4368,8 @@
   // Random gladiator, a random squad from each team, a random hero/plebe card per fighter,
   // and random 0–5 starting coin/⚡/☀ per faction. For quickly playtesting combat.
   // gladIdx: index into GLAD_DECK to force (any level), or -1/undefined for a random pick.
-  function simToColosseum(heroPool = [], gladIdx = -1, wantN = 0) {
-    initGame(heroPool);                                     // full board setup (round 1 / Upkeep)
+  function simToColosseum(heroPool = [], gladIdx = -1, wantN = 0, seatConfig = null) {
+    initGame(heroPool, seatConfig);                         // full board setup (round 1 / Upkeep), honours the seat selects
     // initGame's minis stream in ASYNC (each STL loads in a loader.load callback — see addMini),
     // so `pieces` is still empty the instant this returns. Wait for the squad to arrive, THEN
     // build the arena; otherwise we'd seat nothing and land back at round-1 Upkeep.
@@ -4460,6 +4471,11 @@
 
   // ---- per-phase CPU decisions (one atomic action each; return true if acted) ----
   function cpuUpkeep(color) {
+    // Already rolled (e.g. stepped back into Upkeep): don't re-roll — just move the turn/phase on.
+    if (GAME.cupRolled[color]) {
+      if (GAME.order.every((c) => GAME.cupRolled[c])) nextPhase(); else nextPlayer();
+      return true;
+    }
     const r = GAME.res[color] || { coin: 0, zap: 0, sun: 0 }, ex = GAME.exchanged[color] || {};
     if (r.coin < 2 && r.sun > 2 && !ex.sun) { exchangeForCoin(color, 'sun'); return true; }   // coin-starved → convert surplus
     if (r.coin < 2 && r.zap > 2 && !ex.zap) { exchangeForCoin(color, 'zap'); return true; }
@@ -4581,6 +4597,7 @@
   }
   function cpuPrompt(p) {
     if (p.type === 'colpick') {   // advance the column nearest its top (can't be declined)
+      if (!colPickLegal(p.color)) { pruneIllegalPrompts(); return true; }
       const st = GAME.columns[p.color] || { 1: 0, 2: 0, 3: 0 }; let cn = 1, bestOrd = -1;
       for (const c of [1, 2, 3]) { const o = st[c] || 0; if (o < 6 && o > bestOrd) { bestOrd = o; cn = c; } }
       resolveColPick(cn); return true;
@@ -4622,6 +4639,7 @@
   // The single entry point the driver calls. One atomic action per invocation.
   function cpuStep() {
     if (!GAME.started || GAME.over || GAME.colAnimating) return false;
+    pruneIllegalPrompts();
     if (GAME.barracks && isCpu(GAME.barracks.color)) return cpuBarracks();
     if (GAME.colWait) { const s = colWaitStep(); if (s && isCpu(s.color)) return cpuColWait(s); return false; }
     if (GAME.modWait) { const s = modWaitStep(); if (s && isCpu(s.color)) { modWaitPass(s.cardId); return true; } return false; }
@@ -4633,7 +4651,8 @@
     }
     if (GAME.summaryOpen) { if (!anyHumanSeat()) { dismissEventSummary(); return true; } return false; }
     if (isEventPhase()) {
-      const k = curEventKey(); if (k === null) return false;
+      const k = curEventKey();
+      if (k === null) { if (!anyHumanSeat()) { nextPhase(); return true; } return false; }   // walk done → all-CPU moves on
       if (eventEveryoneFull(k)) { resolveEvent(); return true; }               // everyone diced → score it
       const p = curEventPlayer(); if (p && isCpu(p)) return cpuEventTurn(p, getFlow());
       return false;
