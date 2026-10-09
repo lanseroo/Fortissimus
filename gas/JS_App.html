@@ -1106,7 +1106,8 @@
   const DIE_ZAP_COST  = 1;                             // ⚡ per added cup die (Lightning buys dice)
   const MODIFIER_COIN = 2;                             // Cheer/Jeer discard reward
   const PER_PLAYER_PHASES = ['Upkeep', 'Blind Placement', 'Market'];
-  const seatBonusOf = (c) => ([3, 2, 1, 0][SEAT_ORDER.indexOf(c)] || 0);
+  // Round-1 clockwise order starts at a RANDOM seat (§13); GAME.round1Seat holds that rotation.
+  const seatBonusOf = (c) => { const o = GAME.round1Seat || SEAT_ORDER; return [3, 2, 1, 0][o.indexOf(c)] || 0; };
 
   // -------------------------------------------------------------- game flow (state)
   // Guided-sandbox backbone: the app tracks round / phase / turn order and drives them
@@ -3797,7 +3798,7 @@
   const raceRank = (color) => { const s = GAME.race[color] || { laps: 0, pos: 0 }; return s.laps * 10000 + s.pos; };
   // Round 1 = seat order; round 2+ = race leader first, ties broken by seat order.
   const computeOrder = (round) => (round === 1
-    ? SEAT_ORDER.slice()
+    ? (GAME.round1Seat || SEAT_ORDER).slice()
     : SEAT_ORDER.slice().sort((a, b) => raceRank(b) - raceRank(a) || SEAT_ORDER.indexOf(a) - SEAT_ORDER.indexOf(b)));
 
   function getFlow() {
@@ -4048,6 +4049,16 @@
   // ---- Blind Placement: click a mini to send it to an event / barracks ----
   // Returns the placement menu for a mini, or null if it can't be placed right now
   // (wrong phase, not the current player's, locked, or already committed this round).
+  // §4 placement limits: max 3 minis deployed per round, max 2 to Barracks, and at least 1 must enter
+  // an event (so a 2nd Barracks is refused while no event has been entered yet).
+  function placementLimitOk(color, kind) {
+    const own = pieces.filter((m) => m.userData.type === 'mini' && m.userData.color === color);
+    const atEvents = own.filter((m) => m.userData.slot && m.userData.slot.event).length;
+    const bar = own.filter((m) => m.userData.slot && m.userData.slot.role === 'barracks').length;
+    if (atEvents + bar >= 3) return false;
+    if (kind === 'barracks') return bar < 2 && (atEvents >= 1 || bar === 0);
+    return true;
+  }
   function placementFor(mini) {
     if (!GAME.started || GAME.over || curPhase() !== 'Blind Placement') return null;
     if (!mini || mini.userData.type !== 'mini') return null;
@@ -4060,10 +4071,10 @@
       const free = SLOTS.some((o) => o.event && eventSlotIndex(o.bx) === i && o.color === color && !o.occupants.length);
       const fee  = SLOTS.filter((o) => o.event && eventSlotIndex(o.bx) === i && o.coin && !o.occupants.length).length;
       const capped = (GAME.eventFavorFlags[i] || {}).onePerFaction && minisAtEvent(i).some((m) => m.userData.color === color);   // Teshub
-      return { kind: 'event', key: i, label: labelForEvent(i), fee, disabled: !free || fee > coins || capped };
+      return { kind: 'event', key: i, label: labelForEvent(i), fee, disabled: !free || fee > coins || capped || !placementLimitOk(color, 'event') };
     });
     const barFree = SLOTS.some((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
-    options.push({ kind: 'barracks', key: 'barracks', label: 'Barracks', fee: 0, disabled: !barFree });
+    options.push({ kind: 'barracks', key: 'barracks', label: 'Barracks', fee: 0, disabled: !barFree || !placementLimitOk(color, 'barracks') });
     return {
       id: mini.userData.id, color, sym: mini.userData.sym ?? null,
       symImg: (mini.userData.sym != null) ? symbolFile(color, mini.userData.sym) : null,
@@ -4078,6 +4089,7 @@
     const cur = mini.userData.slot;
     if (cur && (cur.event || cur.role === 'barracks')) return;        // already committed
     const color = mini.userData.color;
+    if (!placementLimitOk(color, kind)) return;              // §4 caps (3 deployed, ≤2 Barracks, ≥1 event)
     if (kind === 'barracks') {
       const bar = SLOTS.find((o) => o.role === 'barracks' && o.color === color && !o.occupants.length);
       if (!bar) return;
@@ -4133,6 +4145,8 @@
     // Seat kinds (human/cpu). Default: Blue human, the rest CPU. All 4 factions always race.
     GAME.seatKind = {}; GAME.placeDone = {};
     for (const c of ALL_COLORS) GAME.seatKind[c] = (seatConfig && seatConfig[c]) || (c === 'Blue' ? 'human' : 'cpu');
+    // §13: a random starting seat; round 1 runs clockwise from it (the seat coin bonus follows).
+    { const r = Math.floor(Math.random() * SEAT_ORDER.length); GAME.round1Seat = SEAT_ORDER.slice(r).concat(SEAT_ORDER.slice(0, r)); }
     GAME.order = computeOrder(1);
     GAME.turnIndex = 0;
     initRes();
