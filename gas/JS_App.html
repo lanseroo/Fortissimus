@@ -448,7 +448,6 @@
     if (type === 'mini' && s.color && s.color !== piece.userData.color) return false;
     // Cheer/Jeer are hand modifiers — they never occupy a mat's hero-card slots
     // (the mini-tied slots). They stay in hand until discarded or played.
-    if (type === 'card' && s.role === 'card' && piece.userData.cardKind === 'modifier') return false;
     return true;
   }
 
@@ -893,9 +892,6 @@
         }
         // dropping a Cheer/Jeer onto the discard slot pays +2 coins and reveals it.
         if (s.role === 'discard' && selected.userData.type === 'card') {
-          if (selected.userData.cardKind === 'modifier' && selected.userData.zone !== 'discard') {
-            adjustRes(selected.userData.owner || s.color, 'coin', MODIFIER_COIN);
-          }
           selected.userData.zone = 'discard';
           setCardFace(selected, selected.userData.face);   // face-up on the pile
         }
@@ -1104,7 +1100,6 @@
   const INCOME_MAX = INCOME_LEVELS.length - 1;        // top rung index
   const START_INCOME  = INCOME_LEVELS[0];             // round-1 base income (matches setup tokens)
   const DIE_ZAP_COST  = 1;                             // ⚡ per added cup die (Lightning buys dice)
-  const MODIFIER_COIN = 2;                             // Cheer/Jeer discard reward
   const PER_PLAYER_PHASES = ['Upkeep', 'Blind Placement', 'Market'];
   // Round-1 clockwise order starts at a RANDOM seat (§13); GAME.round1Seat holds that rotation.
   const seatBonusOf = (c) => { const o = GAME.round1Seat || SEAT_ORDER; return [3, 2, 1, 0][o.indexOf(c)] || 0; };
@@ -2445,88 +2440,6 @@
     advanceColWait();
   }
 
-  // ---- Cheer/Jeer modifiers (modWait) --------------------------------------------------------
-  // After every hero at an event has its dice, but BEFORE scoring, each player holding a Cheer or
-  // Jeer card in HAND gets a modal (turn order; two modals if they hold both) to optionally spend
-  // it, nudging one hero's total: Cheer ±2 on the OWNER's own heroes at the event, Jeer ±1 on ANY
-  // hero at the event. Direction is the player's choice; a used card discards, an unused one stays.
-  const isModifierCard = (c) => c.userData.type === 'card' && c.userData.cardKind === 'modifier';
-  const inHand = (c) => c.userData.slot && c.userData.slot.role === 'hand';
-  const cardKindOf = (c) => (c.userData.face === 'Cheer.png' ? 'cheer' : 'jeer');
-  // Build the queue of hand modifier cards (turn order) whose owner has a valid target this event.
-  function buildModWaitQueue(k) {
-    const atEvent = eventTargets(k);
-    if (!atEvent.length) return [];
-    const q = [];
-    for (const color of GAME.order) {
-      const cards = pieces
-        .filter((c) => isModifierCard(c) && inHand(c) && c.userData.owner === color)
-        .sort((a, b) => (a.userData.slot.ord ?? 0) - (b.userData.slot.ord ?? 0));
-      for (const c of cards) {
-        const kind = cardKindOf(c);
-        // Both Cheer and Jeer require the holder to be COMPETING here (a hero of their own at
-        // this event). Cheer then targets only their own heroes; Jeer targets any hero.
-        const competing = atEvent.some((m) => m.userData.color === color);
-        if (competing) q.push({ cardId: c.userData.id, color, kind });
-      }
-    }
-    return q;
-  }
-  // The current Cheer/Jeer modal step, or null when the queue is drained.
-  function modWaitStep() {
-    const mw = GAME.modWait; if (!mw || !mw.queue.length) return null;
-    const head = mw.queue[0];
-    const c = findCard(head.cardId);
-    if (!c || !inHand(c) || c.userData.owner !== head.color) { mw.queue.shift(); return modWaitStep(); }
-    const mag = head.kind === 'cheer' ? 2 : 1;
-    // Show the event's FINAL result for each choice (dice are modified, but the
-    // score is derived — e.g. Wrestling is "furthest from 7" — so preview the
-    // resolved score with +mag / -mag applied, not just the raw dice total.
-    const displayWithAdj = (m, delta) => {
-      const orig = m.userData.diceAdj || 0;
-      m.userData.diceAdj = orig + delta;
-      const d = eventDisplay(m, mw.key, true);
-      m.userData.diceAdj = orig;
-      return d;
-    };
-    const targets = eventTargets(mw.key)
-      .filter((m) => head.kind === 'jeer' || m.userData.color === head.color)
-      .map((m) => { const ci = miniCardInfo(m);
-        return { miniId: m.userData.id, color: m.userData.color, sym: m.userData.sym ?? null,
-                 symImg: ci.symImg, total: eventDisplay(m, mw.key, true),
-                 plus: displayWithAdj(m, mag), minus: displayWithAdj(m, -mag) }; });
-    if (!targets.length) { mw.queue.shift(); return modWaitStep(); }
-    return { kind: head.kind, cardId: head.cardId, color: head.color, mag,
-             label: labelForEvent(mw.key), targets };
-  }
-  const advanceModWait = () => {
-    if (modWaitStep()) { notifyFlow(); return; }
-    GAME.modWait = null;
-    const rules = rulesForKey(curEventKey());
-    if (rules && rules.multiRound) applyRound(); else scoreEvent();
-  };
-  // Spend the head card on one hero (dir = +1/-1); applies ±mag to its total, then discards.
-  function modWaitUse(cardId, miniId, dir) {
-    const mw = GAME.modWait; if (!mw || !mw.queue.length || mw.queue[0].cardId !== cardId) return;
-    const head = mw.queue[0], c = findCard(cardId); if (!c) return;
-    const m = findMini(miniId); if (!m) return;
-    const s = m.userData.slot; if (!s || !s.event || eventSlotIndex(s.bx) !== mw.key) return;
-    if (head.kind === 'cheer' && m.userData.color !== head.color) return;   // Cheer = own heroes only
-    const mag = head.kind === 'cheer' ? 2 : 1;
-    m.userData.diceAdj = (m.userData.diceAdj || 0) + (dir > 0 ? mag : -mag);
-    if (m.userData.diceGroup) renderHeroDice3D(m);
-    const disc = discardSlotOf(c.userData.owner);
-    if (disc) { placeOnSlot(c, disc); c.userData.zone = 'discard'; setCardFace(c, c.userData.face); }
-    mw.queue.shift();
-    advanceModWait();
-  }
-  // Decline: keep the card in hand, move to the next holder.
-  function modWaitPass(cardId) {
-    const mw = GAME.modWait; if (!mw || !mw.queue.length || mw.queue[0].cardId !== cardId) return;
-    mw.queue.shift();
-    advanceModWait();
-  }
-
   // ---- Market shop (Market phase) ---------------------------------------------------------
   // A revealed market hero costs resources keyed on its (unordered) stat pair; some pairs offer
   // two payment options (rules-draft §3). Bought cards go to the buyer's DISCARD (into their deck
@@ -2603,8 +2516,6 @@
       return;
     }
     if (!eventEveryoneFull(k)) return;
-    const queue = buildModWaitQueue(k);
-    if (queue.length) { GAME.modWait = { key: k, queue }; notifyFlow(); return; }
     const rules = rulesForKey(k);
     if (rules && rules.multiRound) applyRound(); else scoreEvent();
   }
@@ -3847,7 +3758,6 @@
       res: JSON.parse(JSON.stringify(GAME.res)),
       barracks: GAME.barracks ? { ...GAME.barracks } : null,
       colWait: GAME.colWait ? { key: GAME.colWait.key, label: GAME.colWait.label, step: colWaitStep() } : null,
-      modWait: GAME.modWait ? { key: GAME.modWait.key, step: modWaitStep() } : null,
       race: JSON.parse(JSON.stringify(GAME.race)),
       rome: GAME.rome ? { chariotPos: GAME.rome.chariotPos, laps: GAME.rome.laps, act: romeAct() + 1 } : null,
       cup: JSON.parse(JSON.stringify(GAME.cup)),
@@ -4389,7 +4299,6 @@
     if (!GAME.started || GAME.over) return false;
     if (GAME.barracks) return isCpu(GAME.barracks.color);
     if (GAME.colWait) { const s = colWaitStep(); if (s) return isCpu(s.color); }
-    if (GAME.modWait) { const s = modWaitStep(); if (s) return isCpu(s.color); }
     if (GAME.prompts && GAME.prompts.length) return isCpu(GAME.prompts[0].color);
     if (GAME.colosseum) return !GAME.colosseum.fighters.some((x) => !isCpu(x.color));   // all-CPU fight
     if (GAME.summaryOpen) return !anyHumanSeat();                                        // auto only in watch mode
@@ -4408,7 +4317,28 @@
   }
 
   // ---- per-phase CPU decisions (one atomic action each; return true if acted) ----
+  // CPU free zones on its own turn: spend a card's free zone when it helps (scarce resources, or a
+  // track step). The CPU acts as the favor viewer for each call, then restores it.
+  function cpuFreeFavor(color) {
+    const save = GAME.viewerSeat; GAME.viewerSeat = color;
+    try {
+      const r = GAME.res[color] || { coin: 0, zap: 0, sun: 0 };
+      for (const cd of favorState(color)) {
+        if (!cd.free || !cd.free.playable) continue;
+        let opt = null;
+        if (cd.free.type === 'choose') opt = { choice: r.coin < 2 ? 0 : 1 };
+        if (cd.free.type === 'swap') {
+          if (r.zap >= 2 && r.coin < 4) opt = { dir: 'z2c' };
+          else if (r.coin >= 2 && r.zap < 2) opt = { dir: 'c2z' };
+          else continue;
+        }
+        if (playFavorFree(cd.id, opt)) return true;
+      }
+      return false;
+    } finally { GAME.viewerSeat = save; }
+  }
   function cpuUpkeep(color) {
+    if (cpuFreeFavor(color)) return true;     // play any useful free zone first (each spends a card)
     // Already rolled (e.g. stepped back into Upkeep): don't re-roll — just move the turn/phase on.
     if (GAME.cupRolled[color]) {
       if (GAME.order.every((c) => GAME.cupRolled[c])) nextPhase(); else nextPlayer();
@@ -4544,26 +4474,37 @@
   }
   // CPU colosseum favors (any fight): declare an afterlife card, then boost a fighter. save/restore
   // activeColorName so a human's active swatch isn't disturbed.
+  // CPU arena favors, one attempt per stage: 0 afterlife declare · 1 damage (Str / double attack) ·
+  // 2 shield the most fragile hero. The CPU acts as the favor viewer for each call, then restores it.
   function cpuColFavor() {
     const c = GAME.colosseum; if (!c) return false;
-    c.cpuFav = c.cpuFav || {};   // per-color stage: 0=try afterlife, 1=try one boost, 2=done (cap = 1 afterlife + 1 boost/fight)
+    c.cpuFav = c.cpuFav || {};
     for (const color of GAME.order) {
-      if (!isCpu(color) || (c.cpuFav[color] || 0) >= 2) continue;
-      if (!c.fighters.some((f) => f.color === color && f.alive)) continue;
+      if (!isCpu(color) || (c.cpuFav[color] || 0) >= 3) continue;
+      const mine = c.fighters.filter((f) => f.color === color && f.alive);
+      if (!mine.length) continue;
+      const stage = c.cpuFav[color] || 0;
       const save = GAME.viewerSeat; GAME.viewerSeat = color;
-      const fav = favorState(color); let cardId = null, opt = null;
-      if ((c.cpuFav[color] || 0) === 0) {   // stage 0: afterlife (optional), then advance
-        if (!GAME.favorAfterlife[color]) { const af = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'afterlife'); if (af) { cardId = af.id; opt = {}; } }
-        c.cpuFav[color] = 1;
-      }
-      if (!cardId) {   // stage 1: one stat boost on the best fighter, then done
-        const b = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'stat');
-        if (b) { if (b.colosseum.scope === 'all') { cardId = b.id; opt = {}; }
-          else { const mine = c.fighters.filter((f) => f.color === color && f.alive).sort((x, y) => y.str - x.str); if (mine[0]) { cardId = b.id; opt = { targetId: mine[0].id }; } } }
-        c.cpuFav[color] = 2;
-      }
-      if (cardId) { playFavorColosseum(cardId, opt); GAME.viewerSeat = save; notifyFlow(); return true; }
-      GAME.viewerSeat = save;
+      let played = false;
+      try {
+        const fav = favorState(color);
+        const byStr = mine.slice().sort((x, y) => (y.str + (y.strBonus || 0)) - (x.str + (x.strBonus || 0)));
+        if (stage === 0) {
+          const af = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'afterlife');
+          if (af && !GAME.favorAfterlife[color]) played = playFavorColosseum(af.id, {});
+        } else if (stage === 1) {
+          const d = fav.find((cd) => cd.colosseum && cd.colosseum.playable && (cd.colosseum.type === 'stat' || cd.colosseum.type === 'attackTwice'));
+          if (d) played = playFavorColosseum(d.id, d.colosseum.scope === 'all' ? {} : { targetId: byStr[0].id });
+        } else {
+          const sh = fav.find((cd) => cd.colosseum && cd.colosseum.playable && cd.colosseum.type === 'shield');
+          if (sh) {
+            const weak = mine.slice().sort((x, y) => (x.speed + (x.speedBonus || 0)) - (y.speed + (y.speedBonus || 0)))[0];
+            played = playFavorColosseum(sh.id, { targetId: weak.id });
+          }
+        }
+      } finally { GAME.viewerSeat = save; }
+      c.cpuFav[color] = stage + 1;   // each stage is tried once
+      if (played) return true;
     }
     return false;
   }
@@ -4580,7 +4521,6 @@
     pruneIllegalPrompts();
     if (GAME.barracks && isCpu(GAME.barracks.color)) return cpuBarracks();
     if (GAME.colWait) { const s = colWaitStep(); if (s && isCpu(s.color)) return cpuColWait(s); return false; }
-    if (GAME.modWait) { const s = modWaitStep(); if (s && isCpu(s.color)) { modWaitPass(s.cardId); return true; } return false; }
     if (GAME.prompts && GAME.prompts.length) { if (isCpu(GAME.prompts[0].color)) return cpuPrompt(GAME.prompts[0]); return false; }
     if (GAME.colosseum) {
       if (cpuColFavor()) return true;                                           // CPUs play arena favors (any fight)
@@ -4620,7 +4560,6 @@
     rerollHeroDie, toggleLongJumpExtra, commitLongJump, setArcheryNudge,
     nextEventParticipant, resolveEvent, dismissEventSummary,
     colWaitPay, colWaitSkip, colWaitRelease,
-    modWaitUse, modWaitPass,
     colBuy, colRest, colActPass, colCounterStep, dismissColosseum, colWindowContinue,
     colSelectFighter, colFighterClick, colPushStart, colPushCancel,
     barracksPick, barracksMove, barracksDone, advanceRace,

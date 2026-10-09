@@ -183,10 +183,6 @@
   const colWait = document.getElementById('colWait');
   const cwLine = document.getElementById('cwLine');
   const cwBtns = document.getElementById('cwBtns');
-  const modWait = document.getElementById('modWait');
-  const mwLine = document.getElementById('mwLine');
-  const mwTargets = document.getElementById('mwTargets');
-  const mwPass = document.getElementById('mwPass');
   const eventSummary = document.getElementById('eventSummary');
   const esHead = document.getElementById('esHead');
   const esObj = document.getElementById('esObj');
@@ -635,28 +631,6 @@
       }
     } else {
       colWait.hidden = true;
-    }
-
-    // Cheer/Jeer window (center modal): optionally nudge a hero total before the event is scored.
-    const mw = f.modWait && f.modWait.step ? f.modWait : null;
-    if (mw) {
-      const s = mw.step, col = FLOW_COLORS[s.color] || '#ffd479';
-      modWait.hidden = false;
-      mwLine.style.color = col;
-      const label = s.kind === 'cheer' ? 'Cheer' : 'Jeer';
-      const scope = s.kind === 'cheer' ? 'your own heroes' : 'any hero at the event';
-      mwLine.innerHTML = s.color + ' — ' + s.label + ': play ' + label
-        + ' (±' + s.mag + ' to ' + scope + ')?';
-      const sym = (im) => im ? '<img class="psym" src="' + window.ASSET_BASE + im + '" alt="">' : '';
-      mwTargets.innerHTML = s.targets.map((t) =>
-        '<div class="mwrow" style="color:' + (FLOW_COLORS[t.color] || '#ccc') + '">'
-          + '<span class="mwhero">' + sym(t.symImg) + 'now <b>' + t.total + '</b></span>'
-          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="1" title="Result if you play +' + s.mag + '">+' + s.mag + ' → <b>' + t.plus + '</b></button>'
-          + '<button class="mwbtn" data-card="' + s.cardId + '" data-id="' + t.miniId + '" data-dir="-1" title="Result if you play −' + s.mag + '">−' + s.mag + ' → <b>' + t.minus + '</b></button>'
-          + '</div>').join('');
-      mwPass.dataset.card = s.cardId;
-    } else {
-      modWait.hidden = true;
     }
 
     // post-resolution recap (center modal): what the just-resolved event did + who won what,
@@ -1251,12 +1225,6 @@
     else if (btn.dataset.action === 'release') PT.colWaitRelease(id);
   });
 
-  // modWait modal: +/- buttons apply the card to a hero; Pass keeps it in hand. Rebuilt per step.
-  mwTargets.addEventListener('click', (e) => {
-    const btn = e.target.closest('button.mwbtn'); if (!btn) return;
-    PT.modWaitUse(Number(btn.dataset.card), Number(btn.dataset.id), Number(btn.dataset.dir));
-  });
-  mwPass.addEventListener('click', () => PT.modWaitPass(Number(mwPass.dataset.card)));
 
   // event summary modal: dismiss it to advance the guided walk to the next event/phase.
   esNext.addEventListener('click', () => PT.dismissEventSummary());
