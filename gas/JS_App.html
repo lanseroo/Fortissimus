@@ -240,13 +240,16 @@
   // logarithmicDepthBuffer keeps coplanar boards from z-fighting/flickering
   // across the large depth range needed to frame the whole table.
   const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));   // cap: phones are fill-rate limited
   container.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.screenSpacePanning = true;    // pan across the whole table
   controls.maxDistance = 2000;
+  controls.minDistance = 20;            // don't dive into the minis
+  controls.maxPolarAngle = 1.45;        // stay above the table
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
   controls.target.set(0, 0, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.7));
@@ -271,6 +274,7 @@
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => resize()).observe(container);
 
   // ------------------------------------------------------------------ boards
   const texCache = new Map();
@@ -809,6 +813,7 @@
   }
 
   renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) { if (dragging) { dragging = false; controls.enabled = true; } return; }
     setNDC(e);
     downX = e.clientX; downY = e.clientY;
     dragMoved = false;                        // reset per press; pointermove flips it true
@@ -830,9 +835,11 @@
       // In every other phase (Upkeep/events/Market) a click just inspects its tied card — never
       // pick it up for a drag, which would re-snap its slot and shuffle the event turn order.
       if (p.userData.type === 'mini' && GAME.started && curPhase() !== 'Blind Placement') return;
+      if (e.pointerType === 'touch' && selected !== p) { select(p); return; }   // touch: tap selects, press again to drag
       select(p);
       dragging = true;
       controls.enabled = false;
+      try { renderer.domElement.setPointerCapture(e.pointerId); } catch (_) {}
       raycaster.ray.intersectPlane(groundPlane, hitPoint);
       dragOffset.set(p.position.x - hitPoint.x, 0, p.position.z - hitPoint.z);
       showDragSlots(p);   // reveal the slots this piece can snap to
@@ -842,8 +849,8 @@
   });
 
   renderer.domElement.addEventListener('pointermove', (e) => {
-    if (!dragging || !selected) return;
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) dragMoved = true;
+    if (!dragging || !selected || !e.isPrimary) return;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > (e.pointerType === 'touch' ? 10 : 6)) dragMoved = true;
     setNDC(e);
     raycaster.setFromCamera(ndc, camera);
     if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
@@ -917,6 +924,7 @@
   };
   renderer.domElement.addEventListener('pointerup', endDrag);
   renderer.domElement.addEventListener('pointerleave', endDrag);
+  renderer.domElement.addEventListener('pointercancel', endDrag);
 
   // The hero card a mini is tied to = the card in the same-color, same-symbol slot.
   function miniCardInfo(mini) {
@@ -935,7 +943,7 @@
   // Click (no drag): on a mini -> show its tied hero card; on a board -> zoom in;
   // on empty table -> frame the whole table.
   renderer.domElement.addEventListener('pointerup', (e) => {
-    const click = Math.hypot(e.clientX - downX, e.clientY - downY) <= 6;
+    const click = Math.hypot(e.clientX - downX, e.clientY - downY) <= (e.pointerType === 'touch' ? 10 : 6);
     // Combat: two-step push — a click while choosing a destination places the pushed mini.
     if (click && GAME.colosseum && GAME.colPush && GAME.colPush.step === 'dest') { colPushDestClick(e); return; }
     if (downPiece) {                                                // piece drag handled in endDrag
@@ -983,11 +991,17 @@
 
   // Frame an arbitrary world-space rectangle from the angled overhead view.
   // `margin` <1 zooms tighter; always flies (used for sub-table framing too).
+  // Distance that fits a bounding circle of `radius` in BOTH directions: the narrower half-FOV governs,
+  // so a tall portrait view won't crop the sides. Wide (landscape) screens keep the original distance.
+  function fitDist(radius) {
+    const tv = Math.tan(camera.fov * Math.PI / 360), th = tv * camera.aspect;
+    return radius / Math.sin(Math.atan(Math.min(tv, th)));
+  }
   function frameBox(minX, maxX, minZ, maxZ, margin = 0.62) {
     const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
     const radius = 0.5 * Math.hypot(maxX - minX, maxZ - minZ);
     const fov = camera.fov * Math.PI / 180;
-    const dist = (radius / Math.sin(fov / 2)) * margin;
+    const dist = fitDist(radius) * margin;
     camera.near = 0.5;
     camera.far = dist * 6;
     camera.updateProjectionMatrix();
@@ -1005,7 +1019,7 @@
     const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
     const radius = 0.5 * Math.hypot(maxX - minX, maxZ - minZ);
     const fov = camera.fov * Math.PI / 180;
-    const dist = (radius / Math.sin(fov / 2)) * 0.62;    // margin
+    const dist = fitDist(radius) * 0.62;    // margin
     // Tight near/far around the table keeps depth precision high (less flicker).
     camera.near = 0.5;
     camera.far = dist * 4;
