@@ -120,8 +120,10 @@
   };
   setToolbar(true);
   if (toolbarToggle) {
-    toolbarToggle.addEventListener('click', () =>
-      setToolbar(!document.body.classList.contains('toolsopen')));
+    toolbarToggle.addEventListener('click', () => {
+      if (isPhone()) { setSheet(sheetOpen('tools') ? null : 'tools'); return; }
+      setToolbar(!document.body.classList.contains('toolsopen'));
+    });
   }
   const readSeatConfig = () => {
     const cfg = {};
@@ -133,6 +135,7 @@
     evDeck = [];                                    // a new game starts a fresh event cycle
     dealEvents(randomEvents());
     setToolbar(false);   // a game just started — get the tools out of the way
+    setSheet(null);
   });
   // Each new round the app asks for a fresh random event trio (D5).
   if (PT.onNewRound) PT.onNewRound(() => dealEvents(randomEvents()));
@@ -1148,7 +1151,65 @@
   // Favor viewer switcher: pick whose hand the panel shows (hot-seat now; a second screen later).
   favorSeats.addEventListener('click', (e) => { const b = e.target.closest('button[data-seat]'); if (b) PT.setViewerSeat(b.dataset.seat); });
 
-  PT.onFlow(renderFlow);
+  // ---- phone layout: slide-up sheets + bottom action bar (CSS lives in the ≤820px media query) ----
+  const phoneMQ = window.matchMedia('(max-width: 820px)');
+  const isPhone = () => phoneMQ.matches;
+  const sheetOpen = (n) => document.body.classList.contains('sheet-' + n);
+  function setSheet(name) {
+    for (const n of ['me', 'info', 'tools']) document.body.classList.toggle('sheet-' + n, n === name);
+    updateBarState(curFlow);
+  }
+  document.querySelectorAll('.sheetclose').forEach((b) => b.addEventListener('click', () => setSheet(null)));
+  // The one context button: the next thing this player must do, proxied to the desktop control.
+  function primaryFor(f) {
+    if (!f || !f.started || f.over) return null;
+    if (f.colosseum) {
+      if (f.colosseum.sub === 'done') return { label: 'Continue ▶', sel: '#cfBtns [data-cfdone]' };
+      if (f.colosseum.sub === 'counter') return { label: '⚔ Strike ▶', sel: '#cfBtns [data-cfcounter]' };
+      if (f.colosseum.sub === 'buyA' || f.colosseum.sub === 'buyB') return { label: 'Continue ▶', sel: '#cfBtns [data-cfcontinue]' };
+      return null;
+    }
+    const w = f.eventWalk;
+    if (f.isEvent && w && w.active) {
+      if (w.everyoneFull) return { label: 'Resolve ▶', sel: '#resolveEvent' };
+      if (w.currentFull && !w.isLastParticipant) return { label: 'Next player ▶', sel: '#nextPlayer' };
+      return null;
+    }
+    if (f.perPlayer && f.phase === 'Upkeep' && !f.isCpuTurn && f.current && !(f.cupRolled && f.cupRolled[f.current])) return { label: 'Roll cup ▶', sel: '#rollCup' };
+    return null;
+  }
+  const mbBack = document.getElementById('mbBack'), mbNext = document.getElementById('mbNext');
+  const mbPrimary = document.getElementById('mbPrimary'), mbHand = document.getElementById('mbHand');
+  const mbMe = document.getElementById('mbMe'), mbInfo = document.getElementById('mbInfo');
+  const mobileStatus = document.getElementById('mobileStatus');
+  function updateBarState(f) {
+    mbBack.disabled = prevBtn.disabled;
+    mbNext.disabled = nextBtn.disabled;
+    mbNext.textContent = nextBtn.textContent;
+    const p = primaryFor(f);
+    mbPrimary.hidden = !p;
+    mbPrimary.textContent = p ? p.label : '';
+    mbPrimary.dataset.target = p ? p.sel : '';
+    mbMe.classList.toggle('on', sheetOpen('me'));
+    mbHand.classList.toggle('on', sheetOpen('me'));
+    mbInfo.classList.toggle('on', sheetOpen('info'));
+    const bits = [flowLine.textContent];
+    if (!turnbar.hidden && turnLine.textContent) bits.push(turnLine.textContent);
+    mobileStatus.textContent = bits.join(' · ');
+  }
+  mbBack.addEventListener('click', () => prevBtn.click());
+  mbNext.addEventListener('click', () => nextBtn.click());
+  mbPrimary.addEventListener('click', () => { const sel = mbPrimary.dataset.target; const el = sel && document.querySelector(sel); if (el) el.click(); });
+  mbMe.addEventListener('click', () => setSheet(sheetOpen('me') ? null : 'me'));
+  mbInfo.addEventListener('click', () => setSheet(sheetOpen('info') ? null : 'info'));
+  mbHand.addEventListener('click', () => { setSheet('me'); setTimeout(() => favorSec.scrollIntoView({ block: 'start' }), 0); });
+  let wasInCombat = false;
+  PT.onFlow((f) => {
+    renderFlow(f);
+    if (f.colosseum && !wasInCombat && isPhone()) setSheet('me');   // a fight opens the Me sheet on phones
+    wasInCombat = !!f.colosseum;
+    updateBarState(f);
+  });
   renderFlow(PT.getFlow());
 
   // ---- VP banner burst: flash the VP.png standard with the earned value over the board ----

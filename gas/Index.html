@@ -19,7 +19,9 @@
       <button id="toolbarToggle" class="tbtoggle" title="Show/hide the setup &amp; sim tools">⚙ Tools</button>
     </h1>
 
+    <div id="mobileStatus"></div>
     <div id="toolbar">
+      <button class="sheetclose" data-close="1">✕ Close tools</button>
       <fieldset>
         <legend>Active events (dealt each round)</legend>
         <select id="eventSlot0" title="Event slot 1"></select>
@@ -106,6 +108,7 @@
     <div id="stage">
       <!-- LEFT: current-player tools/actions -->
       <div id="playerPanel">
+        <button class="sheetclose" data-close="1">✕ Close</button>
         <div id="ppHead"><span class="ppdot" id="ppDot"></span><span id="ppName">—</span></div>
         <div id="ppRes" class="ppres"></div>
 
@@ -187,6 +190,7 @@
 
       <!-- RIGHT: overall game status (all players) -->
       <div id="vpPanel">
+        <button class="sheetclose" data-close="1">✕ Close</button>
         <div id="flow">
           <div id="flowLine">Round — · Setup</div>
           <div id="flowOrder" class="order"></div>
@@ -252,6 +256,15 @@
 
     <!-- VP banner burst overlay — top-level & fixed so it renders ABOVE the modal dimming screen
          (#modalBackdrop). Bursts are appended here in JS_UI. -->
+    <!-- Phone action bar (narrow screens only). Each button proxies a desktop control, so the logic lives in one place. -->
+    <nav id="mobileBar" aria-label="Game actions">
+      <button id="mbBack" title="Step back a phase">◂ Back</button>
+      <button id="mbPrimary" hidden>—</button>
+      <button id="mbNext" title="Advance to the next phase">Next ▶</button>
+      <button id="mbHand" title="Your favor cards">Hand</button>
+      <button id="mbMe" title="Your cup, dice and combat">Me</button>
+      <button id="mbInfo" title="Standings, log and flow">Info</button>
+    </nav>
     <div id="vpFlash" aria-hidden="true"></div>
 
     <!-- Expose the repo asset base to the client -->
