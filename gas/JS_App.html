@@ -1465,7 +1465,7 @@
   function pickGods() {
     const map = {}, side = {};
     for (const cn of [1, 2, 3]) {
-      const s = Math.random() < 0.5 ? 0 : 1;
+      const s = gameRand() < 0.5 ? 0 : 1;
       side[cn] = s; map[cn] = GOD_POOL[COLUMN_SIDES[cn][s]];
     }
     GAME.godSide = side;
@@ -2170,7 +2170,19 @@
     for (const b of LAYOUT) if (b.slot !== undefined) f[b.slot] = b.file;
     return f;
   })();
-  const rollFace = () => 1 + Math.floor(Math.random() * 6);
+  // ---- Seeded gameplay RNG. Online play replays the same seed on every screen, so every gameplay
+  // roll/shuffle must come from this stream (cosmetic jitter keeps Math.random). mulberry32.
+  let rngState = 0;
+  function seedRng(seed) { rngState = (seed >>> 0) || 0x9e3779b9; }
+  function gameRand() {
+    rngState = (rngState + 0x6D2B79F5) >>> 0;
+    let t = rngState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  const gameDie = () => 1 + Math.floor(gameRand() * 6);
+  const rollFace = gameDie;
   let selectedHeroId = null;          // which competing mini the panel actions target
 
   // Reset one color's cup to its income-rung base of blank (unrolled) dice for a new round.
@@ -2576,7 +2588,7 @@
     const pool = GAME.marketPool || []; if (!pool.length) return;
     for (const slot of slotsByRole('market-hero')) {
       if (slot.occupants.length) continue;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const pick = pool[Math.floor(gameRand() * pool.length)];
       const c = addToken(pick, 22, 'card');
       c.userData.face = pick; c.userData.cardKind = 'hero';
       placeOnSlot(c, slot);
@@ -2924,7 +2936,7 @@
     });
   }
 
-  function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
   // Deck: shuffle the 3 variants WITHIN each level, then stack level 1 (top) → level 4 (bottom).
   function initGladDeck() {
     GAME.gladDeck = [1, 2, 3, 4].flatMap((lv) => shuffleArr(GLAD_DECK.map((c, i) => ({ c, i })).filter((x) => x.c.level === lv).map((x) => x.i)));
@@ -3154,7 +3166,7 @@
             const now = performance.now();
             if (now - lastFace > 55) {
               lastFace = now;
-              const rv = 1 + Math.floor(Math.random() * 6);
+              const rv = rollFace();
               g.userData.plane.material.map = loadTexture('Dice_' + rv + '.png'); g.userData.plane.material.needsUpdate = true;
             }
           } else {
@@ -4087,7 +4099,7 @@
     GAME.seatKind = {}; GAME.placeDone = {};
     for (const c of ALL_COLORS) GAME.seatKind[c] = (seatConfig && seatConfig[c]) || (c === 'Blue' ? 'human' : 'cpu');
     // §13: a random starting seat; round 1 runs clockwise from it (the seat coin bonus follows).
-    { const r = Math.floor(Math.random() * SEAT_ORDER.length); GAME.round1Seat = SEAT_ORDER.slice(r).concat(SEAT_ORDER.slice(0, r)); }
+    { const r = Math.floor(gameRand() * SEAT_ORDER.length); GAME.round1Seat = SEAT_ORDER.slice(r).concat(SEAT_ORDER.slice(0, r)); }
     GAME.order = computeOrder(1);
     GAME.turnIndex = 0;
     initRes();
@@ -4185,7 +4197,7 @@
   function buildDeck(colorName, faces, x, z) {
     const order = faces.slice();
     for (let i = order.length - 1; i > 0; i--) {   // Fisher–Yates
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(gameRand() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
     }
     order.forEach((face, i) => {
@@ -4238,7 +4250,7 @@
       p.userData.type === 'card' && p.userData.owner === colorName && p.userData.zone === 'discard' && !p.userData.favorDiscard);
     if (!disc.length) return;
     for (let i = disc.length - 1; i > 0; i--) {          // Fisher-Yates
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(gameRand() * (i + 1));
       [disc[i], disc[j]] = [disc[j], disc[i]];
     }
     disc.forEach((c, i) => {
@@ -4250,8 +4262,10 @@
   }
 
   // One-click game setup: seat every faction's starting pieces + deal the market.
-  function initGame(heroPool = [], seatConfig = null) {
+  function initGame(heroPool = [], seatConfig = null, seed = null) {
     clearPieces();
+    GAME.seed = (seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;   // recorded for replay / online
+    seedRng(GAME.seed);
 
     // per-faction: 5 color-matched minis on the hero-market circles + income token.
     // Resources (🪙/⚡/☀) are NOT tokens on the table anymore — they're tracked in
@@ -4309,7 +4323,7 @@
     const pool = heroPool.slice();
     for (const slot of slotsByRole('market-hero')) {
       if (!pool.length) break;
-      const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+      const pick = pool.splice(Math.floor(gameRand() * pool.length), 1)[0];
       const c = addToken(pick, 22, 'card');
       c.userData.face = pick; c.userData.cardKind = 'hero';
       placeOnSlot(c, slot);
@@ -4343,8 +4357,8 @@
   // Second half of the sandbox jump — runs once the minis have finished loading.
   // wantN: how many heroes to field total (0 = random). Assigned randomly across factions, max 3 each.
   function buildColosseumSandbox(heroPool = [], gladIdx = -1, wantN = 0) {
-    const r5 = () => Math.floor(Math.random() * 6);         // 0..5
-    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const r5 = () => Math.floor(gameRand() * 6);         // 0..5
+    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     // Per-faction pool of minis (shuffled), capped at 3 usable per faction.
     const minisByColor = {}, capSlots = [];
     for (const nat of NATIONS) {
@@ -4355,7 +4369,7 @@
     const maxN = capSlots.length;                           // total capacity (≤ 3 × #factions)
     // Requested count (clamped 2..maxN); random 2..min(8,maxN) when unspecified.
     const want = wantN > 0 ? Math.max(2, Math.min(wantN, maxN))
-                           : Math.max(2, Math.min(2 + Math.floor(Math.random() * 7), maxN));
+                           : Math.max(2, Math.min(2 + Math.floor(gameRand() * 7), maxN));
     // Randomly hand out `want` seats across factions, respecting the per-faction cap.
     const take = shuffle(capSlots.slice()).slice(0, want);
     const chosen = [], idxByColor = {};
@@ -4366,9 +4380,9 @@
     // give every fighter a card (hero or plebe) on its tied card slot so it has Str/Speed
     for (const m of chosen) {
       const color = m.userData.color, sym = m.userData.sym;
-      const useHero = heroPool.length && Math.random() < 0.6;
-      const plebeFace = 'Plebe' + color[0] + ['2_0', '0_2', '1_1'][Math.floor(Math.random() * 3)] + '.png';
-      const face = useHero ? heroPool[Math.floor(Math.random() * heroPool.length)] : plebeFace;
+      const useHero = heroPool.length && gameRand() < 0.6;
+      const plebeFace = 'Plebe' + color[0] + ['2_0', '0_2', '1_1'][Math.floor(gameRand() * 3)] + '.png';
+      const face = useHero ? heroPool[Math.floor(gameRand() * heroPool.length)] : plebeFace;
       const slot = SLOTS.find((s) => s.role === 'card' && s.owner === color && s.sym === sym);
       if (slot) { const card = addToken(face, 22, 'card'); card.userData.face = face; card.userData.cardKind = useHero ? 'hero' : 'plebe'; placeOnSlot(card, slot); }
       m.userData.waiting = true; m.userData.locked = true;  // committed to the arena
@@ -4389,7 +4403,7 @@
     // this, the deck is level-1-on-top so the sim always drew a level-1 card.
     if (!GAME.gladDeck || !GAME.gladDeck.length) initGladDeck();
     const gi = (gladIdx != null && gladIdx >= 0 && gladIdx < GLAD_DECK.length)
-      ? gladIdx : Math.floor(Math.random() * GLAD_DECK.length);
+      ? gladIdx : Math.floor(gameRand() * GLAD_DECK.length);
     GAME.gladDeck.unshift(gi);
     startColosseum();                                       // draws GLAD_DECK[gi] + opens combat
     notifyFlow();
@@ -4663,7 +4677,7 @@
 
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList,
+    setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList, gameShuffle: (a) => shuffleArr(a),
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onNewRound: (cb) => { newRoundCb = cb; },
     onVPFlash: (cb) => { vpFlashCb = cb; },

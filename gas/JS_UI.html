@@ -90,7 +90,8 @@
   // §5 two-round cycle: each cycle is a shuffled 6. Round A deals 3; round B deals the remaining 3;
   // then a fresh cycle. High Jump and Archery are never dealt in the same round (checked per half).
   let evDeck = [];
-  const shuffleArr = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // Seeded (JS_App gameRand), so the event cycle replays identically on every online screen.
+  const shuffleArr = (a) => PT.gameShuffle(a);
   const hjWithArchery = (trio) => trio.includes('HighJumpEvent.png') && trio.includes('ArcheryEvent.png');
   function freshEventCycle() {
     let pool = [];
