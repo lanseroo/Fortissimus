@@ -1147,6 +1147,8 @@
                  columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
                  favorSpent: {}, favorAfterlife: {}, eventFavorFlags: {}, seatKind: {}, placeDone: {},
                  pendingVP: {}, elysium: [], tartarus: [], result: null };
+  // A pristine copy of GAME, so a new game (or a replay) starts from the same state every time.
+  const GAME_INIT = JSON.parse(JSON.stringify(GAME));
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
   let newRoundCb = null;                         // JS_UI hook: deal a fresh random event trio each round
   let vpFlashCb = null;                          // JS_UI VP-banner flash (set via PT.onVPFlash)
@@ -4305,6 +4307,12 @@
   // One-click game setup: seat every faction's starting pieces + deal the market.
   function initGame(heroPool = [], seatConfig = null, seed = null) {
     clearPieces();
+    // Start from a clean slate: GAME, piece ids and the active faction all return to their initial values.
+    for (const k of Object.keys(GAME)) delete GAME[k];
+    Object.assign(GAME, JSON.parse(JSON.stringify(GAME_INIT)));
+    PIECE_ID = 0;
+    activeColorName = 'Blue';
+    selectedHeroId = null;
     GAME.seed = (seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;   // recorded for replay / online
     seedRng(GAME.seed);
 
