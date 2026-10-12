@@ -4781,15 +4781,28 @@
     return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
   }
   // Everything that decides the game: flow, resources, race, columns, cups, favors, placements, RNG position.
-  function stateSum() {
+  // Each part hashed on its own, so a mismatch can say which part differs.
+  function stateParts() {
     const minis = pieces.filter((p) => p.userData.type === 'mini')
       .map((p) => [p.userData.id, p.userData.color, p.userData.slot ? SLOTS.indexOf(p.userData.slot) : -1,
                    (p.userData.eventDice || []).slice()])
       .sort((a, b) => a[0] - b[0]);
-    return hash53(JSON.stringify([GAME.round, GAME.phaseIndex, GAME.turnIndex, GAME.order, GAME.res, GAME.race,
-      GAME.columns, GAME.cup, GAME.cupRolled, GAME.favorSpent, GAME.eventKeys, GAME.eventIndex, GAME.placeDone,
-      GAME.over, rngState, minis]));
+    const cards = pieces.filter((p) => p.userData.type === 'card')
+      .map((p) => [p.userData.id, p.userData.zone, p.userData.slot ? SLOTS.indexOf(p.userData.slot) : -1])
+      .sort((a, b) => a[0] - b[0]);
+    const part = (v) => hash53(JSON.stringify(v));
+    return {
+      flow: part([GAME.round, GAME.phaseIndex, GAME.turnIndex, GAME.order, GAME.over, GAME.placeDone]),
+      res: part([GAME.res, GAME.race, GAME.columns]),
+      cups: part([GAME.cup, GAME.cupRolled]),
+      favors: part([GAME.favorSpent, GAME.eventFavorFlags]),
+      events: part([GAME.eventKeys, GAME.eventIndex]),
+      rng: part(rngState),
+      minis: part(minis),
+      cards: part(cards),
+    };
   }
+  function stateSum() { return hash53(JSON.stringify(stateParts())); }
   for (const k of Object.keys(window.PT)) {
     const orig = window.PT[k];
     if (typeof orig !== 'function' || PT_NOT_RECORDED.has(k)) continue;
@@ -4809,10 +4822,10 @@
       try {
         const out = orig(...args);
         if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
-        if (entry) entry.s = stateSum();
+        if (entry) { entry.s = stateSum(); entry.p = stateParts(); }
         return out;
       } catch (err) {
-        if (entry) entry.s = stateSum();        // a refused action still leaves a checksum (replay must match it too)
+        if (entry) { entry.s = stateSum(); entry.p = stateParts(); }   // a refused action still leaves a checksum (replay must match it too)
         throw err;
       } finally { REPLAY.depth--; }
     };
@@ -4835,7 +4848,11 @@
         try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
         report.steps++;
         const sum = stateSum();
-        if (sum !== e.s) { report.ok = false; report.firstBad = { index: i, action: e.m, expected: e.s, got: sum }; break; }
+        if (sum !== e.s) {
+          const now = stateParts();
+          const differs = Object.keys(now).filter((k) => now[k] !== (e.p || {})[k]);
+          report.ok = false; report.firstBad = { index: i, action: e.m, args: e.a, differs }; break;
+        }
       }
     } finally { REPLAY.active = false; }
     return report;
