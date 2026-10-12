@@ -586,8 +586,10 @@
   // Minis load one after another and reserve their id when requested, so pieces, ids and spawn
   // order come out identical on every screen (online lockstep depends on it).
   let miniLoadChain = Promise.resolve();
+  let miniPending = 0;                       // minis requested but not yet on the table
   function addMini(file, colorName = NATION_COLORS[file] || activeColorName, targetSlot = null, sym = null) {
     const reservedId = ++PIECE_ID;
+    miniPending++;
     miniLoadChain = miniLoadChain.then(() => new Promise((done) => loader.load(ASSET_BASE + file, (geometry) => {
       geometry.rotateX(-Math.PI / 2);        // stand upright (CAD is usually Z-up)
       geometry.center();
@@ -652,8 +654,9 @@
       // STL load is async, so a setup snap has to happen here in the callback.
       if (targetSlot) { placeOnSlot(g, targetSlot); }
       else { const [x, z] = spawnXZ(); g.position.set(x, 0, z); }
+      miniPending--;
       done();
-    }, undefined, () => done())));
+    }, undefined, () => { miniPending--; done(); })));
   }
 
   // Flat PNG token lying on the board. `worldSize` is the LONGEST edge; the
@@ -4798,7 +4801,7 @@
           REPLAY.log = [];
           REPLAY.header = { heroPool: JSON.parse(JSON.stringify(args[0] ?? [])), seatConfig: args[1] ?? null };
         } else {
-          entry = { m: k, a: JSON.parse(JSON.stringify(args)) };   // copy before the call (shuffles mutate)
+          entry = { m: k, a: JSON.parse(JSON.stringify(args)), pre: miniPending > 0 };   // copy before the call (shuffles mutate); pre = minis still loading
           REPLAY.log.push(entry);
         }
       }
@@ -4823,9 +4826,12 @@
     REPLAY.active = true;
     try {
       window.PT.initGame(data.header.heroPool, data.header.seatConfig, data.header.seed);
-      await miniLoadChain;
+      let loaded = false;
       for (let i = 0; i < data.log.length; i++) {
         const e = data.log[i];
+        // Actions recorded while minis were still loading run at the same point (before the wait);
+        // everything after them waits for the table to be complete, as it was when recorded.
+        if (!e.pre && !loaded) { await miniLoadChain; loaded = true; }
         try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
         report.steps++;
         const sum = stateSum();
