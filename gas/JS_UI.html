@@ -1160,6 +1160,14 @@
 
   // Pause/Step the CPUs (driver stops scheduling while paused; Step fires exactly one action).
   pauseCpuBtn.addEventListener('click', () => PT.setPaused(!(curFlow && curFlow.cpuPaused)));
+  // Lockstep test: replays the game played so far in this tab and reports the first divergent step.
+  document.getElementById('checkReplay').addEventListener('click', async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Replaying…';
+    const r = await PT.replayLog(PT.exportLog());
+    btn.textContent = r.ok ? 'Replay OK (' + r.steps + ')' : 'Replay diverged at #' + r.firstBad.index;
+    if (!r.ok) console.warn('Replay diverged', r.firstBad);
+    setTimeout(() => { btn.textContent = 'Check replay'; btn.disabled = false; }, 4000);
+  });
   stepCpuBtn.addEventListener('click', () => PT.cpuStep());
   // Favor viewer switcher: pick whose hand the panel shows (hot-seat now; a second screen later).
   favorSeats.addEventListener('click', (e) => { const b = e.target.closest('button[data-seat]'); if (b) PT.setViewerSeat(b.dataset.seat); });

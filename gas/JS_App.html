@@ -555,10 +555,10 @@
   let activeColorName = 'Blue';
 
   let PIECE_ID = 0;
-  function registerPiece(group, type) {
+  function registerPiece(group, type, forcedId) {
     group.userData.isPiece = true;
     group.userData.type = type;
-    group.userData.id = ++PIECE_ID;             // stable id (used to target per-hero dice)
+    group.userData.id = forcedId ?? ++PIECE_ID; // stable id (used to target per-hero dice)
     pieces.push(group);
     scene.add(group);
     return group;
@@ -583,8 +583,12 @@
     return tex;
   }
 
+  // Minis load one after another and reserve their id when requested, so pieces, ids and spawn
+  // order come out identical on every screen (online lockstep depends on it).
+  let miniLoadChain = Promise.resolve();
   function addMini(file, colorName = NATION_COLORS[file] || activeColorName, targetSlot = null, sym = null) {
-    loader.load(ASSET_BASE + file, (geometry) => {
+    const reservedId = ++PIECE_ID;
+    miniLoadChain = miniLoadChain.then(() => new Promise((done) => loader.load(ASSET_BASE + file, (geometry) => {
       geometry.rotateX(-Math.PI / 2);        // stand upright (CAD is usually Z-up)
       geometry.center();
       geometry.computeVertexNormals();
@@ -644,11 +648,12 @@
         disc.renderOrder = 2;
         g.add(disc);
       }
-      registerPiece(g, 'mini');
+      registerPiece(g, 'mini', reservedId);
       // STL load is async, so a setup snap has to happen here in the callback.
       if (targetSlot) { placeOnSlot(g, targetSlot); }
       else { const [x, z] = spawnXZ(); g.position.set(x, 0, z); }
-    });
+      done();
+    }, undefined, () => done())));
   }
 
   // Flat PNG token lying on the board. `worldSize` is the LONGEST edge; the
@@ -4707,6 +4712,82 @@
     setActiveColor: (name) => { activeColorName = name; selectedHeroId = null; notifyFlow(); },
     getActiveColor: () => activeColorName,
     COLORS,
+  };
+
+  // ---- Action log (Phase 0 of online play). Every top-level PT action is recorded with its args and
+  // a state checksum taken after it runs; replayLog() rebuilds the game from the header and checks each
+  // checksum. Nested calls (engine callbacks) are not recorded: they re-run during replay anyway.
+  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null };
+  const PT_NOT_RECORDED = new Set(['getFlow', 'onFlow', 'onNewRound', 'onVPFlash', 'onMiniClick', 'onMiniPlace',
+    'onMarketBuy', 'marketBuyInfo', 'gladList', 'frameTable', 'resetView', 'setSlotsVisible', 'setColumnsVisible',
+    'getActiveColor', 'focusPlayer', 'focusMarket', 'COLORS', 'simToColosseum', 'minisReady', 'exportLog', 'replayLog']);
+  // cyrb53 hash of a string (fast, 53-bit, good enough to spot divergence)
+  function hash53(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+  }
+  // Everything that decides the game: flow, resources, race, columns, cups, favors, placements, RNG position.
+  function stateSum() {
+    const minis = pieces.filter((p) => p.userData.type === 'mini')
+      .map((p) => [p.userData.id, p.userData.color, p.userData.slot ? SLOTS.indexOf(p.userData.slot) : -1,
+                   (p.userData.eventDice || []).slice()])
+      .sort((a, b) => a[0] - b[0]);
+    return hash53(JSON.stringify([GAME.round, GAME.phaseIndex, GAME.turnIndex, GAME.order, GAME.res, GAME.race,
+      GAME.columns, GAME.cup, GAME.cupRolled, GAME.favorSpent, GAME.eventKeys, GAME.eventIndex, GAME.placeDone,
+      GAME.over, rngState, minis]));
+  }
+  for (const k of Object.keys(window.PT)) {
+    const orig = window.PT[k];
+    if (typeof orig !== 'function' || PT_NOT_RECORDED.has(k)) continue;
+    window.PT[k] = (...args) => {
+      const top = REPLAY.depth === 0 && REPLAY.recording && !REPLAY.active;
+      let entry = null;
+      if (top) {
+        if (k === 'initGame') {                          // a new game: its header starts the log
+          REPLAY.log = [];
+          REPLAY.header = { heroPool: JSON.parse(JSON.stringify(args[0] ?? [])), seatConfig: args[1] ?? null };
+        } else {
+          entry = { m: k, a: JSON.parse(JSON.stringify(args)) };   // copy before the call (shuffles mutate)
+          REPLAY.log.push(entry);
+        }
+      }
+      REPLAY.depth++;
+      try {
+        const out = orig(...args);
+        if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
+        if (entry) entry.s = stateSum();
+        return out;
+      } catch (err) {
+        if (entry) entry.s = stateSum();        // a refused action still leaves a checksum (replay must match it too)
+        throw err;
+      } finally { REPLAY.depth--; }
+    };
+  }
+  window.PT.minisReady = () => miniLoadChain;
+  window.PT.exportLog = () => JSON.stringify({ v: 1, header: REPLAY.header, log: REPLAY.log });
+  // Rebuild the game from a log and check the checksum after every action. Resolves to a report.
+  window.PT.replayLog = async (text) => {
+    const data = typeof text === 'string' ? JSON.parse(text) : text;
+    const report = { ok: true, steps: 0, firstBad: null };
+    REPLAY.active = true;
+    try {
+      window.PT.initGame(data.header.heroPool, data.header.seatConfig, data.header.seed);
+      await miniLoadChain;
+      for (let i = 0; i < data.log.length; i++) {
+        const e = data.log[i];
+        try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
+        report.steps++;
+        const sum = stateSum();
+        if (sum !== e.s) { report.ok = false; report.firstBad = { index: i, action: e.m, expected: e.s, got: sum }; break; }
+      }
+    } finally { REPLAY.active = false; }
+    return report;
   };
 
   // ------------------------------------------------------------------ render loop
