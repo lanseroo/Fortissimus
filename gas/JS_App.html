@@ -3067,7 +3067,7 @@
     let i = 0;
     const step = () => {
       if (i >= alive.length) {
-        GAME.colAnimating = false; clearTurnMarker(); placeAllFighters();
+        endAnimation(); clearTurnMarker(); placeAllFighters();
         if (done) done(); else notifyFlow();
         return;
       }
@@ -3450,7 +3450,7 @@
     const raw = rollFace();
     GAME.colAnimating = true; notifyFlow();
     const center = arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 };
-    rollDiceAnim({ x: center.x, z: center.z }, [raw], () => { GAME.colAnimating = false; colApplyAttack(raw); });
+    rollDiceAnim({ x: center.x, z: center.z }, [raw], () => { endAnimation(); colApplyAttack(raw); });
   }
   function colApplyAttack(raw) {
     const c = GAME.colosseum; if (!c) return;
@@ -3512,7 +3512,7 @@
     GAME.colAnimating = true; setTurnMarker(f.id); notifyFlow();
     const m = findMini(f.id), at = m ? { x: m.position.x, z: m.position.z } : (arenaStations().find((s) => s.r >= 8) || { x: 0, z: 0 });
     // roll → lunge at the gladiator → snap back → apply the result
-    rollDiceAnim(at, [raw], () => { lungeAnim(f.id, () => { GAME.colAnimating = false; colApplyCounter(f, raw); }); });
+    rollDiceAnim(at, [raw], () => { lungeAnim(f.id, () => { endAnimation(); colApplyCounter(f, raw); }); });
   }
   function colApplyCounter(f, raw) {
     const c = GAME.colosseum; if (!c) return;
@@ -3600,7 +3600,7 @@
     clearTurnMarker();
     removeGladiatorMarker();
     GAME.colosseum = null; GAME.colAct = null;
-    GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
+    GAME.colPush = null; GAME.colSelId = null; endAnimation();
     select(null);
     GAME.resolved.push('ColosseumBoard.png');
     GAME.eventIndex++;
@@ -4152,7 +4152,7 @@
     initRace();
     initGladDeck();
     GAME.colosseum = null; GAME.colAct = null; GAME.romeLostRound = false;
-    GAME.colPush = null; GAME.colSelId = null; GAME.colAnimating = false;
+    GAME.colPush = null; GAME.colSelId = null; endAnimation();
     GAME.viewerSeat = ALL_COLORS.find((c) => !isCpu(c)) || null;   // favor panel starts on the first human seat
     GAME.gods = pickGods();                              // flip a random face up on each pillar
     refreshColumnFaces();                                // show the chosen Column{n}_{1|2}.png art
@@ -4765,7 +4765,7 @@
   // ---- Action log (Phase 0 of online play). Every top-level PT action is recorded with its args and
   // a state checksum taken after it runs; replayLog() rebuilds the game from the header and checks each
   // checksum. Nested calls (engine callbacks) are not recorded: they re-run during replay anyway.
-  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null };
+  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null, waiting: null };
   const PT_NOT_RECORDED = new Set(['getFlow', 'onFlow', 'onNewRound', 'onVPFlash', 'onMiniClick', 'onMiniPlace',
     'onMarketBuy', 'marketBuyInfo', 'gladList', 'frameTable', 'resetView', 'setSlotsVisible', 'setColumnsVisible',
     'getActiveColor', 'focusPlayer', 'focusMarket', 'COLORS', 'simToColosseum', 'minisReady', 'exportLog', 'replayLog']);
@@ -4803,6 +4803,17 @@
     };
   }
   function stateSum() { return hash53(JSON.stringify(stateParts())); }
+  // Animations (Colosseum rolls) finish on timers and change state after the action returned. The log
+  // takes an action's checksum once its animation has ended, so replay can line up with it.
+  function endAnimation() {
+    GAME.colAnimating = false;
+    if (REPLAY.waiting) setTimeout(settleEntry, 0);
+  }
+  function settleEntry() {
+    const e = REPLAY.waiting;
+    if (!e || GAME.colAnimating) return;
+    REPLAY.waiting = null; e.s = stateSum(); e.p = stateParts();
+  }
   for (const k of Object.keys(window.PT)) {
     const orig = window.PT[k];
     if (typeof orig !== 'function' || PT_NOT_RECORDED.has(k)) continue;
@@ -4822,7 +4833,10 @@
       try {
         const out = orig(...args);
         if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
-        if (entry) { entry.s = stateSum(); entry.p = stateParts(); }
+        if (entry) {
+          if (GAME.colAnimating) REPLAY.waiting = entry;          // settled when the animation ends
+          else { entry.s = stateSum(); entry.p = stateParts(); }
+        }
         return out;
       } catch (err) {
         if (entry) { entry.s = stateSum(); entry.p = stateParts(); }   // a refused action still leaves a checksum (replay must match it too)
@@ -4847,6 +4861,12 @@
         if (!e.pre && !loaded) { await miniLoadChain; loaded = true; }
         try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
         report.steps++;
+        // An action that started an animation: wait for it to finish (as the live game did) before checking.
+        if (GAME.colAnimating) {
+          const t0 = Date.now();
+          while (GAME.colAnimating && Date.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 20));
+          await new Promise((r) => setTimeout(r, 0));
+        }
         const sum = stateSum();
         if (sum !== e.s) {
           const now = stateParts();
