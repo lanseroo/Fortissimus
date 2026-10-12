@@ -908,6 +908,7 @@
   const mpHead = document.getElementById('mpHead');
   const mpBtns = document.getElementById('mpBtns');
   let mpId = null;
+  let mpMode = 'mini';                      // what the overlay is choosing: an event for a mini, or a slot for a card
   document.getElementById('miniPlaceClose').addEventListener('click', () => { miniPlace.hidden = true; });
   // A tap on a mini opens this menu on pointerup, and the browser then fires a synthetic click where
   // the finger lifted. On a phone that spot can be a menu button or the bottom bar's "Done placing",
@@ -920,6 +921,7 @@
     ghostClickUntil = performance.now() + 600;
     miniCard.hidden = true;                 // never show both overlays at once
     miniPlace.hidden = false;
+    mpMode = 'mini';
     mpId = info.id;
     const col = FLOW_COLORS[info.color] || '#ccc';
     const chip = info.symImg
@@ -933,9 +935,25 @@
         + (o.disabled ? ' disabled' : '') + '>' + o.label + fee + '</button>';
     }).join('');
   });
+  // Tapping a hand card opens the same overlay to tie it to a card slot (or back to hand).
+  PT.onCardPlace((info) => {
+    miniCard.hidden = true;
+    miniPlace.hidden = false;
+    mpMode = 'card';
+    mpId = info.id;
+    const col = FLOW_COLORS[info.color] || '#ccc';
+    mpHead.innerHTML = '<span class="mcdot" style="background:' + col + '"></span>Place '
+      + (info.color || '?') + ' hero';
+    mpBtns.innerHTML = info.options.map((o) => {
+      const chip = o.symImg ? '<img class="mcsym" src="' + window.ASSET_BASE + o.symImg + '" alt="symbol">' : '';
+      return '<button class="mpbtn" data-key="' + o.idx + '"' + (o.disabled ? ' disabled' : '') + '>'
+        + o.label + chip + '</button>';
+    }).join('');
+  });
   mpBtns.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn || btn.disabled) return;
+    if (mpMode === 'card') { PT.moveCard(mpId, Number(btn.dataset.key)); miniPlace.hidden = true; return; }
     const key = btn.dataset.kind === 'event' ? Number(btn.dataset.key) : btn.dataset.key;
     PT.sendMiniTo(mpId, btn.dataset.kind, key);
     miniPlace.hidden = true;

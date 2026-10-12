@@ -785,7 +785,8 @@
   let dragMoved = false;                          // did the pointer actually move a piece this drag?
   let downPieceObj = null;                        // the piece pressed (for click-to-inspect)
   let miniClickCb = null;                         // UI hook: mini clicked -> show its tied hero card
-  let miniPlaceCb = null;                          // UI hook: own mini clicked in Blind Placement -> placement menu
+  let miniPlaceCb = null;
+  let cardPlaceCb = null;                          // UI hook: own hand card tapped -> tie-to-slot menu                          // UI hook: own mini clicked in Blind Placement -> placement menu
   let marketBuyCb = null;                          // UI hook: market card clicked in Market -> purchase overlay
 
   function setNDC(e) {
@@ -960,6 +961,9 @@
         const place = placementFor(downPieceObj);                   // your own mini in Blind Placement?
         if (place && miniPlaceCb) miniPlaceCb(place);               // -> choose an event/barracks
         else if (miniClickCb) miniClickCb(miniCardInfo(downPieceObj));   // -> inspect its tied card
+      } else if (click && downPieceObj && downPieceObj.userData.type === 'card' && cardPlaceCb
+                 && cardPlacementFor(downPieceObj)) {
+        cardPlaceCb(cardPlacementFor(downPieceObj));    // your hand card -> tie it to a mat slot (no drag)
       } else if (click && downPieceObj && downPieceObj.userData.type === 'card'
                  && curPhase() === 'Market' && downPieceObj.userData.slot
                  && downPieceObj.userData.slot.role === 'market-hero') {
@@ -2240,6 +2244,38 @@
   // ---- per-hero event dice ----
   const findMini = (id) => pieces.find((p) => p.userData.type === 'mini' && p.userData.id === id) || null;
   const findCard = (id) => pieces.find((p) => p.userData.type === 'card' && p.userData.id === id) || null;
+  // Tie a hand card to one of its owner's card slots (or back to hand) without dragging. Same rules as
+  // a drop: the owner's turn only, not during Upkeep, and the target must accept cards and be free.
+  function moveCard(cardId, slotIdx) {
+    const card = findCard(cardId), s = SLOTS[slotIdx];
+    if (!card || !s || !GAME.started || curPhase() === 'Upkeep') return false;
+    const owner = card.userData.owner;
+    if (owner !== curPlayer() || card.userData.zone !== 'hand' || s.owner !== owner) return false;
+    if (s.role !== 'card' && s.role !== 'hand') return false;
+    if (!slotAccepts(s, card) || s.occupants.some((o) => o !== card)) return false;
+    freeSlot(card);
+    s.occupants.push(card);
+    card.userData.slot = s;
+    layoutStack(s);
+    notifyFlow();
+    return true;
+  }
+  // Options for the tap-to-tie menu on a hand card: its owner's card slots (by symbol) and back to hand.
+  function cardPlacementFor(card) {
+    if (!GAME.started || GAME.over || curPhase() === 'Upkeep' || card.userData.type !== 'card') return null;
+    const owner = card.userData.owner;
+    if (card.userData.zone !== 'hand' || owner !== curPlayer()) return null;
+    const cur = card.userData.slot;
+    const options = slotsByRole('card', owner).sort((a, b) => a.sym - b.sym).map((s) => ({
+      kind: 'slot', idx: SLOTS.indexOf(s), label: 'Tie to', symImg: symbolFile(owner, s.sym),
+      disabled: s.occupants.some((o) => o !== card),
+    }));
+    if (cur && cur.role === 'card') {
+      const hand = slotsByRole('hand', owner).find((h) => !h.occupants.length);
+      options.push({ kind: 'hand', idx: hand ? SLOTS.indexOf(hand) : -1, label: 'Back to hand', symImg: null, disabled: !hand });
+    }
+    return { id: card.userData.id, color: owner, options };
+  }
   const selectedMini = () => findMini(selectedHeroId);
   // A hero's raw dice total (+ Cheer/Jeer adjustment + Archery ±Speed aim nudge, 0 elsewhere). Used
   // for the Colosseum (flat) and as the raw input to per-event scoring; competition standing goes
@@ -4688,6 +4724,7 @@
     onVPFlash: (cb) => { vpFlashCb = cb; },
     onMiniClick: (cb) => { miniClickCb = cb; },
     onMiniPlace: (cb) => { miniPlaceCb = cb; }, sendMiniTo,
+    onCardPlace: (cb) => { cardPlaceCb = cb; }, moveCard,
     onMarketBuy: (cb) => { marketBuyCb = cb; }, marketBuyInfo, buyMarketCard,
     nextPlayer, prevPlayer, focusPlayer, buyDie,
     rollCup, addCupDie, exchangeForCoin,
