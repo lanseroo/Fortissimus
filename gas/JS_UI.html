@@ -1182,9 +1182,10 @@
   document.getElementById('checkReplay').addEventListener('click', async (e) => {
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Replaying…';
     const r = await PT.replayLog(PT.exportLog());
-    btn.textContent = r.ok ? 'Replay OK (' + r.steps + ')' : 'Replay diverged at #' + r.firstBad.index;
+    // The result stays on the button until the next check (it used to clear after 4 seconds).
+    btn.textContent = r.ok ? 'Replay OK ✓ (' + r.steps + ' steps)' : 'Replay diverged at step ' + (r.firstBad.index + 1);
     if (!r.ok) console.warn('Replay diverged', r.firstBad);
-    setTimeout(() => { btn.textContent = 'Check replay'; btn.disabled = false; }, 4000);
+    btn.disabled = false;
   });
   stepCpuBtn.addEventListener('click', () => PT.cpuStep());
   // Favor viewer switcher: pick whose hand the panel shows (hot-seat now; a second screen later).
