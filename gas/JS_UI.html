@@ -117,11 +117,19 @@
     document.querySelectorAll('.seatsel').forEach((s) => { cfg[s.dataset.color] = s.value; });
     return cfg;
   };
+  // New game: the table is built first, and the game only starts once every mini is on it. The
+  // CPUs and the event deal wait for that, so every screen (and a replay) sees the same board.
+  const newGameBtns = [document.getElementById('initGame'), document.getElementById('phoneNewGame')];
   document.getElementById('initGame').addEventListener('click', () => {
+    if (newGameBtns[0].disabled) return;
+    newGameBtns.forEach((b) => { b.disabled = true; });
     PT.initGame(HEROES.map((h) => h[0]), readSeatConfig());
-    dealEvents(randomEvents());
-    setToolbar(false);   // a game just started — get the tools out of the way
-    setSheet(null);
+    PT.minisReady().then(() => {
+      newGameBtns.forEach((b) => { b.disabled = false; });
+      dealEvents(randomEvents());
+      setToolbar(false);   // a game just started — get the tools out of the way
+      setSheet(null);
+    });
   });
   // Each new round the app asks for a fresh random event trio (D5).
   if (PT.onNewRound) PT.onNewRound(() => dealEvents(randomEvents()));
