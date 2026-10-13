@@ -4837,7 +4837,8 @@
     GAME.colAnimating = false;
     if (REPLAY.recording && !REPLAY.active) setTimeout(() => {
       if (GAME.colAnimating) return;                       // another animation began: the last one logs
-      REPLAY.log.push({ m: '__settle', a: [], s: stateSum(), p: stateParts(), md: miniDetail() });
+      // pre: captured while minis were still loading (replay checks it before waiting for the table)
+      REPLAY.log.push({ m: '__settle', a: [], pre: miniPending > 0, s: stateSum(), p: stateParts(), md: miniDetail() });
     }, 0);
   }
   for (const k of Object.keys(window.PT)) {
