@@ -655,8 +655,9 @@
       if (targetSlot) { placeOnSlot(g, targetSlot); }
       else { const [x, z] = spawnXZ(); g.position.set(x, 0, z); }
       miniPending--;
+      if (miniPending === 0) notifyFlow();     // table complete: let the CPU driver resume
       done();
-    }, undefined, () => { miniPending--; done(); })));
+    }, undefined, () => { miniPending--; if (miniPending === 0) notifyFlow(); done(); })));
   }
 
   // Flat PNG token lying on the board. `worldSize` is the LONGEST edge; the
@@ -4710,6 +4711,9 @@
   }
   // The single entry point the driver calls. One atomic action per invocation.
   function cpuStep() {
+    // CPUs act only on a complete table: a step taken while minis are still loading would see a
+    // partial board (and would not replay the same). notifyFlow on the last load re-arms the driver.
+    if (miniPending > 0) return false;
     if (!GAME.started || GAME.over || GAME.colAnimating) return false;
     pruneIllegalPrompts();
     if (GAME.barracks && isCpu(GAME.barracks.color)) return cpuBarracks();
