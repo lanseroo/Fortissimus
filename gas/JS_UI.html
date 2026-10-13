@@ -1186,6 +1186,7 @@
     btn.textContent = r.ok ? 'Replay OK ✓ (' + r.steps + ' steps)'
       : 'Diverged at step ' + (r.firstBad.index + 1) + ' (' + r.firstBad.action + ': ' + r.firstBad.differs.join(', ') + ')';
     if (!r.ok) console.warn('Replay diverged', r.firstBad);
+    if (!r.ok && r.firstBad.mini) console.warn('Mini now', r.firstBad.mini, 'Mini in log', r.firstBad.expectedMini);
     btn.disabled = false;
   });
   stepCpuBtn.addEventListener('click', () => PT.cpuStep());

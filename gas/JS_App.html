@@ -4803,6 +4803,14 @@
     };
   }
   function stateSum() { return hash53(JSON.stringify(stateParts())); }
+  // Per-mini detail, kept only so a divergence can name the mini that differs.
+  function miniDetail() {
+    return pieces.filter((p) => p.userData.type === "mini")
+      .map((p) => ({ id: p.userData.id, color: p.userData.color, slot: p.userData.slot ? SLOTS.indexOf(p.userData.slot) : -1,
+                     dice: (p.userData.eventDice || []).slice(), elim: !!p.userData.eliminated, locked: !!p.userData.locked,
+                     waiting: !!p.userData.waiting, fee: p.userData.eventFee || 0 }))
+      .sort((a, b) => a.id - b.id);
+  }
   // Animations (Colosseum rolls) finish on timers and change state after the action returned. The log
   // takes an action's checksum once its animation has ended, so replay can line up with it.
   function endAnimation() {
@@ -4812,7 +4820,7 @@
   function settleEntry() {
     const e = REPLAY.waiting;
     if (!e || GAME.colAnimating) return;
-    REPLAY.waiting = null; e.s = stateSum(); e.p = stateParts();
+    REPLAY.waiting = null; e.s = stateSum(); e.p = stateParts(); e.md = miniDetail();
   }
   for (const k of Object.keys(window.PT)) {
     const orig = window.PT[k];
@@ -4835,7 +4843,7 @@
         if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
         if (entry) {
           if (GAME.colAnimating) REPLAY.waiting = entry;          // settled when the animation ends
-          else { entry.s = stateSum(); entry.p = stateParts(); }
+          else { entry.s = stateSum(); entry.p = stateParts(); entry.md = miniDetail(); }
         }
         return out;
       } catch (err) {
@@ -4871,7 +4879,10 @@
         if (sum !== e.s) {
           const now = stateParts();
           const differs = Object.keys(now).filter((k) => now[k] !== (e.p || {})[k]);
-          report.ok = false; report.firstBad = { index: i, action: e.m, args: e.a, differs }; break;
+          const nowMinis = miniDetail(), before = e.md || [];
+          const bad = nowMinis.find((m, j) => JSON.stringify(m) !== JSON.stringify(before[j])) || null;
+          report.ok = false; report.firstBad = { index: i, action: e.m, args: e.a, differs, mini: bad,
+            expectedMini: bad ? before.find((m) => m.id === bad.id) || null : null }; break;
         }
       }
     } finally { REPLAY.active = false; }
