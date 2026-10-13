@@ -4784,7 +4784,7 @@
   // ---- Action log (Phase 0 of online play). Every top-level PT action is recorded with its args and
   // a state checksum taken after it runs; replayLog() rebuilds the game from the header and checks each
   // checksum. Nested calls (engine callbacks) are not recorded: they re-run during replay anyway.
-  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null, waiting: null };
+  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null };
   const PT_NOT_RECORDED = new Set(['getFlow', 'onFlow', 'onNewRound', 'onVPFlash', 'onMiniClick', 'onMiniPlace',
     'onMarketBuy', 'marketBuyInfo', 'gladList', 'frameTable', 'resetView', 'setSlotsVisible', 'setColumnsVisible',
     'getActiveColor', 'focusPlayer', 'focusMarket', 'COLORS', 'simToColosseum', 'minisReady', 'exportLog', 'replayLog']);
@@ -4832,14 +4832,13 @@
   }
   // Animations (Colosseum rolls) finish on timers and change state after the action returned. The log
   // takes an action's checksum once its animation has ended, so replay can line up with it.
+  // An animation's end is logged as its own '__settle' entry, taken after the callback chain has run.
   function endAnimation() {
     GAME.colAnimating = false;
-    if (REPLAY.waiting) setTimeout(settleEntry, 0);
-  }
-  function settleEntry() {
-    const e = REPLAY.waiting;
-    if (!e || GAME.colAnimating) return;
-    REPLAY.waiting = null; e.s = stateSum(); e.p = stateParts(); e.md = miniDetail();
+    if (REPLAY.recording && !REPLAY.active) setTimeout(() => {
+      if (GAME.colAnimating) return;                       // another animation began: the last one logs
+      REPLAY.log.push({ m: '__settle', a: [], s: stateSum(), p: stateParts(), md: miniDetail() });
+    }, 0);
   }
   for (const k of Object.keys(window.PT)) {
     const orig = window.PT[k];
@@ -4860,13 +4859,10 @@
       try {
         const out = orig(...args);
         if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
-        if (entry) {
-          if (GAME.colAnimating) REPLAY.waiting = entry;          // settled when the animation ends
-          else { entry.s = stateSum(); entry.p = stateParts(); entry.md = miniDetail(); }
-        }
+        if (entry && !GAME.colAnimating) { entry.s = stateSum(); entry.p = stateParts(); entry.md = miniDetail(); }
         return out;
       } catch (err) {
-        if (entry) { entry.s = stateSum(); entry.p = stateParts(); }   // a refused action still leaves a checksum (replay must match it too)
+        if (entry && !GAME.colAnimating) { entry.s = stateSum(); entry.p = stateParts(); }   // a refused action still leaves a checksum (replay must match it too)
         throw err;
       } finally { REPLAY.depth--; }
     };
@@ -4888,14 +4884,17 @@
         // Actions recorded while minis were still loading run at the same point (before the wait);
         // everything after them waits for the table to be complete, as it was when recorded.
         if (!e.pre && !loaded) { await miniLoadChain; loaded = true; }
-        try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
+        if (e.m !== '__settle') {
+          try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
+        }
         report.steps++;
         // An action that started an animation: wait for it to finish (as the live game did) before checking.
         if (GAME.colAnimating) {
           const t0 = Date.now();
           while (GAME.colAnimating && Date.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 20));
-          await new Promise((r) => setTimeout(r, 0));
         }
+        if (e.s === undefined) continue;                    // action that started an animation: checked by its settle entry
+        await new Promise((r) => setTimeout(r, 0));          // let the chain finish, as the settle entry did
         const sum = stateSum();
         if (sum !== e.s) {
           const now = stateParts();
