@@ -4872,6 +4872,8 @@
   // Rebuild the game from a log and check the checksum after every action. Resolves to a report.
   window.PT.replayLog = async (text) => {
     const data = typeof text === 'string' ? JSON.parse(text) : text;
+    // No header = nothing recorded in this tab (no New game yet, or a sandbox game, which isn't logged).
+    if (!data.header) return { ok: false, steps: 0, firstBad: null, reason: 'nogame' };
     const report = { ok: true, steps: 0, firstBad: null };
     REPLAY.active = true;
     try {

@@ -1167,7 +1167,8 @@
     const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Replaying…';
     const r = await PT.replayLog(PT.exportLog());
     // The result stays on the button until the next check (it used to clear after 4 seconds).
-    btn.textContent = r.ok ? 'Replay OK ✓ (' + r.steps + ' steps)'
+    btn.textContent = r.reason === 'nogame' ? 'No recorded game (start a New game first)'
+      : r.ok ? 'Replay OK ✓ (' + r.steps + ' steps)'
       : 'Diverged at step ' + (r.firstBad.index + 1) + ' (' + r.firstBad.action + ': ' + r.firstBad.differs.join(', ') + ')';
     if (!r.ok) console.warn('Replay diverged', r.firstBad);
     if (!r.ok && r.firstBad.mini) console.warn('Mini now', r.firstBad.mini, 'Mini in log', r.firstBad.expectedMini);
