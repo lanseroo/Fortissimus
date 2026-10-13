@@ -4861,7 +4861,7 @@
       try {
         const out = orig(...args);
         if (top && k === 'initGame') REPLAY.header.seed = GAME.seed;
-        if (entry && !GAME.colAnimating) { entry.s = stateSum(); entry.p = stateParts(); entry.md = miniDetail(); }
+        if (entry && !GAME.colAnimating) { entry.s = stateSum(); entry.p = stateParts(); entry.md = miniDetail(); entry.rs = JSON.parse(JSON.stringify(GAME.res)); }
         return out;
       } catch (err) {
         if (entry && !GAME.colAnimating) { entry.s = stateSum(); entry.p = stateParts(); }   // a refused action still leaves a checksum (replay must match it too)
@@ -4903,7 +4903,7 @@
           const differs = Object.keys(now).filter((k) => now[k] !== (e.p || {})[k]);
           const nowMinis = miniDetail(), before = e.md || [];
           const bad = nowMinis.find((m, j) => JSON.stringify(m) !== JSON.stringify(before[j])) || null;
-          report.ok = false; report.firstBad = { index: i, action: e.m, args: e.a, differs, mini: bad,
+          report.ok = false; report.firstBad = { index: i, action: e.m, args: e.a, differs, mini: bad, resNow: GAME.res, resLog: e.rs,
             expectedMini: bad ? before.find((m) => m.id === bad.id) || null : null }; break;
         }
       }
