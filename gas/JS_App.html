@@ -4817,7 +4817,8 @@
       favors: part([GAME.favorSpent, GAME.eventFavorFlags]),
       events: part([GAME.eventKeys, GAME.eventIndex, GAME.evDeck]),
       rng: part(rngState),
-      minis: part(minis),
+      // While minis are still loading, how many have arrived depends on timing: compare a fixed marker instead.
+      minis: miniPending > 0 ? 'pending' : part(minis),
       cards: part(cards),
     };
   }
@@ -4895,7 +4896,7 @@
           while (GAME.colAnimating && Date.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 20));
         }
         if (e.s === undefined) continue;                    // action that started an animation: checked by its settle entry
-        await new Promise((r) => setTimeout(r, 0));          // let the chain finish, as the settle entry did
+        if (!e.pre) await new Promise((r) => setTimeout(r, 0));   // let the chain finish, as the settle entry did
         const sum = stateSum();
         if (sum !== e.s) {
           const now = stateParts();
