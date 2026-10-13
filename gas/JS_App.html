@@ -1149,7 +1149,7 @@
                  colPush: null, colSelId: null, colAnimating: false,
                  columns: {}, favorUnlocked: {}, relicUnlocked: {}, income: {}, log: [], prompts: [],
                  favorSpent: {}, favorAfterlife: {}, eventFavorFlags: {}, seatKind: {}, placeDone: {},
-                 pendingVP: {}, elysium: [], tartarus: [], result: null };
+                 pendingVP: {}, elysium: [], tartarus: [], result: null, evDeck: [] };
   // A pristine copy of GAME, so a new game (or a replay) starts from the same state every time.
   const GAME_INIT = JSON.parse(JSON.stringify(GAME));
   let flowCb = null;                            // JS_UI render listener (set via PT.onFlow)
@@ -2982,6 +2982,17 @@
     });
   }
 
+  // §5 two-round event cycle, owned by the engine so it is part of the logged state: each cycle is a
+  // shuffled list of all events; a round deals 3 from it. High Jump and Archery never share a half-cycle.
+  const hjWithArchery = (trio) => trio.includes('HighJumpEvent.png') && trio.includes('ArcheryEvent.png');
+  function freshEventCycle(all) {
+    let pool = [];
+    for (let tries = 0; tries < 200; tries++) {
+      pool = shuffleArr(all.slice());
+      if (!hjWithArchery(pool.slice(0, 3)) && !hjWithArchery(pool.slice(3))) break;
+    }
+    return pool;
+  }
   function shuffleArr(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
   // Deck: shuffle the 3 variants WITHIN each level, then stack level 1 (top) → level 4 (bottom).
   function initGladDeck() {
@@ -4729,7 +4740,11 @@
 
   window.PT = {
     addMini, addToken, addMarker, addRound, rollDice, reroll, clearPieces, resetView,
-    setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList, gameShuffle: (a) => shuffleArr(a),
+    setEventSlot, frameTable, initGame, dealHand, simToColosseum, gladList,
+    randomEvents: (all) => {                       // deal the next 3 events (a recorded action)
+      if (GAME.evDeck.length === 0) GAME.evDeck = freshEventCycle(all);
+      return GAME.evDeck.splice(0, 3);
+    },
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onNewRound: (cb) => { newRoundCb = cb; },
     onVPFlash: (cb) => { vpFlashCb = cb; },
@@ -4796,7 +4811,7 @@
       res: part([GAME.res, GAME.race, GAME.columns]),
       cups: part([GAME.cup, GAME.cupRolled]),
       favors: part([GAME.favorSpent, GAME.eventFavorFlags]),
-      events: part([GAME.eventKeys, GAME.eventIndex]),
+      events: part([GAME.eventKeys, GAME.eventIndex, GAME.evDeck]),
       rng: part(rngState),
       minis: part(minis),
       cards: part(cards),

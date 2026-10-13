@@ -89,22 +89,8 @@
   // later pass — this just seeds a fresh random trio).
   // §5 two-round cycle: each cycle is a shuffled 6. Round A deals 3; round B deals the remaining 3;
   // then a fresh cycle. High Jump and Archery are never dealt in the same round (checked per half).
-  let evDeck = [];
-  // Seeded (JS_App gameRand), so the event cycle replays identically on every online screen.
-  const shuffleArr = (a) => PT.gameShuffle(a);
-  const hjWithArchery = (trio) => trio.includes('HighJumpEvent.png') && trio.includes('ArcheryEvent.png');
-  function freshEventCycle() {
-    let pool = [];
-    for (let tries = 0; tries < 200; tries++) {
-      pool = shuffleArr(EVENTS.map((e) => e[0]));
-      if (!hjWithArchery(pool.slice(0, 3)) && !hjWithArchery(pool.slice(3))) break;
-    }
-    return pool;
-  }
-  function randomEvents() {
-    if (evDeck.length === 0) evDeck = freshEventCycle();
-    return evDeck.splice(0, 3);
-  }
+  // The cycle lives in the engine (PT.randomEvents) so it is logged and replays with the game.
+  function randomEvents() { return PT.randomEvents(EVENTS.map((e) => e[0])); }
   function dealEvents(files) {
     files.forEach((file, i) => {
       const sel = document.getElementById('eventSlot' + i);
@@ -133,7 +119,6 @@
   };
   document.getElementById('initGame').addEventListener('click', () => {
     PT.initGame(HEROES.map((h) => h[0]), readSeatConfig());
-    evDeck = [];                                    // a new game starts a fresh event cycle
     dealEvents(randomEvents());
     setToolbar(false);   // a game just started — get the tools out of the way
     setSheet(null);
@@ -151,7 +136,6 @@
     const gi = simGlad ? parseInt(simGlad.value, 10) : -1;
     const n = simHeroCount ? parseInt(simHeroCount.value, 10) : NaN;   // blank/invalid → random
     PT.simToColosseum(HEROES.map((h) => h[0]), gi, Number.isFinite(n) ? n : 0, readSeatConfig());   // fresh game → straight into a Colosseum round
-    evDeck = [];
     dealEvents(randomEvents());                         // seed the event slots (harmless for combat)
   });
   document.getElementById('resetView').addEventListener('click', () => PT.frameTable());
