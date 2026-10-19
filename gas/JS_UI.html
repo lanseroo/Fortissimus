@@ -139,6 +139,9 @@
   const ROOM_KEY = 'fortissimusRoom';
   const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby' };
   const modeRadios = document.querySelectorAll('input[name="playMode"]');
+  // Errors show inline: alert() is blocked inside the sandboxed Apps Script frame, so it looked like nothing happened.
+  const onlineMsg = document.getElementById('onlineMsg');
+  const showErr = (e) => { console.error('Online:', e); onlineMsg.textContent = e.message || String(e); };
   const onlineBox = document.getElementById('onlineBox');
   const lobbyEl = document.getElementById('lobby');
   const lobbyMsg = document.getElementById('lobbyMsg');
@@ -193,7 +196,7 @@
       const r = await serverCall('createRoom', Number(document.getElementById('hostCount').value),
         document.getElementById('hostFaction').value, document.getElementById('hostName').value.trim() || 'Host');
       enterLobby({ ...r, host: true });
-    } catch (e) { alert(e.message); }
+    } catch (e) { showErr(e); }
   });
   document.getElementById('joinLookup').addEventListener('click', async () => {
     const code = document.getElementById('joinCode').value.trim().toUpperCase();
@@ -206,14 +209,15 @@
       document.getElementById('joinFaction').innerHTML = free.map((x) => '<option>' + x + '</option>').join('');
       document.getElementById('joinPick').hidden = false;
       document.getElementById('joinCode').dataset.room = code;
-    } catch (e) { alert(e.message); }
+      onlineMsg.textContent = '';
+    } catch (e) { showErr(e); }
   });
   document.getElementById('joinGo').addEventListener('click', async () => {
     const code = document.getElementById('joinCode').dataset.room || document.getElementById('joinCode').value.trim().toUpperCase();
     try {
       const r = await serverCall('joinRoom', code, document.getElementById('joinFaction').value, document.getElementById('joinName').value.trim() || 'Player');
       enterLobby({ ...r, host: false });
-    } catch (e) { alert(e.message); }
+    } catch (e) { showErr(e); }
   });
   document.getElementById('lobbyStart').addEventListener('click', startOnline);
   document.getElementById('copyCode').addEventListener('click', () => {
