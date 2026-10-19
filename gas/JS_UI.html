@@ -137,6 +137,8 @@
     google.script.run.withSuccessHandler(resolve).withFailureHandler((e) => reject(new Error(e && e.message ? e.message : String(e))))[name](...args);
   });
   const ROOM_KEY = 'fortissimusRoom';
+  // Seat colours (used by the start screen and the lobby, so declared before them).
+  const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800', Rome: '#9a9a9a' };
   // ---- Start screen + who-am-I bar ----
   const startOverlay = document.getElementById('startOverlay');
   const showStart = () => {
@@ -397,7 +399,6 @@
   showColumns.addEventListener('change', () => PT.setColumnsVisible(showColumns.checked));
 
   // ---- game flow HUD (round / phase / turn order) ----
-  const FLOW_COLORS = { Blue: '#2f6fdb', Green: '#2ea84f', Purple: '#7b3fb0', Yellow: '#f5b800', Rome: '#9a9a9a' };
   const resSym = (k) => ({ coin: '🪙', zap: '⚡', sun: '☀', income: ' income' }[k] || (' ' + k));
   const flowLine = document.getElementById('flowLine');
   const flowOrder = document.getElementById('flowOrder');
