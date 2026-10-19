@@ -918,4 +918,34 @@
   .lobbyseats { list-style: none; margin: 4px 0; padding: 0; font-size: 0.85rem; }
   .lobbyseats li { padding: 2px 0; }
   .lobbyseats .host { font-weight: 600; }
+  /* Start screen: pass & play or online, shown on load and from the Menu button */
+  #startOverlay { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(10, 11, 13, 0.94); padding: 12px; }
+  #startOverlay[hidden] { display: none; }
+  .soBox { width: min(940px, 96vw); max-height: 96dvh; overflow-y: auto; text-align: center; }
+  .soTitle { font-family: Georgia, serif; font-style: italic; font-size: 2rem; margin: 4px 0 14px; }
+  .soCards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; text-align: left; }
+  .soCard { background: #1f2124; border: 1px solid #3a3d42; border-radius: 10px; padding: 16px; }
+  .soCard h3 { margin: 0 0 6px; font-size: 1.2rem; }
+  .soCard p { margin: 0 0 12px; color: #b7bcc3; font-size: 0.9rem; line-height: 1.4; }
+  .soSeats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .soSeat { font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .soSeat select { font-size: 0.95rem; padding: 4px; }
+  .soPrimary { width: 100%; min-height: 44px; font-size: 1.05rem; font-weight: 600; background: #2f6fdb; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  .soPrimary:hover { background: #3c7fe8; }
+  .soGhost { margin-top: 14px; min-height: 40px; padding: 0 16px; background: #2a2c30; color: #f2f2f2; border: 1px solid #4a4d52; border-radius: 8px; cursor: pointer; }
+  #soOnlineSlot #onlineBox { text-align: left; }
+  #soOnlineSlot #onlineBox[hidden] { display: none; }
+  #soOnlineSlot #onlineBox > div { margin: 6px 0; display: flex; flex-direction: column; gap: 6px; }
+  #soOnlineSlot #onlineBox > div[hidden] { display: none; }
+  #soOnlineSlot #onlineBox fieldset { display: none; }
+  @media (max-width: 720px) { .soCards { grid-template-columns: 1fr; } }
+  /* Who this tab plays + what the game is waiting on: always visible under the title */
+  #whoBar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 10px 6px; padding: 8px 12px; background: #17181b; border: 2px solid var(--seat, #3a3d42); border-radius: 8px; }
+  #whoBar[hidden] { display: none; }
+  #whoBar .wbName { font-size: 1.15rem; font-weight: 700; }
+  #whoBar .wbSw { display: inline-flex; gap: 6px; }
+  #whoBar .wbSw button { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #17181b; cursor: pointer; }
+  #whoBar .wbSw button.on { box-shadow: 0 0 0 2px #f2f2f2; }
+  #whoBar .wbMsg { font-size: 0.95rem; color: #d7dbe0; }
+  #whoBar .wbMsg.mine { color: #7fd38a; font-weight: 700; }
 </style>

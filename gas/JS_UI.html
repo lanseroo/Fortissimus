@@ -137,6 +137,65 @@
     google.script.run.withSuccessHandler(resolve).withFailureHandler((e) => reject(new Error(e && e.message ? e.message : String(e))))[name](...args);
   });
   const ROOM_KEY = 'fortissimusRoom';
+  // ---- Start screen + who-am-I bar ----
+  const startOverlay = document.getElementById('startOverlay');
+  const showStart = () => {
+    if (!roomState.started) {                 // the Online card needs its host/join panel visible
+      document.querySelector('input[name="playMode"][value="online"]').checked = true;
+      setMode('online');
+    }
+    startOverlay.hidden = false;
+    document.getElementById('soClose').hidden = !(curFlow && curFlow.started);
+  };
+  const hideStart = () => {
+    startOverlay.hidden = true;
+    if (!roomState.roomId) {                  // not in a lobby: leave the mode as pass & play
+      document.querySelector('input[name="playMode"][value="local"]').checked = true;
+      setMode('local');
+    }
+  };
+  document.getElementById('openStart').addEventListener('click', showStart);
+  document.getElementById('soClose').addEventListener('click', hideStart);
+  document.getElementById('soStartLocal').addEventListener('click', () => {
+    document.querySelector('input[name="playMode"][value="local"]').checked = true;
+    setMode('local');
+    document.querySelectorAll('[data-so]').forEach((sel) => {
+      document.querySelector('.seatsel[data-color="' + sel.dataset.so + '"]').value = sel.value;
+    });
+    document.getElementById('initGame').click();
+    hideStart();
+  });
+  // The online panel lives on the start screen (it is still the same element, so its handlers stay).
+  document.getElementById('soOnlineSlot').appendChild(document.getElementById('onlineBox'));
+  // Clicking a colour in the bar switches this tab's colour (pass & play only).
+  document.getElementById('whoBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-color]');
+    if (b && !roomState.started) PT.setActiveColor(b.dataset.color);
+  });
+  // Shows which colour this tab plays and what the game is waiting on.
+  function updateWhoBar(f) {
+    const bar = document.getElementById('whoBar');
+    if (!f || !f.started) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const online = roomState.started && roomState.faction;
+    const me = online ? roomState.faction : f.activeColor;
+    const turn = f.current;
+    const myTurn = !!turn && turn === me;
+    const waitOn = f.over ? 'Game over'
+      : f.isCpuTurn ? 'Waiting on the CPU (' + turn + ')'
+      : turn ? 'Waiting on ' + turn + (f.phase ? ' · ' + f.phase : '')
+      : (f.phase || '');
+    bar.style.setProperty('--seat', FLOW_COLORS[me] || '#3a3d42');
+    const name = '<span class="wbName" style="color:' + (FLOW_COLORS[me] || '#f2f2f2') + '">'
+      + (online ? 'You are ' + me : 'Playing as ' + me) + '</span>';
+    const swatches = online ? '' : '<span class="wbSw">' + COLS_UI.map((c) =>
+      '<button type="button" data-color="' + c + '" title="Play as ' + c + '" style="background:' + FLOW_COLORS[c] + '"'
+      + (c === me ? ' class="on"' : '') + '></button>').join('') + '</span>';
+    const msg = online && myTurn ? '<span class="wbMsg mine">● Your turn</span>'
+      : '<span class="wbMsg">' + waitOn + (!online && turn && turn !== me ? ' — switch colour to act' : '') + '</span>';
+    bar.innerHTML = name + swatches + msg;
+  }
+  const COLS_UI = ['Blue', 'Green', 'Purple', 'Yellow'];
   const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby',
                       started: false, version: 0, applyChain: Promise.resolve() };
   const modeRadios = document.querySelectorAll('input[name="playMode"]');
@@ -211,6 +270,7 @@
   const beginOnline = async () => {
     if (roomState.started) return;
     roomState.started = true;
+    hideStart();
     clearInterval(roomState.timer); roomState.timer = null;
     document.getElementById('lobbyLeave').hidden = true;
     lobbyMsg.textContent = 'Starting the online game…';
@@ -262,11 +322,12 @@
   document.getElementById('lobbyLeave').addEventListener('click', async () => {
     clearInterval(roomState.timer); roomState.timer = null;
     try { await serverCall('leaveRoom', roomState.roomId, roomState.token); } catch (_) { /* already gone */ }
-    clearRoom(); showOnly(null); lobbyEl.hidden = true;
+    clearRoom(); showOnly(null); lobbyEl.hidden = true; showStart();
     document.getElementById('onlineHost').hidden = true; document.getElementById('onlineJoin').hidden = true;
   });
   // Coming back to the page: rejoin the lobby saved in this tab.
   const saved = (() => { try { return JSON.parse(sessionStorage.getItem(ROOM_KEY) || 'null'); } catch (_) { return null; } })();
+  if (!(saved && saved.roomId)) showStart();
   if (saved && saved.roomId) {
     document.querySelector('input[name="playMode"][value="online"]').checked = true;
     setMode('online');
@@ -550,6 +611,7 @@
 
   function renderFlow(f) {
     curFlow = f;
+    updateWhoBar(f);
     if (!f.started) {
       flowLine.textContent = 'Round — · Setup';
       flowOrder.textContent = 'Click “New game” to begin.';
