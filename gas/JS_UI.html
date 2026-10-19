@@ -196,7 +196,8 @@
   const notice = (text) => { onlineMsg.textContent = text; };
   const submitOnline = (entry) => {
     if (entry.m !== 'cpuStep' && entry.seat !== roomState.faction) { notice('Waiting for ' + entry.seat + ' to play'); return; }
-    serverCall('submitAction', roomState.roomId, roomState.token, entry).catch(showErr);
+    // Fetch straight after the server accepts it, so the acting player sees the result without waiting for the next timer tick.
+    serverCall('submitAction', roomState.roomId, roomState.token, entry).then(pollOnline).catch(showErr);
   };
   const pollOnline = async () => {
     try {
@@ -220,7 +221,7 @@
       await PT.minisReady();
       PT.local(() => { dealEvents(randomEvents()); PT.setViewerSeat(roomState.faction); });
       roomState.version = 0;
-      roomState.timer = setInterval(pollOnline, 1200);
+      roomState.timer = setInterval(pollOnline, 1000);
       if (got.entries.length) roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(got.entries));
       roomState.version = got.version;
       lobbyMsg.textContent = 'Online game: you play ' + roomState.faction + '.';
