@@ -169,6 +169,7 @@
   document.getElementById('soOnlineSlot').appendChild(document.getElementById('onlineBox'));
   // Clicking a colour in the bar switches this tab's colour (pass & play only).
   document.getElementById('whoBar').addEventListener('click', (e) => {
+    if (e.target.closest('button[data-end]')) { onEndClick(); return; }
     const b = e.target.closest('button[data-color]');
     if (b && !roomState.started) PT.setActiveColor(b.dataset.color);
   });
@@ -193,7 +194,9 @@
       + (c === me ? ' class="on"' : '') + '></button>').join('') + '</span>';
     const msg = online && myTurn ? '<span class="wbMsg mine">● Your turn</span>'
       : '<span class="wbMsg">' + waitOn + (!online && turn && turn !== me ? ' — switch colour to act' : '') + '</span>';
-    bar.innerHTML = name + swatches + msg;
+    const canEnd = !online || roomState.host;
+    const endBtn = canEnd ? '<button type="button" class="wbEnd" data-end="1">' + (endArmed ? 'Click again to end the game' : '✕ End game') + '</button>' : '';
+    bar.innerHTML = name + swatches + msg + endBtn;
   }
   const COLS_UI = ['Blue', 'Green', 'Purple', 'Yellow'];
   const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby',
@@ -232,6 +235,7 @@
   const pollLobby = async () => {
     try {
       const room = await serverCall('getRoom', roomState.roomId);
+      if (room.status === 'ended') { endLocalOnline('The host closed this lobby.'); return; }
       renderLobby(room);
       if (roomState.host && room.status === 'lobby' && room.seats.length >= room.humanCount) await startOnline();   // all humans in
     } catch (e) { lobbyMsg.textContent = 'Lost contact with the lobby: ' + e.message; }
@@ -262,6 +266,36 @@
     roomState.version = res.from + res.entries.length;
     roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(fresh));
   };
+  // Leave online play locally (the room was ended, or this lobby closed). Back to the start screen.
+  const endLocalOnline = (msg) => {
+    clearInterval(roomState.timer); roomState.timer = null;
+    const wasStarted = roomState.started;
+    roomState.started = false; roomState.roomId = null; roomState.token = null; roomState.host = false;
+    roomState.version = 0; roomState.applyChain = Promise.resolve();
+    clearRoom();
+    if (wasStarted) { PT.local(() => PT.endGame()); PT.goOnline(null); }
+    lobbyEl.hidden = true; showOnly(null);
+    document.getElementById('lobbyLeave').hidden = false;
+    notice(msg);
+    showStart();
+  };
+  // ✕ End game: the first click arms it, the second ends it. Online, only the host can (it ends the room for all).
+  let endArmed = false, endTimer = null;
+  const onEndClick = async () => {
+    if (!endArmed) {
+      endArmed = true; updateWhoBar(curFlow);
+      clearTimeout(endTimer); endTimer = setTimeout(() => { endArmed = false; updateWhoBar(curFlow); }, 4000);
+      return;
+    }
+    endArmed = false; clearTimeout(endTimer);
+    if (roomState.started) {
+      try { await serverCall('endRoom', roomState.roomId, roomState.token); }
+      catch (e) { showErr(e); return; }
+      endLocalOnline('You ended the game.');
+    } else {
+      PT.endGame(); updateWhoBar(curFlow); showStart();
+    }
+  };
   const submitOnline = (entry) => {
     if (entry.m !== 'cpuStep' && entry.seat !== roomState.faction) { notice('Waiting for ' + entry.seat + ' to play'); return; }
     // Fetch straight after the server accepts it, so the acting player sees the result without waiting for the next timer tick.
@@ -270,6 +304,7 @@
   const pollOnline = async () => {
     try {
       const res = await serverCall('getSince', roomState.roomId, roomState.token, roomState.version, false);
+      if (res.status === 'ended') { endLocalOnline('The host ended the game.'); return; }
       enqueueLog(res);
     } catch (e) { showErr(e); }
   };

@@ -197,6 +197,19 @@ function roomSelfTest() {
   return poll.entries.length === 1 ? 'ok' : 'unexpected entries';
 }
 
+/** Host ends the game for everyone. Other screens see status 'ended' on their next poll. */
+function endRoom(roomId, token) {
+  return roomWithLock_(function () {
+    var room = roomLoad_(roomNorm_(roomId));
+    if (!room) throw new Error('No room with that code');
+    var seat = roomSeatFor_(room, token);
+    if (!seat.host) throw new Error('Only the host can end the game');
+    room.status = 'ended';
+    roomSave_(room);
+    return { ok: true };
+  });
+}
+
 /** Leave a lobby. A joiner frees their seat; the host leaving closes the lobby. Not allowed once started. */
 function leaveRoom(roomId, token) {
   return roomWithLock_(function () {

@@ -4749,6 +4749,7 @@
       if (GAME.evDeck.length === 0) GAME.evDeck = freshEventCycle(all);
       return GAME.evDeck.splice(0, 3);
     },
+    endGame: () => { GAME.started = false; GAME.over = false; clearPieces(); notifyFlow(); },   // kill the current local game
     startGame, nextPhase, prevPhase, getFlow, onFlow: (cb) => { flowCb = cb; },
     onNewRound: (cb) => { newRoundCb = cb; },
     onVPFlash: (cb) => { vpFlashCb = cb; },
@@ -4896,7 +4897,7 @@
   }
   window.PT.minisReady = () => miniLoadChain;
   // Switch this screen to online: `conn` = { faction, submit(entry), notice(text) }. Turns off the local action log.
-  window.PT.goOnline = (conn) => { REPLAY.online = conn; REPLAY.recording = false; };
+  window.PT.goOnline = (conn) => { REPLAY.online = conn; REPLAY.recording = !conn; };
   // Run fn without sending it anywhere (the start-up of an online game is the same on every screen).
   window.PT.local = (fn) => { REPLAY.bypass = true; try { return fn(); } finally { REPLAY.bypass = false; } };
   window.PT.applyLog = async (entries) => { for (const e of entries) await applyEntry(e); };
