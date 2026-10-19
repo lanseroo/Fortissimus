@@ -4784,7 +4784,7 @@
   // ---- Action log (Phase 0 of online play). Every top-level PT action is recorded with its args and
   // a state checksum taken after it runs; replayLog() rebuilds the game from the header and checks each
   // checksum. Nested calls (engine callbacks) are not recorded: they re-run during replay anyway.
-  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null };
+  const REPLAY = { recording: true, active: false, depth: 0, log: [], header: null, bypass: false, online: null };
   const PT_NOT_RECORDED = new Set(['getFlow', 'onFlow', 'onNewRound', 'onVPFlash', 'onMiniClick', 'onMiniPlace',
     'onMarketBuy', 'marketBuyInfo', 'gladList', 'frameTable', 'resetView', 'setSlotsVisible', 'setColumnsVisible',
     'getActiveColor', 'focusPlayer', 'focusMarket', 'COLORS', 'simToColosseum', 'minisReady', 'exportLog', 'replayLog']);
@@ -4842,10 +4842,33 @@
       REPLAY.log.push({ m: '__settle', a: [], pre: miniPending > 0, s: stateSum(), p: stateParts(), md: miniDetail() });
     }, 0);
   }
+  // ---- Online play: each top-level action is sent to the room, and every screen applies the room's log in order.
+  // View-only controls still run on this screen; sandbox controls are not available in an online game.
+  const ONLINE_LOCAL = new Set(['setViewerSeat', 'setActiveColor', 'setPaused', 'setSlotsVisible', 'setColumnsVisible', 'focusMarket']);
+  const ONLINE_BLOCKED = new Set(['initGame', 'addMini', 'addToken', 'addMarker', 'addRound', 'rollDice', 'reroll', 'clearPieces', 'simToColosseum', 'setEventSlot']);
+  // Apply one logged action on this screen, under the context it ran with, then keep this screen's own view.
+  async function applyEntry(e) {
+    const mine = { viewer: GAME.viewerSeat, active: activeColorName };
+    GAME.viewerSeat = e.viewer ?? null; activeColorName = e.active ?? activeColorName;
+    REPLAY.bypass = true;
+    try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way on every screen */ }
+    finally { REPLAY.bypass = false; }
+    GAME.viewerSeat = mine.viewer; activeColorName = mine.active;
+    while (GAME.colAnimating) await new Promise((r) => setTimeout(r, 20));
+  }
   for (const k of Object.keys(window.PT)) {
     const orig = window.PT[k];
     if (typeof orig !== 'function' || PT_NOT_RECORDED.has(k)) continue;
     window.PT[k] = (...args) => {
+      // Online: a top-level action is sent to the room instead of running here (it runs when the log returns it).
+      if (REPLAY.online && REPLAY.depth === 0 && !REPLAY.bypass && !REPLAY.active) {
+        const on = REPLAY.online;
+        if (ONLINE_LOCAL.has(k)) return orig(...args);
+        if (ONLINE_BLOCKED.has(k)) { on.notice('Not available in an online game'); return undefined; }
+        on.submit({ m: k, a: JSON.parse(JSON.stringify(args)), seat: (GAME.started ? curPlayer() : null) || on.faction,
+                    viewer: GAME.viewerSeat ?? null, active: activeColorName });
+        return undefined;
+      }
       const top = REPLAY.depth === 0 && REPLAY.recording && !REPLAY.active;
       let entry = null;
       if (top) {
@@ -4872,6 +4895,11 @@
     };
   }
   window.PT.minisReady = () => miniLoadChain;
+  // Switch this screen to online: `conn` = { faction, submit(entry), notice(text) }. Turns off the local action log.
+  window.PT.goOnline = (conn) => { REPLAY.online = conn; REPLAY.recording = false; };
+  // Run fn without sending it anywhere (the start-up of an online game is the same on every screen).
+  window.PT.local = (fn) => { REPLAY.bypass = true; try { return fn(); } finally { REPLAY.bypass = false; } };
+  window.PT.applyLog = async (entries) => { for (const e of entries) await applyEntry(e); };
   window.PT.exportLog = () => JSON.stringify({ v: 1, header: REPLAY.header, log: REPLAY.log });
   // Rebuild the game from a log and check the checksum after every action. Resolves to a report.
   window.PT.replayLog = async (text) => {

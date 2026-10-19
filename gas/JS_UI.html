@@ -137,7 +137,8 @@
     google.script.run.withSuccessHandler(resolve).withFailureHandler((e) => reject(new Error(e && e.message ? e.message : String(e))))[name](...args);
   });
   const ROOM_KEY = 'fortissimusRoom';
-  const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby' };
+  const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby',
+                      started: false, version: 0, applyChain: Promise.resolve() };
   const modeRadios = document.querySelectorAll('input[name="playMode"]');
   // Errors show inline: alert() is blocked inside the sandboxed Apps Script frame, so it looked like nothing happened.
   const onlineMsg = document.getElementById('onlineMsg');
@@ -167,6 +168,7 @@
     lobbyMsg.textContent = room.status === 'running' ? 'Game started.'
       : 'Waiting for ' + left + ' more human player' + (left === 1 ? '' : 's') + '. Open seats become CPUs when the game starts.';
     document.getElementById('lobbyStart').hidden = !(roomState.host && room.status === 'lobby');
+    if (room.status === 'running') beginOnline();
   };
   const pollLobby = async () => {
     try {
@@ -188,8 +190,41 @@
     try {
       const room = await serverCall('startRoom', roomState.roomId, roomState.token, HEROES.map((h) => h[0]));
       renderLobby(room);
-      lobbyMsg.textContent = 'Game started. Online play screens arrive in the next step.';
     } catch (e) { lobbyMsg.textContent = e.message; roomState.timer = setInterval(pollLobby, 2000); }
+  };
+  // Online game: build this screen's board from the room header, then apply the room's log in order.
+  const notice = (text) => { onlineMsg.textContent = text; };
+  const submitOnline = (entry) => {
+    if (entry.m !== 'cpuStep' && entry.seat !== roomState.faction) { notice('Waiting for ' + entry.seat + ' to play'); return; }
+    serverCall('submitAction', roomState.roomId, roomState.token, entry).catch(showErr);
+  };
+  const pollOnline = async () => {
+    try {
+      const res = await serverCall('getSince', roomState.roomId, roomState.token, roomState.version, false);
+      if (res.entries.length) {
+        roomState.version = res.version;
+        roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(res.entries));
+      }
+    } catch (e) { showErr(e); }
+  };
+  const beginOnline = async () => {
+    if (roomState.started) return;
+    roomState.started = true;
+    clearInterval(roomState.timer); roomState.timer = null;
+    document.getElementById('lobbyLeave').hidden = true;
+    lobbyMsg.textContent = 'Starting the online game…';
+    try {
+      const got = await serverCall('getSince', roomState.roomId, roomState.token, 0, true);
+      PT.goOnline({ faction: roomState.faction, submit: submitOnline, notice });
+      PT.local(() => PT.initGame(got.header.heroPool, got.header.seatConfig, got.header.seed));
+      await PT.minisReady();
+      PT.local(() => { dealEvents(randomEvents()); PT.setViewerSeat(roomState.faction); });
+      roomState.version = 0;
+      roomState.timer = setInterval(pollOnline, 1200);
+      if (got.entries.length) roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(got.entries));
+      roomState.version = got.version;
+      lobbyMsg.textContent = 'Online game: you play ' + roomState.faction + '.';
+    } catch (e) { showErr(e); }
   };
   document.getElementById('hostCreate').addEventListener('click', async () => {
     try {
@@ -1271,6 +1306,8 @@
   }
   function maybeDriveCpu(f) {
     if (!f || !f.cpuActive || f.cpuPaused || cpuTimer) return;
+    // Online: only the driver (first human seat) runs the CPUs, so each CPU step is sent once.
+    if (roomState.started && roomState.seats.length && roomState.faction !== roomState.seats[0].faction) return;
     cpuTimer = setTimeout(() => { cpuTimer = null; PT.cpuStep(); }, CPU_DELAY);   // acting re-renders → re-schedules
   }
 

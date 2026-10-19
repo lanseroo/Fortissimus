@@ -169,7 +169,7 @@ function submitAction(roomId, token, action) {
  * Poll: entries after `version` (the number the client already has). Also a heartbeat for `token`.
  * Returns nothing new when the client is current, and only reads Drive when the version moved.
  */
-function getSince(roomId, token, version) {
+function getSince(roomId, token, version, wantHeader) {
   var room = roomLoad_(roomNorm_(roomId));
   if (!room) throw new Error('No room with that code');
   var seat = token ? roomSeatFor_(room, token) : null;
@@ -178,9 +178,9 @@ function getSince(roomId, token, version) {
     roomSave_(room);   // rewrite presence only occasionally, so frequent polls stay cheap
   }
   var have = Number(version) || 0;
-  if (room.version <= have) return { status: room.status, version: room.version, entries: [], seats: roomPublic_(room).seats };
+  if (room.version <= have && !wantHeader) return { status: room.status, version: room.version, entries: [], seats: roomPublic_(room).seats };
   var data = JSON.parse(DriveApp.getFileById(room.logFileId).getBlob().getDataAsString());
-  return { status: room.status, version: room.version, header: have === 0 ? data.header : null,
+  return { status: room.status, version: room.version, header: wantHeader ? data.header : null,
            entries: data.log.slice(have), seats: roomPublic_(room).seats };
 }
 
