@@ -253,18 +253,24 @@
   };
   // Online game: build this screen's board from the room header, then apply the room's log in order.
   const notice = (text) => { onlineMsg.textContent = text; };
+  // Apply a batch of log entries once: `res.from` is where the batch starts in the log. Anything this screen
+  // already has is skipped, and a batch that starts ahead of what we have is ignored (the next poll fetches it).
+  const enqueueLog = (res) => {
+    if (!res.entries || !res.entries.length || res.from > roomState.version) return;
+    const fresh = res.entries.slice(roomState.version - res.from);
+    if (!fresh.length) return;
+    roomState.version = res.from + res.entries.length;
+    roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(fresh));
+  };
   const submitOnline = (entry) => {
     if (entry.m !== 'cpuStep' && entry.seat !== roomState.faction) { notice('Waiting for ' + entry.seat + ' to play'); return; }
     // Fetch straight after the server accepts it, so the acting player sees the result without waiting for the next timer tick.
-    serverCall('submitAction', roomState.roomId, roomState.token, entry).then(pollOnline).catch(showErr);
+    serverCall('submitAction', roomState.roomId, roomState.token, entry, roomState.version).then(enqueueLog).catch(showErr);
   };
   const pollOnline = async () => {
     try {
       const res = await serverCall('getSince', roomState.roomId, roomState.token, roomState.version, false);
-      if (res.entries.length) {
-        roomState.version = res.version;
-        roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(res.entries));
-      }
+      enqueueLog(res);
     } catch (e) { showErr(e); }
   };
   const beginOnline = async () => {
@@ -282,8 +288,7 @@
       PT.local(() => { dealEvents(randomEvents()); PT.setViewerSeat(roomState.faction); });
       roomState.version = 0;
       roomState.timer = setInterval(pollOnline, 1000);
-      if (got.entries.length) roomState.applyChain = roomState.applyChain.then(() => PT.applyLog(got.entries));
-      roomState.version = got.version;
+      enqueueLog({ from: 0, entries: got.entries });
       lobbyMsg.textContent = 'Online game: you play ' + roomState.faction + '.';
     } catch (e) { showErr(e); }
   };

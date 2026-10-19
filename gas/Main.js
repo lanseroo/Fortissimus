@@ -141,7 +141,7 @@ function startRoom(roomId, token, heroPool) {
  * A seat submits one action. The action must come from the seat it names, except `cpuStep`, which
  * only the driver (the first human seat) may submit. The log entry is stored as sent.
  */
-function submitAction(roomId, token, action) {
+function submitAction(roomId, token, action, clientVersion) {
   return roomWithLock_(function () {
     var room = roomLoad_(roomNorm_(roomId));
     if (!room) throw new Error('No room with that code');
@@ -161,7 +161,9 @@ function submitAction(roomId, token, action) {
     room.version = data.log.length;
     seat.lastSeen = Date.now();
     roomSave_(room);
-    return { version: room.version };
+    // Return the entries the client has not seen yet (its own entry included), so one call both sends and fetches.
+    var from = Math.max(0, Math.min(Number(clientVersion) || 0, data.log.length - 1));
+    return { version: room.version, from: from, entries: data.log.slice(from) };
   });
 }
 
@@ -178,9 +180,9 @@ function getSince(roomId, token, version, wantHeader) {
     roomSave_(room);   // rewrite presence only occasionally, so frequent polls stay cheap
   }
   var have = Number(version) || 0;
-  if (room.version <= have && !wantHeader) return { status: room.status, version: room.version, entries: [], seats: roomPublic_(room).seats };
+  if (room.version <= have && !wantHeader) return { status: room.status, version: room.version, from: have, entries: [], seats: roomPublic_(room).seats };
   var data = JSON.parse(DriveApp.getFileById(room.logFileId).getBlob().getDataAsString());
-  return { status: room.status, version: room.version, header: wantHeader ? data.header : null,
+  return { status: room.status, version: room.version, from: have, header: wantHeader ? data.header : null,
            entries: data.log.slice(have), seats: roomPublic_(room).seats };
 }
 
