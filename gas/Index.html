@@ -88,6 +88,40 @@
         <label class="seatlbl">Yellow <select class="seatsel" data-color="Yellow"><option value="human">Human</option><option value="cpu" selected>CPU</option></select></label>
       </fieldset>
 
+      <fieldset id="modeSet">
+        <legend>Mode</legend>
+        <label class="seatlbl"><input type="radio" name="playMode" value="local" checked> Pass &amp; play</label>
+        <label class="seatlbl"><input type="radio" name="playMode" value="online"> Online</label>
+        <div id="onlineBox" hidden>
+          <div class="onlineBtns">
+            <button id="hostGame" type="button">Host game</button>
+            <button id="joinGame" type="button">Join game</button>
+          </div>
+          <div id="onlineHost" hidden>
+            <label class="seatlbl">Humans <select id="hostCount"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+            <label class="seatlbl">Your faction <select id="hostFaction"><option value="Blue">Blue</option><option value="Green">Green</option><option value="Purple">Purple</option><option value="Yellow">Yellow</option></select></label>
+            <label class="seatlbl">Name <input id="hostName" maxlength="20" value="Host"></label>
+            <button id="hostCreate" type="button">Create game</button>
+          </div>
+          <div id="onlineJoin" hidden>
+            <label class="seatlbl">Game code <input id="joinCode" maxlength="4" autocapitalize="characters" style="text-transform:uppercase"></label>
+            <button id="joinLookup" type="button">Find game</button>
+            <div id="joinPick" hidden>
+              <label class="seatlbl">Faction <select id="joinFaction"></select></label>
+              <label class="seatlbl">Name <input id="joinName" maxlength="20" value="Player"></label>
+              <button id="joinGo" type="button">Join</button>
+            </div>
+          </div>
+          <div id="lobby" hidden>
+            <div>Game code <b id="lobbyCode"></b> <button id="copyCode" type="button">Copy</button></div>
+            <ul id="lobbySeats" class="lobbyseats"></ul>
+            <div id="lobbyMsg" class="ppmini"></div>
+            <button id="lobbyStart" type="button" hidden>Start game now</button>
+            <button id="lobbyLeave" type="button">Leave lobby</button>
+          </div>
+        </div>
+      </fieldset>
+
       <fieldset>
         <legend>View</legend>
         <button id="initGame" title="Seat every faction's starting pieces + deal the market">New game</button>

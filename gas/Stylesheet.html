@@ -910,4 +910,12 @@
   @media ((max-width: 820px) and (orientation: portrait)), ((pointer: coarse) and (max-height: 600px) and (orientation: portrait)) {
     /* (overlays are inside the board area, so the open Me sheet is already excluded) */
   }
+  /* Online lobby (Tools → Mode) */
+  .onlineBtns { display: flex; gap: 6px; margin: 6px 0; }
+  .onlineBtns button, #onlineBox button { padding: 4px 10px; font-size: 0.85rem; }
+  #onlineBox > div { margin: 6px 0; display: flex; flex-direction: column; gap: 6px; }
+  #onlineBox > div[hidden] { display: none; }
+  .lobbyseats { list-style: none; margin: 4px 0; padding: 0; font-size: 0.85rem; }
+  .lobbyseats li { padding: 2px 0; }
+  .lobbyseats .host { font-weight: 600; }
 </style>

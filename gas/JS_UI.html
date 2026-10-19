@@ -131,6 +131,108 @@
       setSheet(null);
     });
   });
+  // ---- Online lobby (Phase 2): Host / Join a room on the server. Game play over the room comes in Phase 3. ----
+  const serverCall = (name, ...args) => new Promise((resolve, reject) => {
+    if (typeof google === 'undefined' || !google.script) { reject(new Error('Online needs the deployed web app')); return; }
+    google.script.run.withSuccessHandler(resolve).withFailureHandler((e) => reject(new Error(e && e.message ? e.message : String(e))))[name](...args);
+  });
+  const ROOM_KEY = 'fortissimusRoom';
+  const roomState = { roomId: null, token: null, faction: null, host: false, timer: null, seats: [], humanCount: 0, status: 'lobby' };
+  const modeRadios = document.querySelectorAll('input[name="playMode"]');
+  const onlineBox = document.getElementById('onlineBox');
+  const lobbyEl = document.getElementById('lobby');
+  const lobbyMsg = document.getElementById('lobbyMsg');
+  const saveRoom = () => sessionStorage.setItem(ROOM_KEY, JSON.stringify({ roomId: roomState.roomId, token: roomState.token, faction: roomState.faction, host: roomState.host }));
+  const clearRoom = () => { sessionStorage.removeItem(ROOM_KEY); roomState.roomId = roomState.token = null; roomState.host = false; };
+  const showOnly = (id) => ['onlineHost', 'onlineJoin', 'lobby'].forEach((x) => { document.getElementById(x).hidden = (x !== id); });
+  const setMode = (mode) => {
+    onlineBox.hidden = mode !== 'online';
+    document.getElementById('initGame').disabled = mode === 'online';   // online games start from the lobby
+    document.getElementById('initGame').title = mode === 'online' ? 'Online games start from the lobby' : 'Start a new pass-and-play game';
+    if (mode === 'local') { clearInterval(roomState.timer); roomState.timer = null; }
+  };
+  modeRadios.forEach((r) => r.addEventListener('change', () => setMode(r.value)));
+  document.getElementById('hostGame').addEventListener('click', () => { showOnly('onlineHost'); });
+  document.getElementById('joinGame').addEventListener('click', () => { showOnly('onlineJoin'); });
+
+  const renderLobby = (room) => {
+    roomState.seats = room.seats; roomState.humanCount = room.humanCount; roomState.status = room.status;
+    document.getElementById('lobbyCode').textContent = room.roomId;
+    document.getElementById('lobbySeats').innerHTML = room.seats.map((s) =>
+      '<li' + (s.host ? ' class="host"' : '') + '><span style="color:' + (FLOW_COLORS[s.faction] || '#ccc') + '">' + s.faction + '</span> — ' + s.name + (s.host ? ' (host)' : '') + '</li>').join('');
+    const left = room.humanCount - room.seats.length;
+    lobbyMsg.textContent = room.status === 'running' ? 'Game started.'
+      : 'Waiting for ' + left + ' more human player' + (left === 1 ? '' : 's') + '. Open seats become CPUs when the game starts.';
+    document.getElementById('lobbyStart').hidden = !(roomState.host && room.status === 'lobby');
+  };
+  const pollLobby = async () => {
+    try {
+      const room = await serverCall('getRoom', roomState.roomId);
+      renderLobby(room);
+      if (roomState.host && room.status === 'lobby' && room.seats.length >= room.humanCount) await startOnline();   // all humans in
+    } catch (e) { lobbyMsg.textContent = 'Lost contact with the lobby: ' + e.message; }
+  };
+  const enterLobby = (r) => {
+    roomState.roomId = r.roomId; roomState.token = r.token; roomState.faction = r.faction; roomState.host = !!r.host;
+    saveRoom(); showOnly('lobby');
+    clearInterval(roomState.timer);
+    roomState.timer = setInterval(pollLobby, 2000);
+    pollLobby();
+  };
+  const startOnline = async () => {
+    if (roomState.status !== 'lobby' || !roomState.host) return;
+    clearInterval(roomState.timer); roomState.timer = null;
+    try {
+      const room = await serverCall('startRoom', roomState.roomId, roomState.token, HEROES.map((h) => h[0]));
+      renderLobby(room);
+      lobbyMsg.textContent = 'Game started. Online play screens arrive in the next step.';
+    } catch (e) { lobbyMsg.textContent = e.message; roomState.timer = setInterval(pollLobby, 2000); }
+  };
+  document.getElementById('hostCreate').addEventListener('click', async () => {
+    try {
+      const r = await serverCall('createRoom', Number(document.getElementById('hostCount').value),
+        document.getElementById('hostFaction').value, document.getElementById('hostName').value.trim() || 'Host');
+      enterLobby({ ...r, host: true });
+    } catch (e) { alert(e.message); }
+  });
+  document.getElementById('joinLookup').addEventListener('click', async () => {
+    const code = document.getElementById('joinCode').value.trim().toUpperCase();
+    try {
+      const room = await serverCall('getRoom', code);
+      const taken = room.seats.map((x) => x.faction);
+      const free = ['Blue', 'Green', 'Purple', 'Yellow'].filter((x) => !taken.includes(x));
+      if (room.status !== 'lobby') throw new Error('That game has already started');
+      if (!free.length || room.seats.length >= room.humanCount) throw new Error('That lobby is full');
+      document.getElementById('joinFaction').innerHTML = free.map((x) => '<option>' + x + '</option>').join('');
+      document.getElementById('joinPick').hidden = false;
+      document.getElementById('joinCode').dataset.room = code;
+    } catch (e) { alert(e.message); }
+  });
+  document.getElementById('joinGo').addEventListener('click', async () => {
+    const code = document.getElementById('joinCode').dataset.room || document.getElementById('joinCode').value.trim().toUpperCase();
+    try {
+      const r = await serverCall('joinRoom', code, document.getElementById('joinFaction').value, document.getElementById('joinName').value.trim() || 'Player');
+      enterLobby({ ...r, host: false });
+    } catch (e) { alert(e.message); }
+  });
+  document.getElementById('lobbyStart').addEventListener('click', startOnline);
+  document.getElementById('copyCode').addEventListener('click', () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(roomState.roomId);
+  });
+  document.getElementById('lobbyLeave').addEventListener('click', async () => {
+    clearInterval(roomState.timer); roomState.timer = null;
+    try { await serverCall('leaveRoom', roomState.roomId, roomState.token); } catch (_) { /* already gone */ }
+    clearRoom(); showOnly(null); lobbyEl.hidden = true;
+    document.getElementById('onlineHost').hidden = true; document.getElementById('onlineJoin').hidden = true;
+  });
+  // Coming back to the page: rejoin the lobby saved in this tab.
+  const saved = (() => { try { return JSON.parse(sessionStorage.getItem(ROOM_KEY) || 'null'); } catch (_) { return null; } })();
+  if (saved && saved.roomId) {
+    document.querySelector('input[name="playMode"][value="online"]').checked = true;
+    setMode('online');
+    enterLobby(saved);
+  }
+
   // Each new round the app asks for a fresh random event trio (D5).
   if (PT.onNewRound) PT.onNewRound(() => dealEvents(randomEvents()));
   // Populate the sandbox gladiator picker: "Random" + every card (all 4 levels).

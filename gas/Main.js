@@ -194,3 +194,23 @@ function roomSelfTest() {
   Logger.log(JSON.stringify({ host: host.roomId, status: started.status, seats: started.seats, entries: poll.entries.length, header: poll.header }));
   return poll.entries.length === 1 ? 'ok' : 'unexpected entries';
 }
+
+/** Leave a lobby. A joiner frees their seat; the host leaving closes the lobby. Not allowed once started. */
+function leaveRoom(roomId, token) {
+  return roomWithLock_(function () {
+    var id = roomNorm_(roomId);
+    var room = roomLoad_(id);
+    if (!room) return { ok: true, closed: true };
+    var seat = null;
+    for (var i = 0; i < room.seats.length; i++) if (room.seats[i].token === token) seat = room.seats[i];
+    if (!seat) return { ok: true };
+    if (room.status !== 'lobby') throw new Error('The game has started, so you cannot leave it');
+    if (seat.host) {
+      PropertiesService.getScriptProperties().deleteProperty(ROOM_PREFIX + id);
+      return { ok: true, closed: true };
+    }
+    room.seats = room.seats.filter(function (s) { return s !== seat; });
+    roomSave_(room);
+    return { ok: true };
+  });
+}
