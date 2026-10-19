@@ -4853,7 +4853,9 @@
           REPLAY.log = [];
           REPLAY.header = { heroPool: JSON.parse(JSON.stringify(args[0] ?? [])), seatConfig: args[1] ?? null };
         } else {
-          entry = { m: k, a: JSON.parse(JSON.stringify(args)), pre: miniPending > 0 };   // copy before the call (shuffles mutate); pre = minis still loading
+          // seat: whose turn it is; viewer/active: whose hand and faction the action acts for (favorActor reads these)
+          entry = { m: k, a: JSON.parse(JSON.stringify(args)), pre: miniPending > 0,
+            seat: GAME.started ? curPlayer() : null, viewer: GAME.viewerSeat ?? null, active: activeColorName };   // copy before the call (shuffles mutate); pre = minis still loading
           REPLAY.log.push(entry);
         }
       }
@@ -4887,6 +4889,8 @@
         // everything after them waits for the table to be complete, as it was when recorded.
         if (!e.pre && !loaded) { await miniLoadChain; loaded = true; }
         if (e.m !== '__settle') {
+          // Restore the acting context the action ran under, so seat-dependent actions (favors, panel owner) match.
+          if (e.viewer !== undefined) { GAME.viewerSeat = e.viewer; activeColorName = e.active; }
           try { window.PT[e.m](...e.a); } catch (_) { /* refused the same way when recorded */ }
         }
         report.steps++;
